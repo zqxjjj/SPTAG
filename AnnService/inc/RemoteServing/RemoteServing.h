@@ -1,0 +1,155 @@
+#include "inc/Core/Common.h"
+#include "inc/Core/Common/TruthSet.h"
+#include "inc/Core/SPANN/Index.h"
+#include "inc/Core/VectorIndex.h"
+#include "inc/Helper/SimpleIniReader.h"
+#include "inc/Helper/StringConvert.h"
+#include "inc/Helper/VectorSetReader.h"
+#include <future>
+
+#include <iomanip>
+#include <iostream>
+#include <fstream>
+
+using namespace SPTAG;
+
+namespace SPTAG {
+	namespace RemoteServing {
+
+        std::shared_ptr<VectorSet> LoadQuerySet(SPANN::Options& p_opts)
+        {
+            LOG(Helper::LogLevel::LL_Info, "Start loading QuerySet...\n");
+            std::shared_ptr<Helper::ReaderOptions> queryOptions(new Helper::ReaderOptions(p_opts.m_valueType, p_opts.m_dim, p_opts.m_queryType, p_opts.m_queryDelimiter));
+            auto queryReader = Helper::VectorSetReader::CreateInstance(queryOptions);
+            if (ErrorCode::Success != queryReader->LoadFile(p_opts.m_queryPath))
+            {
+                LOG(Helper::LogLevel::LL_Error, "Failed to read query file.\n");
+                exit(1);
+            }
+            return queryReader->GetVectorSet();
+        }
+
+        template <typename ValueType>
+        void SearchSequential(SPANN::Index<ValueType>* p_index,
+            int p_numThreads,
+            std::vector<QueryResult>& p_results,
+            std::vector<SPANN::SearchStats>& p_stats,
+            int p_internalResultNum)
+        {
+            int numQueries = static_cast<int>(p_results.size());
+
+            std::atomic_size_t queriesSent(0);
+
+            std::vector<std::thread> threads;
+
+            LOG(Helper::LogLevel::LL_Info, "Searching: numThread: %d, numQueries: %d.\n", p_numThreads, numQueries);
+
+            for (int i = 0; i < p_numThreads; i++) { threads.emplace_back([&, i]()
+                {
+                    // Helper::SetThreadAffinity( ((i+1) * 4), threads[i], 0, 0);
+
+                    size_t index = 0;
+                    while (true)
+                    {
+                        index = queriesSent.fetch_add(1);
+                        if (index < numQueries)
+                        {
+                            if ((index & ((1 << 14) - 1)) == 0)
+                            {
+                                LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
+                            }
+                            p_index->SearchIndexRemote(p_results[index]);
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+                });
+            }
+            for (auto& thread : threads) { thread.join(); }
+        }
+
+        template <typename ValueType>
+        void SearchRemote(SPANN::Index<ValueType>* p_index)
+        {
+            p_index->ClientConnect();
+            SPANN::Options& p_opts = *(p_index->GetOptions());
+
+            int numThreads = p_opts.m_searchThreadNum;
+            int internalResultNum = p_opts.m_searchInternalResultNum;
+            std::string truthFile = p_opts.m_truthPath;
+
+            int K = p_opts.m_resultNum;
+            int truthK = (p_opts.m_truthResultNum <= 0) ? K : p_opts.m_truthResultNum;
+
+            auto querySet = LoadQuerySet(p_opts);
+
+            int numQueries = querySet->Count();
+
+            std::vector<QueryResult> results(numQueries, QueryResult(NULL, max(K, internalResultNum), false));
+            std::vector<SPANN::SearchStats> stats(numQueries);
+            for (int i = 0; i < numQueries; ++i)
+            {
+                (*((COMMON::QueryResultSet<ValueType>*)&results[i])).SetTarget(reinterpret_cast<ValueType*>(querySet->GetVector(i)), p_index->m_pQuantizer);
+                results[i].Reset();
+            }
+
+
+            LOG(Helper::LogLevel::LL_Info, "Start ANN Search...\n");
+
+            SearchSequential(p_index, numThreads, results, stats, internalResultNum);
+
+            LOG(Helper::LogLevel::LL_Info, "\nFinish ANN Search...\n");
+
+            std::vector<std::set<SizeType>> truth;
+            float recall = 0, MRR = 0;
+            if (!truthFile.empty())
+            {
+                LOG(Helper::LogLevel::LL_Info, "Start loading TruthFile...\n");
+
+                auto ptr = f_createIO();
+                if (ptr == nullptr || !ptr->Initialize(truthFile.c_str(), std::ios::in | std::ios::binary)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed open truth file: %s\n", truthFile.c_str());
+                    exit(1);
+                }
+                int originalK = truthK;
+                COMMON::TruthSet::LoadTruth(ptr, truth, numQueries, originalK, truthK, p_opts.m_truthType);
+                char tmp[4];
+                if (ptr->ReadBinary(4, tmp) == 4) {
+                    LOG(Helper::LogLevel::LL_Error, "Truth number is larger than query number(%d)!\n", numQueries);
+                }
+
+                recall = COMMON::TruthSet::CalculateRecall<ValueType>((p_index->GetMemoryIndex()).get(), results, truth, K, truthK, querySet, nullptr, numQueries, nullptr, false, &MRR);
+                LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f MRR@%d: %f\n", truthK, K, recall, K, MRR);
+            }
+
+        }
+
+        int BootProgram(const char* storePath) {
+            std::shared_ptr<VectorIndex> index;
+            if (index->LoadIndex(storePath, index) != ErrorCode::Success) {
+                LOG(Helper::LogLevel::LL_Error, "Failed to load index.\n");
+                return 1;
+            }
+
+            SPANN::Options* opts = nullptr;
+
+            #define DefineVectorValueType(Name, Type) \
+                if (index->GetVectorValueType() == VectorValueType::Name) { \
+                    opts = ((SPANN::Index<Type>*)index.get())->GetOptions(); \
+                    if (!opts->m_isCoordinator) { \
+                        ((SPANN::Index<Type>*)index.get())->ServerSetupListen(); \
+                    } else { \
+                        SearchRemote((SPANN::Index<Type>*)index.get()); \
+                    } \
+                } \
+
+            #include "inc/Core/DefinitionList.h"
+            #undef DefineVectorValueType
+
+            return 0;
+
+        }
+    }
+}

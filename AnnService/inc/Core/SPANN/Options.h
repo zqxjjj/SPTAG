@@ -175,6 +175,12 @@ namespace SPTAG {
             int m_spdkBatchSize;
             bool m_stressTest;
             int m_bufferLength;
+            
+            // RemoteDSPANN
+            bool m_isCoordinator;
+            bool m_remoteCalculation;
+            std::string m_ipAddr;
+            int m_port;
 
 
             Options() {

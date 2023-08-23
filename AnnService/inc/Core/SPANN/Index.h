@@ -27,6 +27,11 @@
 
 #include <functional>
 #include <shared_mutex>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 
 namespace SPTAG
 {
@@ -55,6 +60,13 @@ namespace SPTAG
 
             std::mutex m_dataAddLock;
             COMMON::VersionLabel m_versionMap;
+
+            // If not Coord, than bind some port
+            bool m_isCoordinator;
+            // Coordinator or Worker ip addr
+            struct sockaddr_in m_addr;
+            // listen socket
+            int socket_fd;
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -219,6 +231,235 @@ namespace SPTAG
                 }
 
                 return m_extraSearcher->AddIndex(vectorSet, m_index, begin);
+            }
+
+            ErrorCode SearchIndexRemote(QueryResult &p_query)
+            {
+                if (!m_isCoordinator) {
+                    LOG(Helper::LogLevel::LL_Info, "not Coordinator, can't not search!\n");
+                    return ErrorCode::EmptyIndex;
+                }
+
+                COMMON::QueryResultSet<T>* p_queryResults;
+                if (p_query.GetResultNum() >= m_options.m_searchInternalResultNum)
+                    p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
+                else
+                    p_queryResults = new COMMON::QueryResultSet<T>((const T*)p_query.GetTarget(), m_options.m_searchInternalResultNum);
+
+                m_index->SearchIndex(*p_queryResults);
+
+                if (m_workspace.get() == nullptr) {
+                    m_workspace.reset(new ExtraWorkSpace());
+                    m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                }
+                m_workspace->m_deduper.clear();
+                m_workspace->m_postingIDs.clear();
+
+                std::vector<int> m_readedHead;
+
+                for (int i = 0; i < p_queryResults->GetResultNum(); ++i)
+                {
+                    auto res = p_queryResults->GetResult(i);
+                    if (res->VID == -1) break;
+                    
+                    auto postingID = res->VID;
+                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    else {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
+
+                    m_workspace->m_postingIDs.emplace_back(postingID);
+                    if (m_vectorTranslateMap.get() != nullptr) m_readedHead.emplace_back(res->VID);
+                }
+
+                if (m_vectorTranslateMap.get() != nullptr) p_queryResults->Reverse();
+
+
+
+                /***Remote Transefer And Process**/
+                RemoteQueryProcess(*p_queryResults, m_workspace->m_postingIDs, m_readedHead);
+
+
+                p_queryResults->SortResult();
+
+                if (p_query.GetResultNum() < m_options.m_searchInternalResultNum) {
+                    std::copy(p_queryResults->GetResults(), p_queryResults->GetResults() + p_query.GetResultNum(), p_query.GetResults());
+                    delete p_queryResults;
+                }
+
+                if (p_query.WithMeta() && nullptr != m_pMetadata)
+                {
+                    for (int i = 0; i < p_query.GetResultNum(); ++i)
+                    {
+                        SizeType result = p_query.GetResult(i)->VID;
+                        p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
+                    }
+                }
+                return ErrorCode::Success;
+            }
+
+            inline void Serialize(char* ptr, QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead) {
+                memcpy(ptr, p_queryResults.GetQuantizedTarget(), sizeof(T) * m_options.m_dim);
+                int postingNum = m_postingIDs.size();
+                memcpy(ptr + sizeof(T) * m_options.m_dim, &postingNum, sizeof(int));
+                memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int), m_postingIDs.data(), sizeof(int) * postingNum);
+                if (m_readedHead.size()!=0) {
+                    memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int) * (postingNum + 1), m_readedHead.data(), sizeof(int) * postingNum);
+                } 
+            }
+
+            ErrorCode RemoteQueryProcess(QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead) 
+            {
+                /** Serialize target vector, to be searched postings, allready readed VID**/
+                if (m_options.m_remoteCalculation) {
+                    /** target vector(dim * valuetype) + searched postings(posting numbers + posting IDs) + searched head VIDs**/
+                    // Serialize(ptr, p_queryResults, m_postingIDs, m_readedHead);
+
+                } else {
+                    int msgLength = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(int) * m_postingIDs.size();
+                    std::string postingList(1 * msgLength, '\0');
+                    char* ptr = (char*)(postingList.c_str());
+                    /** target vector(dim * valuetype) + searched postings(posting numbers + posting IDs) **/
+                    std::vector<int> m_readedHead_temp;
+                    Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead_temp);
+                    write(socket_fd, ptr, msgLength);
+                    int totalRead = 0;
+                    /**First read total size**/
+                    char msg_int[4];
+                    while (totalRead < sizeof(int)) {
+                        totalRead += read(socket_fd, msg_int + totalRead, sizeof(int) - totalRead);
+                    }
+                    int totalMsg_size = (*(int *)msg_int);
+                    postingList.resize(totalMsg_size);
+                    ptr = (char*)(postingList.c_str());
+                    totalRead = 0;
+                    while (totalRead < totalMsg_size) {
+                        totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
+                    }
+
+                    /**Process Vectors**/
+                    ProcessPostingDSPANN(p_queryResults, postingList, m_readedHead);
+
+                }
+                return ErrorCode::Success;
+            }
+
+            void ProcessPostingDSPANN(QueryResult& p_queryResults, 
+                std::string& postingList, std::vector<int>& m_readedHead)
+            {
+                int m_vectorInfoSize = sizeof(T) + sizeof(int) + sizeof(uint8_t);
+
+                int m_metaDataSize = sizeof(int) + sizeof(uint8_t);
+
+                int vectorNum = (int)(postingList.size() / m_vectorInfoSize);
+
+                COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
+
+                // if (m_workspace.get() == nullptr) {
+                //     m_workspace.reset(new ExtraWorkSpace());
+                //     m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                // }
+                // m_workspace->m_deduper.clear();
+
+                for (auto headID : m_readedHead) {
+                    m_workspace->m_deduper.CheckAndSet(headID);
+                }
+
+                for (int i = 0; i < vectorNum; i++) {
+                    char* vectorInfo = postingList.data() + i * m_vectorInfoSize;
+                    int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+
+                    if(m_workspace->m_deduper.CheckAndSet(vectorID)) {
+                        continue;
+                    }
+                    auto distance2leaf = m_index->ComputeDistance(queryResults.GetQuantizedTarget(), vectorInfo + m_metaDataSize);
+                    queryResults.AddPoint(vectorID, distance2leaf);
+                }
+            }
+
+            ErrorCode ClientConnect() {
+                socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+                if (socket_fd < 0) {
+                    LOG(Helper::LogLevel::LL_Info, "can't open socket\n");
+                    return ErrorCode::Undefined;
+                }
+                m_addr.sin_family = AF_INET;
+                m_addr.sin_addr.s_addr = inet_addr(m_options.m_ipAddr.c_str());
+                m_addr.sin_port = htons(m_options.m_port);
+                int res = connect(socket_fd, (struct sockaddr*)&m_addr, sizeof(m_addr));
+                if (res == -1) {
+                    LOG(Helper::LogLevel::LL_Info, "bind failure\n");
+                    exit(-1);
+                }
+                return ErrorCode::Success;
+            }
+
+            ErrorCode ServerSetupListen() {
+                struct sockaddr_in serv_addr, cli_addr;
+                socklen_t clilen;
+                int accept_socket;
+                int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+                if (server_socket < 0) {
+                    LOG(Helper::LogLevel::LL_Info, "can't open socket\n");
+                    return ErrorCode::Undefined;
+                }
+                bzero((char *)&serv_addr, sizeof(serv_addr));
+                serv_addr.sin_family = AF_INET;
+                serv_addr.sin_addr.s_addr = inet_addr(m_options.m_ipAddr.c_str());
+                serv_addr.sin_port = htons(m_options.m_port);
+                if (bind(server_socket, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+                    LOG(Helper::LogLevel::LL_Info, "can't binding\n");
+                    return ErrorCode::Undefined;
+                }
+                listen(server_socket, 30);
+                clilen = sizeof(cli_addr);
+                while(true) {
+                    /**process request and return when recevie ? message**/
+                    accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
+                    if (accept_socket < 0) {
+                        LOG(Helper::LogLevel::LL_Info, "can't accept\n");
+                        return ErrorCode::Undefined;
+                    }
+                    int msg_size = m_options.m_dim * sizeof(T);
+                    
+                    char* vectorBuffer = new char[msg_size];
+
+                    int totalRead = 0;
+                    while (totalRead < msg_size) {
+                        totalRead += read(accept_socket, vectorBuffer + totalRead, msg_size - totalRead);
+                    }
+                    if (m_options.m_remoteCalculation) {
+
+                    } else {
+                        int postingNum;
+                        totalRead = 0;
+                        while (totalRead < sizeof(int)) {
+                            totalRead += read(accept_socket, &postingNum + totalRead, sizeof(int) - totalRead);
+                        }
+                        std::vector<int> postingIDs(postingNum);
+                        totalRead = 0;
+                        while (totalRead < sizeof(int) * postingNum) {
+                            totalRead += read(accept_socket, postingIDs.data() + totalRead, sizeof(int) * postingNum - totalRead);
+                        }
+
+                        std::vector<std::string> postingLists;
+
+                        m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
+
+                        int totalSize = 0;
+                        for (int i = 0; i < postingLists.size(); i++) {
+                            totalSize += postingLists[i].size();
+                        }
+
+                        write(accept_socket, &totalSize, sizeof(int));
+
+                        for (int i = 0; i < postingLists.size(); i++) {
+                            write(accept_socket, postingLists[i].data(), postingLists[i].size());
+                        }
+                    }
+                }
+                return ErrorCode::Success;
             }
         };
     } // namespace SPANN

@@ -287,6 +287,8 @@ namespace SPTAG {
 
             virtual void GetWritePosting(SizeType pid, std::string& posting, bool write = false) { return; }
 
+            virtual void GetMultiPosting(std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) { return; }
+
             virtual bool Initialize() { return false; }
 
             virtual bool ExitBlockController() { return false; }

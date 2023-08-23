@@ -1580,6 +1580,10 @@ namespace SPTAG::SPANN {
             }
         }
 
+        void GetMultiPosting(std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) override {
+            db->MultiGet(postingIDs, postingLists);
+        }
+
         void InitPostingRecord(std::shared_ptr<VectorIndex> p_index) {
             m_postingSizes.Initialize((SizeType)(p_index->GetNumSamples()), p_index->m_iDataBlockSize, p_index->m_iDataCapacity);
         }

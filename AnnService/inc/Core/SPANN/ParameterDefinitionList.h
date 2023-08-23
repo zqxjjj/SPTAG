@@ -193,4 +193,10 @@ DefineSSDParameter(m_disableReassign, bool, false, "DisableReassign")
 DefineSSDParameter(m_searchDuringUpdate, bool, false, "SearchDuringUpdate")
 DefineSSDParameter(m_reassignK, int, 0, "ReassignK")
 DefineSSDParameter(m_virtualHead, bool, false, "VirtualHead")
+
+// DSPANN
+DefineSSDParameter(m_isCoordinator, bool, false, "IsCoordinator")
+DefineSSDParameter(m_remoteCalculation, bool, false, "RemoteCalculation")
+DefineSSDParameter(m_ipAddr, std::string, std::string(""), "IPAddr")
+DefineSSDParameter(m_port, int, 8000, "Port")
 #endif

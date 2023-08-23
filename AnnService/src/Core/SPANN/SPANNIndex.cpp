@@ -122,140 +122,26 @@ namespace SPTAG
         template <typename T>
         ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
-            m_index->SetQuantizer(m_pQuantizer);
-            if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
-
-            m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
-            m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
-            m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
-            m_index->UpdateIndex();
-            m_index->SetReady(true);
-
-            // TODO: Choose an extra searcher based on config
-            // Not Ready
-            if (m_pQuantizer)
-            {
-                m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
-            }
-            else
-            {
-                if (m_options.m_useKV) {
-                    if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
+            m_isCoordinator = m_options.m_isCoordinator;
+            if (m_isCoordinator) {
+                if (m_options.m_excludehead) {
+                    m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
+                    IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
                 }
-                else if (m_options.m_useSPDK) {
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength));
-                } else {
-                    m_extraSearcher.reset(new ExtraStaticSearcher<T>());
-                }
-            }
+                m_index->SetQuantizer(m_pQuantizer);
+                if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
 
-            if (!m_extraSearcher->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
-
-            if (m_options.m_excludehead) {
-                m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
-                IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
-            }
-
-            omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
-
-            if (m_options.m_useSPDK) {
-                int m_vectorLimit = m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t));
-                m_versionMap.Initialize(m_options.m_vectorSize, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
-                int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
-                LOG(Helper::LogLevel::LL_Info, "Copying data from static to SPDK\n");
-                std::shared_ptr<IExtraSearcher> storeExtraSearcher;
-                storeExtraSearcher.reset(new ExtraStaticSearcher<T>());
-                if (!storeExtraSearcher->LoadIndex(m_options, m_versionMap)) {
-                    LOG(Helper::LogLevel::LL_Info, "Initialize Error\n");
-                    exit(1);
-                }
-                int totalPostingNum = m_index->GetNumSamples();
-                m_extraSearcher->InitPostingRecord(m_index);
-
-                std::vector<std::thread> threads;
-                std::atomic_size_t vectorsSent(0);
-
-                auto func = [&]()
-                {
-                    m_extraSearcher->Initialize();
-                    size_t index = 0;
-                    while (true)
-                    {
-                        index = vectorsSent.fetch_add(1);
-                        if (index < totalPostingNum)
-                        {
-
-                            if ((index & ((1 << 14) - 1)) == 0)
-                            {
-                                LOG(Helper::LogLevel::LL_Info, "Copy to SPDK: Sent %.2lf%%...\n", index * 100.0 / totalPostingNum);
-                            }
-                            std::string tempPosting;
-                            storeExtraSearcher->GetWritePosting(index, tempPosting);
-                            int vectorNum = (int)(tempPosting.size() / (m_vectorInfoSize - sizeof(uint8_t)));
-
-                            if (vectorNum > m_vectorLimit) vectorNum = m_vectorLimit;
-
-                            auto* postingP = reinterpret_cast<char*>(&tempPosting.front());
-                            std::string newPosting(m_vectorInfoSize * vectorNum , '\0');
-                            char* ptr = (char*)(newPosting.c_str());
-                            for (int j = 0; j < vectorNum; ++j, ptr += m_vectorInfoSize) {
-                                char* vectorInfo = postingP + j * (m_vectorInfoSize - sizeof(uint8_t));
-                                int VID = *(reinterpret_cast<int*>(vectorInfo));
-                                uint8_t version = m_versionMap.GetVersion(VID);
-                                memcpy(ptr, &VID, sizeof(int));
-                                memcpy(ptr + sizeof(int), &version, sizeof(uint8_t));
-                                memcpy(ptr + sizeof(int) + sizeof(uint8_t), vectorInfo + sizeof(int), m_vectorInfoSize - sizeof(uint8_t) - sizeof(int));
-                            }
-
-                            if (m_options.m_excludehead) {
-                                auto VIDTrans = static_cast<SizeType>((m_vectorTranslateMap.get())[index]);
-                                uint8_t version = m_versionMap.GetVersion(VIDTrans);
-                                std::string appendPosting(m_vectorInfoSize, '\0');
-                                char* ptr = (char*)(appendPosting.c_str());
-                                memcpy(ptr, &VIDTrans, sizeof(VIDTrans));
-                                memcpy(ptr + sizeof(VIDTrans), &version, sizeof(version));
-                                memcpy(ptr + sizeof(int) + sizeof(uint8_t), m_index->GetSample(index), m_vectorInfoSize - sizeof(int) + sizeof(uint8_t));
-                                newPosting = appendPosting + newPosting;
-                            }
-
-                            m_extraSearcher->GetWritePosting(index, newPosting, true);
-                        }
-                        else
-                        {
-                            m_extraSearcher->ExitBlockController();
-                            return;
-                        }
-                    }
-                };
-            for (int j = 0; j < m_options.m_iSSDNumberOfThreads; j++) { threads.emplace_back(func); }
-            for (auto& thread : threads) { thread.join(); }
+                m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+                m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
+                m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
+                m_index->UpdateIndex();
+                m_index->SetReady(true);
             } else {
-                m_versionMap.Load(m_options.m_deleteIDFile, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
-            }
-
-            if ((m_options.m_useSPDK || m_options.m_useKV) && m_options.m_preReassign) {
-                std::shared_ptr<Helper::ReaderOptions> vectorOptions(new Helper::ReaderOptions(m_options.m_valueType, m_options.m_dim, m_options.m_vectorType, m_options.m_vectorDelimiter, m_options.m_iSSDNumberOfThreads));
-                auto vectorReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
-                if (m_options.m_vectorPath.empty())
-                {
-                    LOG(Helper::LogLevel::LL_Info, "Vector file is empty. Skipping loading.\n");
+                if (m_options.m_useKV) {
+                    m_extraSearcher.reset(new SPTAG::SPANN::ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
                 }
-                else {
-                    if (ErrorCode::Success != vectorReader->LoadFile(m_options.m_vectorPath))
-                    {
-                        LOG(Helper::LogLevel::LL_Error, "Failed to read vector file.\n");
-                        return ErrorCode::Fail;
-                    }
-                    // m_options.m_vectorSize = vectorReader->GetVectorSet()->Count();
-                }
-                m_extraSearcher->RefineIndex(vectorReader, m_index);
             }
-
+            omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
             return ErrorCode::Success;
         }
 
