@@ -278,8 +278,8 @@ namespace SPTAG
 
 
                 /***Remote Transefer And Process**/
+                LOG(Helper::LogLevel::LL_Info, "Start Remote Processing\n");
                 RemoteQueryProcess(*p_queryResults, m_workspace->m_postingIDs, m_readedHead);
-
 
                 p_queryResults->SortResult();
 
@@ -414,13 +414,15 @@ namespace SPTAG
                 }
                 listen(server_socket, 30);
                 clilen = sizeof(cli_addr);
+                LOG(Helper::LogLevel::LL_Info, "Start Listening\n");
+                accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
+                if (accept_socket < 0) {
+                    LOG(Helper::LogLevel::LL_Info, "can't accept\n");
+                    return ErrorCode::Undefined;
+                }
+                LOG(Helper::LogLevel::LL_Info, "Accpet from client\n");
                 while(true) {
                     /**process request and return when recevie ? message**/
-                    accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
-                    if (accept_socket < 0) {
-                        LOG(Helper::LogLevel::LL_Info, "can't accept\n");
-                        return ErrorCode::Undefined;
-                    }
                     int msg_size = m_options.m_dim * sizeof(T);
                     
                     char* vectorBuffer = new char[msg_size];
@@ -435,8 +437,9 @@ namespace SPTAG
                         int postingNum;
                         totalRead = 0;
                         while (totalRead < sizeof(int)) {
-                            totalRead += read(accept_socket, &postingNum + totalRead, sizeof(int) - totalRead);
+                            totalRead += read(accept_socket, ((char*) &postingNum) + totalRead, sizeof(int) - totalRead);
                         }
+                        LOG(Helper::LogLevel::LL_Info, "Need to read %d postings\n", postingNum);
                         std::vector<int> postingIDs(postingNum);
                         totalRead = 0;
                         while (totalRead < sizeof(int) * postingNum) {
@@ -452,6 +455,7 @@ namespace SPTAG
                             totalSize += postingLists[i].size();
                         }
 
+                        LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
                         write(accept_socket, &totalSize, sizeof(int));
 
                         for (int i = 0; i < postingLists.size(); i++) {
