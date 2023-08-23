@@ -46,6 +46,26 @@ namespace SPTAG
         template<typename T>
         class Index : public VectorIndex
         {
+            class ClientJob : public Helper::ThreadPool::Job
+            {
+            private:
+                int client_socket;
+                SPANN::Index<T>* m_index;
+                std::function<void()> m_callback;
+            public:
+                ClientJob(int client_socket, SPANN::Index<T>* m_index, std::function<void()> p_callback)
+                    : client_socket(client_socket), m_index(m_index), m_callback(std::move(p_callback)) {}
+
+                ~ClientJob() {}
+
+                inline void exec(IAbortOperation* p_abort) override {
+                    m_index->HandleClient(client_socket);
+                    if (m_callback != nullptr) {
+                        m_callback();
+                    }
+                }
+            };
+
         private:
             std::shared_ptr<VectorIndex> m_index;
             std::shared_ptr<std::uint64_t> m_vectorTranslateMap;
@@ -63,10 +83,8 @@ namespace SPTAG
 
             // If not Coord, than bind some port
             bool m_isCoordinator;
-            // Coordinator or Worker ip addr
-            struct sockaddr_in m_addr;
-            // listen socket
-            int socket_fd;
+
+            std::shared_ptr<Helper::ThreadPool> m_clientThreadPool;
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -278,8 +296,9 @@ namespace SPTAG
 
 
                 /***Remote Transefer And Process**/
-                LOG(Helper::LogLevel::LL_Info, "Start Remote Processing\n");
-                RemoteQueryProcess(*p_queryResults, m_workspace->m_postingIDs, m_readedHead);
+                int socket_fd = ClientConnect();
+                RemoteQueryProcess(socket_fd, *p_queryResults, m_workspace->m_postingIDs, m_readedHead);
+                CloseConnect(socket_fd);
 
                 p_queryResults->SortResult();
 
@@ -309,7 +328,7 @@ namespace SPTAG
                 } 
             }
 
-            ErrorCode RemoteQueryProcess(QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead) 
+            ErrorCode RemoteQueryProcess(int socket_fd, QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead) 
             {
                 /** Serialize target vector, to be searched postings, allready readed VID**/
                 if (m_options.m_remoteCalculation) {
@@ -378,12 +397,13 @@ namespace SPTAG
                 }
             }
 
-            ErrorCode ClientConnect() {
-                socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+            int ClientConnect() {
+                int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
                 if (socket_fd < 0) {
                     LOG(Helper::LogLevel::LL_Info, "can't open socket\n");
-                    return ErrorCode::Undefined;
+                    exit(0);
                 }
+                sockaddr_in m_addr;
                 m_addr.sin_family = AF_INET;
                 m_addr.sin_addr.s_addr = inet_addr(m_options.m_ipAddr.c_str());
                 m_addr.sin_port = htons(m_options.m_port);
@@ -391,6 +411,54 @@ namespace SPTAG
                 if (res == -1) {
                     LOG(Helper::LogLevel::LL_Info, "bind failure\n");
                     exit(-1);
+                }
+                return socket_fd;
+            }
+            
+            ErrorCode CloseConnect(int socket_fd) {
+                close(socket_fd);
+                return ErrorCode::Success;
+            }
+
+            ErrorCode HandleClient(int accept_socket) {
+                int msg_size = m_options.m_dim * sizeof(T);
+                    
+                char* vectorBuffer = new char[msg_size];
+
+                int totalRead = 0;
+                while (totalRead < msg_size) {
+                    totalRead += read(accept_socket, vectorBuffer + totalRead, msg_size - totalRead);
+                }
+                if (m_options.m_remoteCalculation) {
+
+                } else {
+                    int postingNum;
+                    totalRead = 0;
+                    while (totalRead < sizeof(int)) {
+                        totalRead += read(accept_socket, ((char*) &postingNum) + totalRead, sizeof(int) - totalRead);
+                    }
+                    //LOG(Helper::LogLevel::LL_Info, "Need to read %d postings\n", postingNum);
+                    std::vector<int> postingIDs(postingNum);
+                    totalRead = 0;
+                    while (totalRead < sizeof(int) * postingNum) {
+                        totalRead += read(accept_socket, postingIDs.data() + totalRead, sizeof(int) * postingNum - totalRead);
+                    }
+
+                    std::vector<std::string> postingLists;
+
+                    m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
+
+                    int totalSize = 0;
+                    for (int i = 0; i < postingLists.size(); i++) {
+                        totalSize += postingLists[i].size();
+                    }
+
+                    //LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
+                    write(accept_socket, &totalSize, sizeof(int));
+
+                    for (int i = 0; i < postingLists.size(); i++) {
+                        write(accept_socket, postingLists[i].data(), postingLists[i].size());
+                    }
                 }
                 return ErrorCode::Success;
             }
@@ -414,55 +482,18 @@ namespace SPTAG
                 }
                 listen(server_socket, 30);
                 clilen = sizeof(cli_addr);
-                LOG(Helper::LogLevel::LL_Info, "Start Listening\n");
-                accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
-                if (accept_socket < 0) {
-                    LOG(Helper::LogLevel::LL_Info, "can't accept\n");
-                    return ErrorCode::Undefined;
-                }
-                LOG(Helper::LogLevel::LL_Info, "Accpet from client\n");
-                while(true) {
-                    /**process request and return when recevie ? message**/
-                    int msg_size = m_options.m_dim * sizeof(T);
-                    
-                    char* vectorBuffer = new char[msg_size];
-
-                    int totalRead = 0;
-                    while (totalRead < msg_size) {
-                        totalRead += read(accept_socket, vectorBuffer + totalRead, msg_size - totalRead);
+                while (true) {
+                    // LOG(Helper::LogLevel::LL_Info, "Start Listening\n");
+                    accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
+                    if (accept_socket < 0) {
+                        LOG(Helper::LogLevel::LL_Info, "can't accept\n");
+                        return ErrorCode::Undefined;
                     }
-                    if (m_options.m_remoteCalculation) {
-
-                    } else {
-                        int postingNum;
-                        totalRead = 0;
-                        while (totalRead < sizeof(int)) {
-                            totalRead += read(accept_socket, ((char*) &postingNum) + totalRead, sizeof(int) - totalRead);
-                        }
-                        LOG(Helper::LogLevel::LL_Info, "Need to read %d postings\n", postingNum);
-                        std::vector<int> postingIDs(postingNum);
-                        totalRead = 0;
-                        while (totalRead < sizeof(int) * postingNum) {
-                            totalRead += read(accept_socket, postingIDs.data() + totalRead, sizeof(int) * postingNum - totalRead);
-                        }
-
-                        std::vector<std::string> postingLists;
-
-                        m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
-
-                        int totalSize = 0;
-                        for (int i = 0; i < postingLists.size(); i++) {
-                            totalSize += postingLists[i].size();
-                        }
-
-                        LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
-                        write(accept_socket, &totalSize, sizeof(int));
-
-                        for (int i = 0; i < postingLists.size(); i++) {
-                            write(accept_socket, postingLists[i].data(), postingLists[i].size());
-                        }
-                    }
+                    auto* curJob = new ClientJob(accept_socket, this, nullptr);
+                    m_clientThreadPool->add(curJob);
+                    // LOG(Helper::LogLevel::LL_Info, "Accpet from client\n");
                 }
+                
                 return ErrorCode::Success;
             }
         };

@@ -73,7 +73,6 @@ namespace SPTAG {
         template <typename ValueType>
         void SearchRemote(SPANN::Index<ValueType>* p_index)
         {
-            p_index->ClientConnect();
             SPANN::Options& p_opts = *(p_index->GetOptions());
 
             int numThreads = p_opts.m_searchThreadNum;

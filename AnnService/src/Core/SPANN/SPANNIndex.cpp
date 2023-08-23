@@ -124,10 +124,6 @@ namespace SPTAG
         {
             m_isCoordinator = m_options.m_isCoordinator;
             if (m_isCoordinator) {
-                if (m_options.m_excludehead) {
-                    m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
-                    IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
-                }
                 m_index->SetQuantizer(m_pQuantizer);
                 if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
 
@@ -136,10 +132,21 @@ namespace SPTAG
                 m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
                 m_index->UpdateIndex();
                 m_index->SetReady(true);
+                if (m_options.m_excludehead) {
+                    m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
+                    std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+                    if (ptr == nullptr || !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
+                        LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
+                        return ErrorCode::Fail;
+                    }
+                    IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
+                }
             } else {
                 if (m_options.m_useKV) {
                     m_extraSearcher.reset(new SPTAG::SPANN::ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
                 }
+                m_clientThreadPool = std::make_shared<Helper::ThreadPool>();
+                m_clientThreadPool->init(m_options.m_searchThreadNum);
             }
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
             return ErrorCode::Success;
