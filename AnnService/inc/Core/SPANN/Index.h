@@ -251,7 +251,7 @@ namespace SPTAG
                 return m_extraSearcher->AddIndex(vectorSet, m_index, begin);
             }
 
-            ErrorCode SearchIndexRemote(QueryResult &p_query)
+            ErrorCode SearchIndexRemote(QueryResult &p_query, SearchStats* p_stats)
             {
                 if (!m_isCoordinator) {
                     LOG(Helper::LogLevel::LL_Info, "not Coordinator, can't not search!\n");
@@ -265,6 +265,7 @@ namespace SPTAG
                     p_queryResults = new COMMON::QueryResultSet<T>((const T*)p_query.GetTarget(), m_options.m_searchInternalResultNum);
 
                 m_index->SearchIndex(*p_queryResults);
+
 
                 if (m_workspace.get() == nullptr) {
                     m_workspace.reset(new ExtraWorkSpace());
@@ -296,9 +297,15 @@ namespace SPTAG
 
 
                 /***Remote Transefer And Process**/
+                auto t3 = std::chrono::high_resolution_clock::now();
                 int socket_fd = ClientConnect();
-                RemoteQueryProcess(socket_fd, *p_queryResults, m_workspace->m_postingIDs, m_readedHead);
+                RemoteQueryProcess(socket_fd, *p_queryResults, m_workspace->m_postingIDs, m_readedHead,  p_stats);
                 CloseConnect(socket_fd);
+                auto t4 = std::chrono::high_resolution_clock::now();
+
+                double remoteProcessTime = std::chrono::duration_cast<std::chrono::seconds>(t4 - t3).count();
+
+                p_stats->m_exLatency = remoteProcessTime;
 
                 p_queryResults->SortResult();
 
@@ -328,7 +335,7 @@ namespace SPTAG
                 } 
             }
 
-            ErrorCode RemoteQueryProcess(int socket_fd, QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead) 
+            ErrorCode RemoteQueryProcess(int socket_fd, QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead, SearchStats* p_stats) 
             {
                 /** Serialize target vector, to be searched postings, allready readed VID**/
                 if (m_options.m_remoteCalculation) {
@@ -336,6 +343,7 @@ namespace SPTAG
                     // Serialize(ptr, p_queryResults, m_postingIDs, m_readedHead);
 
                 } else {
+                    
                     int msgLength = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(int) * m_postingIDs.size();
                     std::string postingList(1 * msgLength, '\0');
                     char* ptr = (char*)(postingList.c_str());
@@ -357,8 +365,24 @@ namespace SPTAG
                         totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
                     }
 
+                    totalRead = 0;
+                    while (totalRead < sizeof(double)) {
+                        totalRead += read(socket_fd, msg_int + totalRead, sizeof(int) - totalRead);
+                    }
+                    double diskReadTime = (*(double *)msg_int);
+
+                    p_stats->m_diskReadLatency = diskReadTime;
+
+                    auto t1 = std::chrono::high_resolution_clock::now();
+
                     /**Process Vectors**/
                     ProcessPostingDSPANN(p_queryResults, postingList, m_readedHead);
+
+                    auto t2 = std::chrono::high_resolution_clock::now();
+
+                    double localProcessTime = std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count();
+
+                    p_stats->m_compLatency = localProcessTime;
 
                 }
                 return ErrorCode::Success;
@@ -446,7 +470,10 @@ namespace SPTAG
 
                     std::vector<std::string> postingLists;
 
+                    auto t1 = std::chrono::high_resolution_clock::now();
                     m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
+                    auto t2 = std::chrono::high_resolution_clock::now();
+                    double diskReadTime = std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count();
 
                     int totalSize = 0;
                     for (int i = 0; i < postingLists.size(); i++) {
@@ -459,6 +486,8 @@ namespace SPTAG
                     for (int i = 0; i < postingLists.size(); i++) {
                         write(accept_socket, postingLists[i].data(), postingLists[i].size());
                     }
+
+                    write(accept_socket, &diskReadTime, sizeof(double));
                 }
                 return ErrorCode::Success;
             }

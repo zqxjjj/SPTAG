@@ -16,6 +16,44 @@ using namespace SPTAG;
 namespace SPTAG {
 	namespace RemoteServing {
 
+
+        template<typename T, typename V>
+        void PrintPercentiles(const std::vector<V>& p_values, std::function<T(const V&)> p_get, const char* p_format)
+        {
+            double sum = 0;
+            std::vector<T> collects;
+            collects.reserve(p_values.size());
+            for (const auto& v : p_values)
+            {
+                T tmp = p_get(v);
+                sum += tmp;
+                collects.push_back(tmp);
+            }
+
+            std::sort(collects.begin(), collects.end());
+
+            LOG(Helper::LogLevel::LL_Info, "Avg\t50tiles\t90tiles\t95tiles\t99tiles\t99.9tiles\tMax\n");
+
+            std::string formatStr("%.3lf");
+            for (int i = 1; i < 7; ++i)
+            {
+                formatStr += '\t';
+                formatStr += p_format;
+            }
+
+            formatStr += '\n';
+
+            LOG(Helper::LogLevel::LL_Info,
+                formatStr.c_str(),
+                sum / collects.size(),
+                collects[static_cast<size_t>(collects.size() * 0.50)],
+                collects[static_cast<size_t>(collects.size() * 0.90)],
+                collects[static_cast<size_t>(collects.size() * 0.95)],
+                collects[static_cast<size_t>(collects.size() * 0.99)],
+                collects[static_cast<size_t>(collects.size() * 0.999)],
+                collects[static_cast<size_t>(collects.size() - 1)]);
+        }
+
         std::shared_ptr<VectorSet> LoadQuerySet(SPANN::Options& p_opts)
         {
             LOG(Helper::LogLevel::LL_Info, "Start loading QuerySet...\n");
@@ -58,7 +96,10 @@ namespace SPTAG {
                             {
                                 LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
                             }
-                            p_index->SearchIndexRemote(p_results[index]);
+                            auto t1 = std::chrono::high_resolution_clock::now();
+                            p_index->SearchIndexRemote(p_results[index], &(p_stats[index]));
+                            auto t2 = std::chrono::high_resolution_clock::now();
+                            p_stats[index].m_totalLatency = std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count();
                         }
                         else
                         {
@@ -100,6 +141,46 @@ namespace SPTAG {
             SearchSequential(p_index, numThreads, results, stats, internalResultNum);
 
             LOG(Helper::LogLevel::LL_Info, "\nFinish ANN Search...\n");
+
+            LOG(Helper::LogLevel::LL_Info, "\nLocal In-memory Latency Distribution:\n");
+            PrintPercentiles<double, SPANN::SearchStats>(stats,
+                [](const SPANN::SearchStats& ss) -> double
+                {
+                    return ss.m_totalLatency - ss.m_exLatency - ss.m_compLatency;
+                },
+                "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nComp Latency Distribution:\n");
+            PrintPercentiles<double, SPANN::SearchStats>(stats,
+                [](const SPANN::SearchStats& ss) -> double
+                {
+                    return ss.m_compLatency;
+                },
+                "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nRemote Disk Read Latency Distribution:\n");
+            PrintPercentiles<double, SPANN::SearchStats>(stats,
+                [](const SPANN::SearchStats& ss) -> double
+                {
+                    return ss.m_diskReadLatency;
+                },
+                "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nRemote Transfer Latency Distribution:\n");
+            PrintPercentiles<double, SPANN::SearchStats>(stats,
+                [](const SPANN::SearchStats& ss) -> double
+                {
+                    return ss.m_exLatency - ss.m_diskReadLatency;
+                },
+                "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distribution:\n");
+            PrintPercentiles<double, SPANN::SearchStats>(stats,
+                [](const SPANN::SearchStats& ss) -> double
+                {
+                    return ss.m_totalLatency;
+                },
+                "%.3lf");
 
             std::vector<std::set<SizeType>> truth;
             float recall = 0, MRR = 0;
