@@ -26,6 +26,7 @@
 #include "Options.h"
 
 #include <functional>
+#include <ratio>
 #include <shared_mutex>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -303,7 +304,7 @@ namespace SPTAG
                 CloseConnect(socket_fd);
                 auto t4 = std::chrono::high_resolution_clock::now();
 
-                double remoteProcessTime = std::chrono::duration_cast<std::chrono::seconds>(t4 - t3).count();
+                double remoteProcessTime = std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count();
 
                 p_stats->m_exLatency = remoteProcessTime;
 
@@ -365,14 +366,7 @@ namespace SPTAG
                         totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
                     }
 
-                    char msg_double[8];
-                    totalRead = 0;
-                    while (totalRead < sizeof(double)) {
-                        totalRead += read(socket_fd, msg_double + totalRead, sizeof(int) - totalRead);
-                    }
-                    double diskReadTime = (*(double *)msg_double);
-
-                    p_stats->m_diskReadLatency = diskReadTime;
+                    p_stats->m_diskReadLatency = 0;
 
                     auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -381,7 +375,7 @@ namespace SPTAG
 
                     auto t2 = std::chrono::high_resolution_clock::now();
 
-                    double localProcessTime = std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count();
+                    double localProcessTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 
                     p_stats->m_compLatency = localProcessTime;
 
@@ -474,7 +468,7 @@ namespace SPTAG
                     auto t1 = std::chrono::high_resolution_clock::now();
                     m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
                     auto t2 = std::chrono::high_resolution_clock::now();
-                    double diskReadTime = std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count();
+                    double diskReadTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 
                     int totalSize = 0;
                     for (int i = 0; i < postingLists.size(); i++) {
@@ -487,8 +481,6 @@ namespace SPTAG
                     for (int i = 0; i < postingLists.size(); i++) {
                         write(accept_socket, postingLists[i].data(), postingLists[i].size());
                     }
-
-                    write(accept_socket, &diskReadTime, sizeof(double));
                 }
                 return ErrorCode::Success;
             }

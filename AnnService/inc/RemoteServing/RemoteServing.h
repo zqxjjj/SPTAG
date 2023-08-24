@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <iostream>
 #include <fstream>
+#include <ratio>
 
 using namespace SPTAG;
 
@@ -99,7 +100,7 @@ namespace SPTAG {
                             auto t1 = std::chrono::high_resolution_clock::now();
                             p_index->SearchIndexRemote(p_results[index], &(p_stats[index]));
                             auto t2 = std::chrono::high_resolution_clock::now();
-                            p_stats[index].m_totalLatency = std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count();
+                            p_stats[index].m_totalLatency = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
                         }
                         else
                         {
