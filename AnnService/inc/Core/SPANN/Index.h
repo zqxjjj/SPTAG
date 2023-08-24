@@ -365,11 +365,12 @@ namespace SPTAG
                         totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
                     }
 
+                    char msg_double[8];
                     totalRead = 0;
                     while (totalRead < sizeof(double)) {
-                        totalRead += read(socket_fd, msg_int + totalRead, sizeof(int) - totalRead);
+                        totalRead += read(socket_fd, msg_double + totalRead, sizeof(int) - totalRead);
                     }
-                    double diskReadTime = (*(double *)msg_int);
+                    double diskReadTime = (*(double *)msg_double);
 
                     p_stats->m_diskReadLatency = diskReadTime;
 
