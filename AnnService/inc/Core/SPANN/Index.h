@@ -366,7 +366,14 @@ namespace SPTAG
                         totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
                     }
 
-                    p_stats->m_diskReadLatency = 0;
+                    char msg_double[8];
+
+                    totalRead = 0;
+                    while (totalRead < sizeof(double)) {
+                        totalRead += read(socket_fd, msg_double+ totalRead, sizeof(double) - totalRead);
+                    }
+
+                    p_stats->m_diskReadLatency = (*(double *)msg_double);
 
                     auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -476,11 +483,14 @@ namespace SPTAG
                     }
 
                     //LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
-                    write(accept_socket, &totalSize, sizeof(int));
+                    write(accept_socket, ((char*)&totalSize), sizeof(int));
 
                     for (int i = 0; i < postingLists.size(); i++) {
                         write(accept_socket, postingLists[i].data(), postingLists[i].size());
                     }
+
+                    write(accept_socket, ((char*)&diskReadTime), sizeof(double));
+                    
                 }
                 return ErrorCode::Success;
             }
