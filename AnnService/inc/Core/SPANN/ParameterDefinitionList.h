@@ -197,6 +197,6 @@ DefineSSDParameter(m_virtualHead, bool, false, "VirtualHead")
 // DSPANN
 DefineSSDParameter(m_isCoordinator, bool, false, "IsCoordinator")
 DefineSSDParameter(m_remoteCalculation, bool, false, "RemoteCalculation")
-DefineSSDParameter(m_ipAddr, std::string, std::string(""), "IPAddr")
-DefineSSDParameter(m_port, int, 8000, "Port")
+DefineSSDParameter(m_ipAddrFrontend, std::string, std::string(""), "IPAddrFrontend")
+DefineSSDParameter(m_ipAddrBackend, std::string, std::string(""), "IPAddrBackend")
 #endif

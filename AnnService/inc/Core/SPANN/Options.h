@@ -179,8 +179,8 @@ namespace SPTAG {
             // RemoteDSPANN
             bool m_isCoordinator;
             bool m_remoteCalculation;
-            std::string m_ipAddr;
-            int m_port;
+            std::string m_ipAddrFrontend;
+            std::string m_ipAddrBackend;
 
 
             Options() {

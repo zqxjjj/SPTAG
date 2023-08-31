@@ -86,7 +86,7 @@ namespace SPTAG {
             for (int i = 0; i < p_numThreads; i++) { threads.emplace_back([&, i]()
                 {
                     // Helper::SetThreadAffinity( ((i+1) * 4), threads[i], 0, 0);
-
+                    p_index->ClientConnect();
                     size_t index = 0;
                     while (true)
                     {
@@ -220,7 +220,7 @@ namespace SPTAG {
                 if (index->GetVectorValueType() == VectorValueType::Name) { \
                     opts = ((SPANN::Index<Type>*)index.get())->GetOptions(); \
                     if (!opts->m_isCoordinator) { \
-                        ((SPANN::Index<Type>*)index.get())->ServerSetupListen(); \
+                        ((SPANN::Index<Type>*)index.get())->BrokerOn(); \
                     } else { \
                         SearchRemote((SPANN::Index<Type>*)index.get()); \
                     } \

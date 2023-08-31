@@ -33,6 +33,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <zmq.hpp>
 
 namespace SPTAG
 {
@@ -47,25 +48,25 @@ namespace SPTAG
         template<typename T>
         class Index : public VectorIndex
         {
-            class ClientJob : public Helper::ThreadPool::Job
-            {
-            private:
-                int client_socket;
-                SPANN::Index<T>* m_index;
-                std::function<void()> m_callback;
-            public:
-                ClientJob(int client_socket, SPANN::Index<T>* m_index, std::function<void()> p_callback)
-                    : client_socket(client_socket), m_index(m_index), m_callback(std::move(p_callback)) {}
+            // class ClientJob : public Helper::ThreadPool::Job
+            // {
+            // private:
+            //     int client_socket;
+            //     SPANN::Index<T>* m_index;
+            //     std::function<void()> m_callback;
+            // public:
+            //     ClientJob(int client_socket, SPANN::Index<T>* m_index, std::function<void()> p_callback)
+            //         : client_socket(client_socket), m_index(m_index), m_callback(std::move(p_callback)) {}
 
-                ~ClientJob() {}
+            //     ~ClientJob() {}
 
-                inline void exec(IAbortOperation* p_abort) override {
-                    m_index->HandleClient(client_socket);
-                    if (m_callback != nullptr) {
-                        m_callback();
-                    }
-                }
-            };
+            //     inline void exec(IAbortOperation* p_abort) override {
+            //         m_index->HandleClient(client_socket);
+            //         if (m_callback != nullptr) {
+            //             m_callback();
+            //         }
+            //     }
+            // };
 
         private:
             std::shared_ptr<VectorIndex> m_index;
@@ -89,6 +90,7 @@ namespace SPTAG
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
+            static thread_local std::shared_ptr<zmq::socket_t> clientSocket;
 
         public:
             Index()
@@ -299,9 +301,9 @@ namespace SPTAG
 
                 /***Remote Transefer And Process**/
                 auto t3 = std::chrono::high_resolution_clock::now();
-                int socket_fd = ClientConnect();
-                RemoteQueryProcess(socket_fd, *p_queryResults, m_workspace->m_postingIDs, m_readedHead,  p_stats);
-                CloseConnect(socket_fd);
+                // int socket_fd = ClientConnect();
+                RemoteQueryProcess(*p_queryResults, m_workspace->m_postingIDs, m_readedHead,  p_stats);
+                // CloseConnect(socket_fd);
                 auto t4 = std::chrono::high_resolution_clock::now();
 
                 double remoteProcessTime = std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count();
@@ -336,7 +338,7 @@ namespace SPTAG
                 } 
             }
 
-            ErrorCode RemoteQueryProcess(int socket_fd, QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead, SearchStats* p_stats) 
+            ErrorCode RemoteQueryProcess(QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead, SearchStats* p_stats) 
             {
                 /** Serialize target vector, to be searched postings, allready readed VID**/
                 if (m_options.m_remoteCalculation) {
@@ -351,27 +353,45 @@ namespace SPTAG
                     /** target vector(dim * valuetype) + searched postings(posting numbers + posting IDs) **/
                     std::vector<int> m_readedHead_temp;
                     Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead_temp);
-                    write(socket_fd, ptr, msgLength);
-                    int totalRead = 0;
-                    /**First read total size**/
+
+                    zmq::message_t request(msgLength);
+                    memcpy (request.data(), ptr, msgLength);
+
+                    // write(socket_fd, ptr, msgLength);
+                    clientSocket->send(request);
+
+                    // int totalRead = 0;
+                    // /**First read total size**/
+                    // char msg_int[4];
+                    // while (totalRead < sizeof(int)) {
+                    //     totalRead += read(socket_fd, msg_int + totalRead, sizeof(int) - totalRead);
+                    // }
+                    // int totalMsg_size = (*(int *)msg_int);
+                    // postingList.resize(totalMsg_size);
+                    // ptr = (char*)(postingList.c_str());
+                    // totalRead = 0;
+                    // while (totalRead < totalMsg_size) {
+                    //     totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
+                    // }
+
+                    // char msg_double[8];
+
+                    // totalRead = 0;
+                    // while (totalRead < sizeof(double)) {
+                    //     totalRead += read(socket_fd, msg_double+ totalRead, sizeof(double) - totalRead);
+                    // }
+                    zmq::message_t reply;
+                    clientSocket->recv(&reply);
+
+                    ptr = static_cast<char*>(reply.data());
                     char msg_int[4];
-                    while (totalRead < sizeof(int)) {
-                        totalRead += read(socket_fd, msg_int + totalRead, sizeof(int) - totalRead);
-                    }
+                    memcpy(msg_int, ptr, 4);
                     int totalMsg_size = (*(int *)msg_int);
                     postingList.resize(totalMsg_size);
-                    ptr = (char*)(postingList.c_str());
-                    totalRead = 0;
-                    while (totalRead < totalMsg_size) {
-                        totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
-                    }
-
+                    char* ptr_postingList = (char*)(postingList.c_str());
+                    memcpy(ptr_postingList, ptr+4, totalMsg_size);
                     char msg_double[8];
-
-                    totalRead = 0;
-                    while (totalRead < sizeof(double)) {
-                        totalRead += read(socket_fd, msg_double+ totalRead, sizeof(double) - totalRead);
-                    }
+                    memcpy(msg_double, ptr+4+totalMsg_size, sizeof(double));
 
                     p_stats->m_diskReadLatency = (*(double *)msg_double);
 
@@ -424,108 +444,185 @@ namespace SPTAG
             }
 
             int ClientConnect() {
-                int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-                if (socket_fd < 0) {
-                    LOG(Helper::LogLevel::LL_Info, "can't open socket\n");
-                    exit(0);
-                }
-                sockaddr_in m_addr;
-                m_addr.sin_family = AF_INET;
-                m_addr.sin_addr.s_addr = inet_addr(m_options.m_ipAddr.c_str());
-                m_addr.sin_port = htons(m_options.m_port);
-                int res = connect(socket_fd, (struct sockaddr*)&m_addr, sizeof(m_addr));
-                if (res == -1) {
-                    LOG(Helper::LogLevel::LL_Info, "bind failure\n");
-                    exit(-1);
-                }
-                return socket_fd;
+                zmq::context_t context (1); 
+                clientSocket.reset(new zmq::socket_t(context, ZMQ_REQ)); 
+
+                std::cout << "Connecting to broker…" << std::endl; 
+                clientSocket->connect(m_options.m_ipAddrFrontend.c_str());
+                return 0;
             }
-            
-            ErrorCode CloseConnect(int socket_fd) {
-                close(socket_fd);
+
+            ErrorCode Worker() {
+
+                zmq::context_t context(1);
+
+                zmq::socket_t responder(context, ZMQ_REP);
+                responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                while(1) {
+                    int msg_size = m_options.m_dim * sizeof(T);
+                        
+                    char* vectorBuffer = new char[msg_size];
+
+                    // int totalRead = 0;
+                    // while (totalRead < msg_size) {
+                    //     totalRead += read(accept_socket, vectorBuffer + totalRead, msg_size - totalRead);
+                    // }
+
+                    zmq::message_t reply;
+                    responder.recv(&reply);
+
+                    char* ptr = static_cast<char*>(reply.data());
+
+                    memcpy(vectorBuffer, ptr, msg_size);
+
+                    if (m_options.m_remoteCalculation) {
+
+                    } else {
+                        // int postingNum;
+                        // totalRead = 0;
+                        // while (totalRead < sizeof(int)) {
+                        //     totalRead += read(accept_socket, ((char*) &postingNum) + totalRead, sizeof(int) - totalRead);
+                        // }
+                        // //LOG(Helper::LogLevel::LL_Info, "Need to read %d postings\n", postingNum);
+                        // std::vector<int> postingIDs(postingNum);
+                        // totalRead = 0;
+                        // while (totalRead < sizeof(int) * postingNum) {
+                        //     totalRead += read(accept_socket, postingIDs.data() + totalRead, sizeof(int) * postingNum - totalRead);
+                        // }
+
+                        int postingNum;
+                        memcpy((char*)&postingNum, ptr + msg_size, sizeof(int));
+
+                        std::vector<int> postingIDs(postingNum);
+                        memcpy((char*)postingIDs.data(), ptr + msg_size + sizeof(int), sizeof(int) * postingNum);
+
+                        std::vector<std::string> postingLists;
+
+                        auto t1 = std::chrono::high_resolution_clock::now();
+                        m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
+                        auto t2 = std::chrono::high_resolution_clock::now();
+                        double diskReadTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+
+                        int totalSize = 0;
+                        for (int i = 0; i < postingLists.size(); i++) {
+                            totalSize += postingLists[i].size();
+                        }
+
+                        zmq::message_t request(totalSize+sizeof(double)+sizeof(int));
+
+                        ptr = static_cast<char*>(request.data());
+
+                        memcpy(ptr, (char*) totalSize, sizeof(int));
+
+                        //LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
+                        // write(accept_socket, ((char*)&totalSize), sizeof(int));
+
+                        int first = 0;
+                        for (int i = 0; i < postingLists.size(); i++) {
+                            // write(accept_socket, postingLists[i].data(), postingLists[i].size());
+                            memcpy(ptr+sizeof(int)+first, postingLists[i].data(), postingLists[i].size());
+                            first += postingLists[i].size();
+                        }
+
+                        memcpy(ptr+sizeof(int)+first, ((char*)&diskReadTime), sizeof(double));
+
+                        // write(accept_socket, ((char*)&diskReadTime), sizeof(double));
+                        
+                    }
+                }
                 return ErrorCode::Success;
             }
 
-            ErrorCode HandleClient(int accept_socket) {
-                int msg_size = m_options.m_dim * sizeof(T);
-                    
-                char* vectorBuffer = new char[msg_size];
+            ErrorCode BrokerOn() {
+                // struct sockaddr_in serv_addr, cli_addr;
+                // socklen_t clilen;
+                // int accept_socket;
+                // int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+                // if (server_socket < 0) {
+                //     LOG(Helper::LogLevel::LL_Info, "can't open socket\n");
+                //     return ErrorCode::Undefined;
+                // }
+                // bzero((char *)&serv_addr, sizeof(serv_addr));
+                // serv_addr.sin_family = AF_INET;
+                // serv_addr.sin_addr.s_addr = inet_addr(m_options.m_ipAddr.c_str());
+                // serv_addr.sin_port = htons(m_options.m_port);
+                // if (bind(server_socket, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+                //     LOG(Helper::LogLevel::LL_Info, "can't binding\n");
+                //     return ErrorCode::Undefined;
+                // }
+                // listen(server_socket, 30);
+                // clilen = sizeof(cli_addr);
+                // while (true) {
+                //     // LOG(Helper::LogLevel::LL_Info, "Start Listening\n");
+                //     accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
+                //     if (accept_socket < 0) {
+                //         LOG(Helper::LogLevel::LL_Info, "can't accept\n");
+                //         return ErrorCode::Undefined;
+                //     }
+                //     auto* curJob = new ClientJob(accept_socket, this, nullptr);
+                //     m_clientThreadPool->add(curJob);
+                //     // LOG(Helper::LogLevel::LL_Info, "Accpet from client\n");
+                // }
 
-                int totalRead = 0;
-                while (totalRead < msg_size) {
-                    totalRead += read(accept_socket, vectorBuffer + totalRead, msg_size - totalRead);
-                }
-                if (m_options.m_remoteCalculation) {
+                zmq::context_t context(1);
+                zmq::socket_t frontend (context, ZMQ_ROUTER);
+                zmq::socket_t backend (context, ZMQ_DEALER);
 
-                } else {
-                    int postingNum;
-                    totalRead = 0;
-                    while (totalRead < sizeof(int)) {
-                        totalRead += read(accept_socket, ((char*) &postingNum) + totalRead, sizeof(int) - totalRead);
-                    }
-                    //LOG(Helper::LogLevel::LL_Info, "Need to read %d postings\n", postingNum);
-                    std::vector<int> postingIDs(postingNum);
-                    totalRead = 0;
-                    while (totalRead < sizeof(int) * postingNum) {
-                        totalRead += read(accept_socket, postingIDs.data() + totalRead, sizeof(int) * postingNum - totalRead);
-                    }
+                frontend.bind(m_options.m_ipAddrFrontend.c_str());
+                backend.bind(m_options.m_ipAddrBackend.c_str());
 
-                    std::vector<std::string> postingLists;
+                //  Initialize poll set
+                zmq::pollitem_t items [] = {
+                    { frontend, 0, ZMQ_POLLIN, 0 },
+                    { backend, 0, ZMQ_POLLIN, 0 }
+                };
 
-                    auto t1 = std::chrono::high_resolution_clock::now();
-                    m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
-                    auto t2 = std::chrono::high_resolution_clock::now();
-                    double diskReadTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-
-                    int totalSize = 0;
-                    for (int i = 0; i < postingLists.size(); i++) {
-                        totalSize += postingLists[i].size();
-                    }
-
-                    //LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
-                    write(accept_socket, ((char*)&totalSize), sizeof(int));
-
-                    for (int i = 0; i < postingLists.size(); i++) {
-                        write(accept_socket, postingLists[i].data(), postingLists[i].size());
-                    }
-
-                    write(accept_socket, ((char*)&diskReadTime), sizeof(double));
-                    
-                }
-                return ErrorCode::Success;
-            }
-
-            ErrorCode ServerSetupListen() {
-                struct sockaddr_in serv_addr, cli_addr;
-                socklen_t clilen;
-                int accept_socket;
-                int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-                if (server_socket < 0) {
-                    LOG(Helper::LogLevel::LL_Info, "can't open socket\n");
-                    return ErrorCode::Undefined;
-                }
-                bzero((char *)&serv_addr, sizeof(serv_addr));
-                serv_addr.sin_family = AF_INET;
-                serv_addr.sin_addr.s_addr = inet_addr(m_options.m_ipAddr.c_str());
-                serv_addr.sin_port = htons(m_options.m_port);
-                if (bind(server_socket, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-                    LOG(Helper::LogLevel::LL_Info, "can't binding\n");
-                    return ErrorCode::Undefined;
-                }
-                listen(server_socket, 30);
-                clilen = sizeof(cli_addr);
-                while (true) {
-                    // LOG(Helper::LogLevel::LL_Info, "Start Listening\n");
-                    accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
-                    if (accept_socket < 0) {
-                        LOG(Helper::LogLevel::LL_Info, "can't accept\n");
-                        return ErrorCode::Undefined;
-                    }
-                    auto* curJob = new ClientJob(accept_socket, this, nullptr);
-                    m_clientThreadPool->add(curJob);
-                    // LOG(Helper::LogLevel::LL_Info, "Accpet from client\n");
+                std::vector<std::thread> m_threads;
+                for (int i = 0; i < m_options.m_searchThreadNum; i++)
+                {
+                    m_threads.emplace_back([this] {
+                        Worker();
+                    });
                 }
                 
+                //  Switch messages between sockets
+                while (1) {
+                    zmq::message_t message;
+                    int more;               //  Multipart detection
+
+                    zmq::poll (&items [0], 2, -1);
+                    
+                    if (items [0].revents & ZMQ_POLLIN) {
+                        while (1) {
+                            //  Process all parts of the message
+                            frontend.recv(&message);
+                            // frontend.recv(message, zmq::recv_flags::none); // new syntax
+                            size_t more_size = sizeof (more);
+                            frontend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
+                            backend.send(message, more? ZMQ_SNDMORE: 0);
+                            // more = frontend.get(zmq::sockopt::rcvmore); // new syntax
+                            // backend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
+                            
+                            if (!more)
+                                break;      //  Last message part
+                        }
+                    }
+                    if (items [1].revents & ZMQ_POLLIN) {
+                        while (1) {
+                            //  Process all parts of the message
+                            backend.recv(&message);
+                            size_t more_size = sizeof (more);
+                            backend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
+                            frontend.send(message, more? ZMQ_SNDMORE: 0);
+                            // more = backend.get(zmq::sockopt::rcvmore); // new syntax
+                            //frontend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
+
+                            if (!more)
+                                break;      //  Last message part
+                        }
+                    }
+                }            
                 return ErrorCode::Success;
             }
         };
