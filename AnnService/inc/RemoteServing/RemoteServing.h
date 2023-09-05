@@ -104,6 +104,7 @@ namespace SPTAG {
                         }
                         else
                         {
+                            p_index->ClientClose();
                             return;
                         }
                     }
@@ -174,6 +175,14 @@ namespace SPTAG {
                     return ss.m_exLatency - ss.m_diskReadLatency;
                 },
                 "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nTotal Remote Page Access Distribution(KB):\n");
+            PrintPercentiles<int, SPANN::SearchStats>(stats,
+                [](const SPANN::SearchStats& ss) -> int
+                {
+                    return ss.m_diskAccessCount;
+                },
+                "%4d");
 
             LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distribution:\n");
             PrintPercentiles<double, SPANN::SearchStats>(stats,

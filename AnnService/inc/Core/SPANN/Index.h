@@ -91,6 +91,7 @@ namespace SPTAG
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
             static thread_local std::shared_ptr<zmq::socket_t> clientSocket;
+            static thread_local zmq::context_t context; 
 
         public:
             Index()
@@ -262,13 +263,12 @@ namespace SPTAG
                 }
 
                 COMMON::QueryResultSet<T>* p_queryResults;
-                if (p_query.GetResultNum() >= m_options.m_searchInternalResultNum)
-                    p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-                else
-                    p_queryResults = new COMMON::QueryResultSet<T>((const T*)p_query.GetTarget(), m_options.m_searchInternalResultNum);
+                QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
+                COMMON::QueryResultSet<T>* p_tempResult = (COMMON::QueryResultSet<T>*) & p_Result;
+
+                p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
 
                 m_index->SearchIndex(*p_queryResults);
-
 
                 if (m_workspace.get() == nullptr) {
                     m_workspace.reset(new ExtraWorkSpace());
@@ -285,17 +285,25 @@ namespace SPTAG
                     if (res->VID == -1) break;
                     
                     auto postingID = res->VID;
-                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    m_workspace->m_postingIDs.emplace_back(postingID);
+
+                    if (m_vectorTranslateMap.get() != nullptr) {
+                        res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                        if(!m_workspace->m_deduper.CheckAndSet(res->VID)) {
+                            p_tempResult->AddPoint(res->VID, res->Dist);
+                        } 
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
                     }
 
-                    m_workspace->m_postingIDs.emplace_back(postingID);
                     if (m_vectorTranslateMap.get() != nullptr) m_readedHead.emplace_back(res->VID);
                 }
 
-                if (m_vectorTranslateMap.get() != nullptr) p_queryResults->Reverse();
+                // if (m_vectorTranslateMap.get() != nullptr) p_queryResults->Reverse();
 
 
 
@@ -310,21 +318,17 @@ namespace SPTAG
 
                 p_stats->m_exLatency = remoteProcessTime;
 
-                p_queryResults->SortResult();
+                // p_stats->m_diskReadLatency = 0;
 
-                if (p_query.GetResultNum() < m_options.m_searchInternalResultNum) {
-                    std::copy(p_queryResults->GetResults(), p_queryResults->GetResults() + p_query.GetResultNum(), p_query.GetResults());
-                    delete p_queryResults;
-                }
-
-                if (p_query.WithMeta() && nullptr != m_pMetadata)
-                {
-                    for (int i = 0; i < p_query.GetResultNum(); ++i)
-                    {
-                        SizeType result = p_query.GetResult(i)->VID;
-                        p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
+                p_tempResult->SortResult();
+                if (m_vectorTranslateMap.get() != nullptr) {
+                    for (int i = 0; i < p_tempResult->GetResultNum(); ++i) {
+                        auto res = p_tempResult->GetResult(i);
+                        if (res->VID == -1) break;
+                        p_queryResults->AddPoint(res->VID, res->Dist);
                     }
                 }
+                p_queryResults->SortResult();
                 return ErrorCode::Success;
             }
 
@@ -354,8 +358,9 @@ namespace SPTAG
                     std::vector<int> m_readedHead_temp;
                     Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead_temp);
 
+
                     zmq::message_t request(msgLength);
-                    memcpy (request.data(), ptr, msgLength);
+                    memcpy(request.data(), ptr, msgLength);
 
                     // write(socket_fd, ptr, msgLength);
                     clientSocket->send(request);
@@ -387,6 +392,9 @@ namespace SPTAG
                     char msg_int[4];
                     memcpy(msg_int, ptr, 4);
                     int totalMsg_size = (*(int *)msg_int);
+
+                    p_stats->m_diskAccessCount = totalMsg_size / 1024;
+
                     postingList.resize(totalMsg_size);
                     char* ptr_postingList = (char*)(postingList.c_str());
                     memcpy(ptr_postingList, ptr+4, totalMsg_size);
@@ -413,7 +421,7 @@ namespace SPTAG
             void ProcessPostingDSPANN(QueryResult& p_queryResults, 
                 std::string& postingList, std::vector<int>& m_readedHead)
             {
-                int m_vectorInfoSize = sizeof(T) + sizeof(int) + sizeof(uint8_t);
+                int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
 
                 int m_metaDataSize = sizeof(int) + sizeof(uint8_t);
 
@@ -427,9 +435,9 @@ namespace SPTAG
                 // }
                 // m_workspace->m_deduper.clear();
 
-                for (auto headID : m_readedHead) {
-                    m_workspace->m_deduper.CheckAndSet(headID);
-                }
+                // for (auto headID : m_readedHead) {
+                //     m_workspace->m_deduper.CheckAndSet(headID);
+                // }
 
                 for (int i = 0; i < vectorNum; i++) {
                     char* vectorInfo = postingList.data() + i * m_vectorInfoSize;
@@ -444,16 +452,21 @@ namespace SPTAG
             }
 
             int ClientConnect() {
-                zmq::context_t context (1); 
                 clientSocket.reset(new zmq::socket_t(context, ZMQ_REQ)); 
 
-                std::cout << "Connecting to broker…" << std::endl; 
                 clientSocket->connect(m_options.m_ipAddrFrontend.c_str());
                 return 0;
             }
 
-            ErrorCode Worker() {
+            int ClientClose() {
+                clientSocket->close();
+                context.shutdown();
+                context.close();
+                return 0;
+            }
 
+            ErrorCode Worker() {
+                LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
                 zmq::context_t context(1);
 
                 zmq::socket_t responder(context, ZMQ_REP);
@@ -512,8 +525,7 @@ namespace SPTAG
                         zmq::message_t request(totalSize+sizeof(double)+sizeof(int));
 
                         ptr = static_cast<char*>(request.data());
-
-                        memcpy(ptr, (char*) totalSize, sizeof(int));
+                        memcpy(ptr, (char*)&totalSize, sizeof(int));
 
                         //LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
                         // write(accept_socket, ((char*)&totalSize), sizeof(int));
@@ -524,17 +536,17 @@ namespace SPTAG
                             memcpy(ptr+sizeof(int)+first, postingLists[i].data(), postingLists[i].size());
                             first += postingLists[i].size();
                         }
-
                         memcpy(ptr+sizeof(int)+first, ((char*)&diskReadTime), sizeof(double));
 
                         // write(accept_socket, ((char*)&diskReadTime), sizeof(double));
-                        
+                        responder.send(request);
                     }
                 }
                 return ErrorCode::Success;
             }
 
             ErrorCode BrokerOn() {
+                LOG(Helper::LogLevel::LL_Info, "Start Broker\n");
                 // struct sockaddr_in serv_addr, cli_addr;
                 // socklen_t clilen;
                 // int accept_socket;

@@ -25,6 +25,9 @@ namespace SPTAG
         template <typename T>
         thread_local std::shared_ptr<zmq::socket_t> Index<T>::clientSocket;
 
+        template <typename T>
+        thread_local zmq::context_t Index<T>::context(1); 
+
         std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> { return std::shared_ptr<Helper::DiskIO>(new Helper::AsyncFileIO()); };
 
         template <typename T>
