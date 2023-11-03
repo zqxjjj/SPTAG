@@ -86,7 +86,7 @@ namespace SPTAG {
             for (int i = 0; i < p_numThreads; i++) { threads.emplace_back([&, i]()
                 {
                     // Helper::SetThreadAffinity( ((i+1) * 4), threads[i], 0, 0);
-                    p_index->ClientConnect();
+                    // p_index->ClientConnect();
                     size_t index = 0;
                     while (true)
                     {
@@ -104,7 +104,7 @@ namespace SPTAG {
                         }
                         else
                         {
-                            p_index->ClientClose();
+                            // p_index->ClientClose();
                             return;
                         }
                     }

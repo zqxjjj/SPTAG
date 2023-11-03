@@ -28,13 +28,8 @@
 #include <functional>
 #include <ratio>
 #include <shared_mutex>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include <zmq.hpp>
-#include <future>
 
 namespace SPTAG
 {
@@ -46,6 +41,58 @@ namespace SPTAG
 
     namespace SPANN
     {
+        class NetworkJob : public Helper::ThreadPool::Job
+        {
+        public:
+            zmq::message_t* request;
+            zmq::message_t* reply;
+            int* in_flight;
+            NetworkJob(zmq::message_t* request, zmq::message_t* reply, int* in_flight)
+                : request(request), reply(reply), in_flight(in_flight) {}
+            ~NetworkJob() {}
+            inline void exec(IAbortOperation* p_abort) override {
+                *in_flight = 0;
+            }
+        };
+
+        class NetworkThreadPool : public Helper::ThreadPool
+        {
+        public:
+            void initNetwork(int numberOfThreads, SPANN::Options& m_options) 
+            {
+                m_abort.SetAbort(false);
+                for (int i = 0; i < numberOfThreads; i++)
+                {
+                    m_threads.emplace_back([this, m_options] {
+                        zmq::context_t context(1);
+                        zmq::socket_t clientSocket(context, ZMQ_REQ);
+                        clientSocket.connect(m_options.m_ipAddrFrontend.c_str());
+                        Job *j;
+                        while (get(j))
+                        {
+                            try 
+                            {
+                                NetworkJob *nj = static_cast<NetworkJob*>(j);
+                                currentJobs++;
+                                clientSocket.send(*(nj->request));
+                                clientSocket.recv(nj->reply);
+                                *(nj->in_flight) = 0;
+                                currentJobs--;
+                            }
+                            catch (std::exception& e) {
+                                LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
+                            }
+                            
+                            delete j;
+                        }
+                        clientSocket.close();
+                        context.shutdown();
+                        context.close();
+                    });
+                }
+            }
+        };
+
         template<typename T>
         class Index : public VectorIndex
         {
@@ -67,7 +114,7 @@ namespace SPTAG
             // If not Coord, than bind some port
             bool m_isCoordinator;
 
-            std::shared_ptr<Helper::ThreadPool> m_clientThreadPool;
+            std::shared_ptr<NetworkThreadPool> m_clientThreadPool;
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -243,17 +290,17 @@ namespace SPTAG
                     return ErrorCode::EmptyIndex;
                 }
 
+                auto t1 = std::chrono::high_resolution_clock::now();
+                m_index->SearchIndex(p_query);
+                auto t2 = std::chrono::high_resolution_clock::now();
+
+                p_stats->m_headLatency = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count())) / 1000;
+
                 COMMON::QueryResultSet<T>* p_queryResults;
                 QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
                 COMMON::QueryResultSet<T>* p_tempResult = (COMMON::QueryResultSet<T>*) & p_Result;
 
                 p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-
-                auto t1 = std::chrono::high_resolution_clock::now();
-                m_index->SearchIndex(*p_queryResults);
-                auto t2 = std::chrono::high_resolution_clock::now();
-
-                p_stats->m_headLatency = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count())) / 1000;
 
                 if (m_workspace.get() == nullptr) {
                     m_workspace.reset(new ExtraWorkSpace());
@@ -288,8 +335,6 @@ namespace SPTAG
                 }
 
                 // if (m_vectorTranslateMap.get() != nullptr) p_queryResults->Reverse();
-
-
 
                 /***Remote Transefer And Process**/
                 auto t3 = std::chrono::high_resolution_clock::now();
@@ -340,14 +385,19 @@ namespace SPTAG
                     Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead);
 
                     zmq::message_t request(msgLength);
+                    zmq::message_t reply;
+
+                    int in_flight = 1;
 
 
                     memcpy(request.data(), ptr, msgLength);
 
-                    clientSocket->send(request);
+                    auto* curJob = new NetworkJob(&request, &reply, &in_flight);
+                    m_clientThreadPool->add(curJob);
 
-                    zmq::message_t reply;
-                    clientSocket->recv(&reply);
+                    while (in_flight != 0) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(20));
+                    }
 
                     int resultLength = reply.size();
                     int resultSize = (resultLength - 16) / 8;
@@ -383,12 +433,19 @@ namespace SPTAG
 
 
                     zmq::message_t request(msgLength);
+                    zmq::message_t reply;
+
+                    int in_flight = 1;
+
+
                     memcpy(request.data(), ptr, msgLength);
 
-                    clientSocket->send(request);
+                    auto* curJob = new NetworkJob(&request, &reply, &in_flight);
+                    m_clientThreadPool->add(curJob);
 
-                    zmq::message_t reply;
-                    clientSocket->recv(&reply);
+                    while (in_flight != 0) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(20));
+                    }
 
                     ptr = static_cast<char*>(reply.data());
                     char msg_int[4];
@@ -446,19 +503,19 @@ namespace SPTAG
                 }
             }
 
-            int ClientConnect() {
-                clientSocket.reset(new zmq::socket_t(context, ZMQ_REQ)); 
+            // int ClientConnect() {
+            //     clientSocket.reset(new zmq::socket_t(context, ZMQ_REQ)); 
 
-                clientSocket->connect(m_options.m_ipAddrFrontend.c_str());
-                return 0;
-            }
+            //     clientSocket->connect(m_options.m_ipAddrFrontend.c_str());
+            //     return 0;
+            // }
 
-            int ClientClose() {
-                clientSocket->close();
-                context.shutdown();
-                context.close();
-                return 0;
-            }
+            // int ClientClose() {
+            //     clientSocket->close();
+            //     context.shutdown();
+            //     context.close();
+            //     return 0;
+            // }
 
             ErrorCode Worker() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
