@@ -148,7 +148,7 @@ namespace SPTAG {
             PrintPercentiles<double, SPANN::SearchStats>(stats,
                 [](const SPANN::SearchStats& ss) -> double
                 {
-                    return ss.m_totalLatency - ss.m_exLatency - ss.m_compLatency;
+                    return ss.m_headLatency;
                 },
                 "%.3lf");
 

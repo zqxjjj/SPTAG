@@ -70,6 +70,8 @@ namespace SPTAG {
 
             double m_exSetUpLatency;
 
+            double m_headLatency;
+
             std::chrono::steady_clock::time_point m_searchRequestTime;
 
             int m_threadID;

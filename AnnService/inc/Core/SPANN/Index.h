@@ -34,6 +34,7 @@
 #include <unistd.h>
 
 #include <zmq.hpp>
+#include <future>
 
 namespace SPTAG
 {
@@ -48,26 +49,6 @@ namespace SPTAG
         template<typename T>
         class Index : public VectorIndex
         {
-            // class ClientJob : public Helper::ThreadPool::Job
-            // {
-            // private:
-            //     int client_socket;
-            //     SPANN::Index<T>* m_index;
-            //     std::function<void()> m_callback;
-            // public:
-            //     ClientJob(int client_socket, SPANN::Index<T>* m_index, std::function<void()> p_callback)
-            //         : client_socket(client_socket), m_index(m_index), m_callback(std::move(p_callback)) {}
-
-            //     ~ClientJob() {}
-
-            //     inline void exec(IAbortOperation* p_abort) override {
-            //         m_index->HandleClient(client_socket);
-            //         if (m_callback != nullptr) {
-            //             m_callback();
-            //         }
-            //     }
-            // };
-
         private:
             std::shared_ptr<VectorIndex> m_index;
             std::shared_ptr<std::uint64_t> m_vectorTranslateMap;
@@ -268,7 +249,11 @@ namespace SPTAG
 
                 p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
 
+                auto t1 = std::chrono::high_resolution_clock::now();
                 m_index->SearchIndex(*p_queryResults);
+                auto t2 = std::chrono::high_resolution_clock::now();
+
+                p_stats->m_headLatency = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count())) / 1000;
 
                 if (m_workspace.get() == nullptr) {
                     m_workspace.reset(new ExtraWorkSpace());
@@ -291,6 +276,7 @@ namespace SPTAG
                         res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
                         if(!m_workspace->m_deduper.CheckAndSet(res->VID)) {
                             p_tempResult->AddPoint(res->VID, res->Dist);
+                            m_readedHead.emplace_back(res->VID);
                         } 
                         res->VID = -1;
                         res->Dist = MaxDist;
@@ -299,8 +285,6 @@ namespace SPTAG
                         res->VID = -1;
                         res->Dist = MaxDist;
                     }
-
-                    if (m_vectorTranslateMap.get() != nullptr) m_readedHead.emplace_back(res->VID);
                 }
 
                 // if (m_vectorTranslateMap.get() != nullptr) p_queryResults->Reverse();
@@ -314,9 +298,9 @@ namespace SPTAG
                 // CloseConnect(socket_fd);
                 auto t4 = std::chrono::high_resolution_clock::now();
 
-                double remoteProcessTime = std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count();
+                double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
 
-                p_stats->m_exLatency = remoteProcessTime;
+                p_stats->m_exLatency = remoteProcessTime / 1000;
 
                 // p_stats->m_diskReadLatency = 0;
 
@@ -338,7 +322,9 @@ namespace SPTAG
                 memcpy(ptr + sizeof(T) * m_options.m_dim, &postingNum, sizeof(int));
                 memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int), m_postingIDs.data(), sizeof(int) * postingNum);
                 if (m_readedHead.size()!=0) {
-                    memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int) * (postingNum + 1), m_readedHead.data(), sizeof(int) * postingNum);
+                    int headNum = m_readedHead.size();
+                    memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int) * (postingNum + 1), &headNum, sizeof(int));
+                    memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int) * (postingNum + 2), m_readedHead.data(), sizeof(int) * headNum);
                 } 
             }
 
@@ -346,8 +332,45 @@ namespace SPTAG
             {
                 /** Serialize target vector, to be searched postings, allready readed VID**/
                 if (m_options.m_remoteCalculation) {
+                    int msgLength = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(int) * m_postingIDs.size() + sizeof(int) + sizeof(int) * m_readedHead.size();
+
+                    std::string postingList(msgLength, '\0');
+                    char* ptr = (char*)(postingList.c_str());
                     /** target vector(dim * valuetype) + searched postings(posting numbers + posting IDs) + searched head VIDs**/
-                    // Serialize(ptr, p_queryResults, m_postingIDs, m_readedHead);
+                    Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead);
+
+                    zmq::message_t request(msgLength);
+
+
+                    memcpy(request.data(), ptr, msgLength);
+
+                    clientSocket->send(request);
+
+                    zmq::message_t reply;
+                    clientSocket->recv(&reply);
+
+                    int resultLength = reply.size();
+                    int resultSize = (resultLength - 16) / 8;
+
+                    ptr = static_cast<char*>(reply.data());
+
+                    /** id & dist (ResultNum) **/
+
+                    COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
+
+                    for (int i = 0; i < resultSize; i++) {
+                        queryResults.AddPoint(*(int *)(ptr) , *(float *)(ptr+4));
+                        ptr += 8;
+                    }
+
+                    p_stats->m_diskReadLatency = (*(double *)(ptr));
+
+                    p_stats->m_compLatency = (*(double *)(ptr + 8));
+
+                    p_stats->m_diskAccessCount = msgLength;
+
+                    // p_stats->m_diskReadLatency = 0;
+                    // p_stats->m_compLatency = 0;
 
                 } else {
                     
@@ -362,29 +385,8 @@ namespace SPTAG
                     zmq::message_t request(msgLength);
                     memcpy(request.data(), ptr, msgLength);
 
-                    // write(socket_fd, ptr, msgLength);
                     clientSocket->send(request);
 
-                    // int totalRead = 0;
-                    // /**First read total size**/
-                    // char msg_int[4];
-                    // while (totalRead < sizeof(int)) {
-                    //     totalRead += read(socket_fd, msg_int + totalRead, sizeof(int) - totalRead);
-                    // }
-                    // int totalMsg_size = (*(int *)msg_int);
-                    // postingList.resize(totalMsg_size);
-                    // ptr = (char*)(postingList.c_str());
-                    // totalRead = 0;
-                    // while (totalRead < totalMsg_size) {
-                    //     totalRead += read(socket_fd, ptr + totalRead, totalMsg_size - totalRead);
-                    // }
-
-                    // char msg_double[8];
-
-                    // totalRead = 0;
-                    // while (totalRead < sizeof(double)) {
-                    //     totalRead += read(socket_fd, msg_double+ totalRead, sizeof(double) - totalRead);
-                    // }
                     zmq::message_t reply;
                     clientSocket->recv(&reply);
 
@@ -403,6 +405,8 @@ namespace SPTAG
 
                     p_stats->m_diskReadLatency = (*(double *)msg_double);
 
+                    // p_stats->m_diskReadLatency = 0;
+
                     auto t1 = std::chrono::high_resolution_clock::now();
 
                     /**Process Vectors**/
@@ -410,9 +414,9 @@ namespace SPTAG
 
                     auto t2 = std::chrono::high_resolution_clock::now();
 
-                    double localProcessTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+                    double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
-                    p_stats->m_compLatency = localProcessTime;
+                    p_stats->m_compLatency = localProcessTime / 1000;
 
                 }
                 return ErrorCode::Success;
@@ -429,15 +433,6 @@ namespace SPTAG
 
                 COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
 
-                // if (m_workspace.get() == nullptr) {
-                //     m_workspace.reset(new ExtraWorkSpace());
-                //     m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
-                // }
-                // m_workspace->m_deduper.clear();
-
-                // for (auto headID : m_readedHead) {
-                //     m_workspace->m_deduper.CheckAndSet(headID);
-                // }
 
                 for (int i = 0; i < vectorNum; i++) {
                     char* vectorInfo = postingList.data() + i * m_vectorInfoSize;
@@ -477,11 +472,6 @@ namespace SPTAG
                         
                     char* vectorBuffer = new char[msg_size];
 
-                    // int totalRead = 0;
-                    // while (totalRead < msg_size) {
-                    //     totalRead += read(accept_socket, vectorBuffer + totalRead, msg_size - totalRead);
-                    // }
-
                     zmq::message_t reply;
                     responder.recv(&reply);
 
@@ -490,19 +480,8 @@ namespace SPTAG
                     memcpy(vectorBuffer, ptr, msg_size);
 
                     if (m_options.m_remoteCalculation) {
-
-                    } else {
-                        // int postingNum;
-                        // totalRead = 0;
-                        // while (totalRead < sizeof(int)) {
-                        //     totalRead += read(accept_socket, ((char*) &postingNum) + totalRead, sizeof(int) - totalRead);
-                        // }
-                        // //LOG(Helper::LogLevel::LL_Info, "Need to read %d postings\n", postingNum);
-                        // std::vector<int> postingIDs(postingNum);
-                        // totalRead = 0;
-                        // while (totalRead < sizeof(int) * postingNum) {
-                        //     totalRead += read(accept_socket, postingIDs.data() + totalRead, sizeof(int) * postingNum - totalRead);
-                        // }
+                        QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
+                        COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
 
                         int postingNum;
                         memcpy((char*)&postingNum, ptr + msg_size, sizeof(int));
@@ -515,7 +494,85 @@ namespace SPTAG
                         auto t1 = std::chrono::high_resolution_clock::now();
                         m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
                         auto t2 = std::chrono::high_resolution_clock::now();
-                        double diskReadTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+                        double diskReadTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count())) / 1000;
+
+                        int headNum;
+                        memcpy((char*)&headNum, ptr + msg_size + sizeof(int) + sizeof(int) * postingNum, sizeof(int));
+
+                        std::vector<int> m_readedHead(headNum);
+                        memcpy((char*)m_readedHead.data(), ptr + msg_size + sizeof(int) + sizeof(int) * (postingNum + 1), sizeof(int) * headNum);
+
+                        if (m_workspace.get() == nullptr) {
+                            m_workspace.reset(new ExtraWorkSpace());
+                            m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                        }
+                        m_workspace->m_deduper.clear();
+
+                        for (int i = 0; i < headNum; i++) {
+                            m_workspace->m_deduper.CheckAndSet(m_readedHead[i]);
+                        }
+
+                        int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
+
+                        int m_metaDataSize = sizeof(int) + sizeof(uint8_t);
+
+                        auto t3 = std::chrono::high_resolution_clock::now();
+
+                        for (int j = 0; j < postingNum; j++) {
+
+                            int vectorNum = (int)(postingLists[j].size() / m_vectorInfoSize);
+
+                            for (int i = 0; i < vectorNum; i++) {
+                                char* vectorInfo = postingLists[j].data() + i * m_vectorInfoSize;
+                                int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+
+                                if(m_workspace->m_deduper.CheckAndSet(vectorID)) {
+                                    continue;
+                                }
+
+                                auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((const T*)vectorBuffer, (const T*)(vectorInfo + m_metaDataSize), m_options.m_dim , m_options.m_distCalcMethod);
+                                queryResults->AddPoint(vectorID, distance2leaf);
+                            }
+                        }
+
+                        queryResults->SortResult();
+
+                        auto t4 = std::chrono::high_resolution_clock::now();
+
+                        double computeTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())) / 1000;
+
+                        int resultSize = queryResults->GetResultNum();
+                        
+                        zmq::message_t request(resultSize * (sizeof(int) + sizeof(float)) + 2 * sizeof(double));
+
+                        ptr = static_cast<char*>(request.data());
+
+                        for (int i = 0; i < queryResults->GetResultNum(); ++i) {
+                            auto res = queryResults->GetResult(i);
+                            memcpy(ptr, (char *)&res->VID, sizeof(int));
+                            memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
+                            ptr+=8;
+                        }
+                        memcpy(ptr, (char*)&diskReadTime, sizeof(double));
+
+                        memcpy(ptr+8, ((char*)&computeTime), sizeof(double));
+
+                        responder.send(request);
+
+                    } else {
+
+                        int postingNum;
+                        memcpy((char*)&postingNum, ptr + msg_size, sizeof(int));
+
+                        std::vector<int> postingIDs(postingNum);
+                        memcpy((char*)postingIDs.data(), ptr + msg_size + sizeof(int), sizeof(int) * postingNum);
+
+                        std::vector<std::string> postingLists;
+
+                        auto t1 = std::chrono::high_resolution_clock::now();
+                        m_extraSearcher->GetMultiPosting(postingIDs, &postingLists);
+                        auto t2 = std::chrono::high_resolution_clock::now();
+                        double diskReadTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000;
 
                         int totalSize = 0;
                         for (int i = 0; i < postingLists.size(); i++) {
@@ -527,8 +584,6 @@ namespace SPTAG
                         ptr = static_cast<char*>(request.data());
                         memcpy(ptr, (char*)&totalSize, sizeof(int));
 
-                        //LOG(Helper::LogLevel::LL_Info, "Send back total Size: %d\n", totalSize);
-                        // write(accept_socket, ((char*)&totalSize), sizeof(int));
 
                         int first = 0;
                         for (int i = 0; i < postingLists.size(); i++) {
@@ -538,7 +593,6 @@ namespace SPTAG
                         }
                         memcpy(ptr+sizeof(int)+first, ((char*)&diskReadTime), sizeof(double));
 
-                        // write(accept_socket, ((char*)&diskReadTime), sizeof(double));
                         responder.send(request);
                     }
                 }
@@ -547,35 +601,6 @@ namespace SPTAG
 
             ErrorCode BrokerOn() {
                 LOG(Helper::LogLevel::LL_Info, "Start Broker\n");
-                // struct sockaddr_in serv_addr, cli_addr;
-                // socklen_t clilen;
-                // int accept_socket;
-                // int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-                // if (server_socket < 0) {
-                //     LOG(Helper::LogLevel::LL_Info, "can't open socket\n");
-                //     return ErrorCode::Undefined;
-                // }
-                // bzero((char *)&serv_addr, sizeof(serv_addr));
-                // serv_addr.sin_family = AF_INET;
-                // serv_addr.sin_addr.s_addr = inet_addr(m_options.m_ipAddr.c_str());
-                // serv_addr.sin_port = htons(m_options.m_port);
-                // if (bind(server_socket, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-                //     LOG(Helper::LogLevel::LL_Info, "can't binding\n");
-                //     return ErrorCode::Undefined;
-                // }
-                // listen(server_socket, 30);
-                // clilen = sizeof(cli_addr);
-                // while (true) {
-                //     // LOG(Helper::LogLevel::LL_Info, "Start Listening\n");
-                //     accept_socket = accept(server_socket, (struct sockaddr *)&cli_addr, &clilen);
-                //     if (accept_socket < 0) {
-                //         LOG(Helper::LogLevel::LL_Info, "can't accept\n");
-                //         return ErrorCode::Undefined;
-                //     }
-                //     auto* curJob = new ClientJob(accept_socket, this, nullptr);
-                //     m_clientThreadPool->add(curJob);
-                //     // LOG(Helper::LogLevel::LL_Info, "Accpet from client\n");
-                // }
 
                 zmq::context_t context(1);
                 zmq::socket_t frontend (context, ZMQ_ROUTER);
