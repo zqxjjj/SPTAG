@@ -22,11 +22,11 @@ namespace SPTAG
         template <typename T>
         thread_local std::shared_ptr<ExtraWorkSpace> Index<T>::m_workspace;
         
-        // template <typename T>
-        // thread_local std::shared_ptr<zmq::socket_t> Index<T>::clientSocket;
+        template <typename T>
+        thread_local std::shared_ptr<zmq::socket_t> Index<T>::clientSocket;
 
-        // template <typename T>
-        // thread_local zmq::context_t Index<T>::context(1); 
+        template <typename T>
+        thread_local zmq::context_t Index<T>::context(1); 
 
         std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> { return std::shared_ptr<Helper::DiskIO>(new Helper::AsyncFileIO()); };
 
@@ -147,8 +147,8 @@ namespace SPTAG
                     }
                     IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
                 }
-                m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options);
+                // m_clientThreadPool = std::make_shared<NetworkThreadPool>();
+                // m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options);
             } else {
                 if (m_options.m_useKV) {
                     m_extraSearcher.reset(new SPTAG::SPANN::ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));

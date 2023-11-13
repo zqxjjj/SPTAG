@@ -83,10 +83,12 @@ namespace SPTAG {
 
             LOG(Helper::LogLevel::LL_Info, "Searching: numThread: %d, numQueries: %d.\n", p_numThreads, numQueries);
 
+            auto Tstart = std::chrono::high_resolution_clock::now();
+
             for (int i = 0; i < p_numThreads; i++) { threads.emplace_back([&, i]()
                 {
                     // Helper::SetThreadAffinity( ((i+1) * 4), threads[i], 0, 0);
-                    // p_index->ClientConnect();
+                    p_index->ClientConnect();
                     size_t index = 0;
                     while (true)
                     {
@@ -100,17 +102,28 @@ namespace SPTAG {
                             auto t1 = std::chrono::high_resolution_clock::now();
                             p_index->SearchIndexRemote(p_results[index], &(p_stats[index]));
                             auto t2 = std::chrono::high_resolution_clock::now();
-                            p_stats[index].m_totalLatency = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+                            double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                            p_stats[index].m_totalLatency = totalTime / 1000;
                         }
                         else
                         {
-                            // p_index->ClientClose();
+                            p_index->ClientClose();
                             return;
                         }
                     }
                 });
             }
             for (auto& thread : threads) { thread.join(); }
+
+            auto Tend = std::chrono::high_resolution_clock::now();
+
+            double pastTime = std::chrono::duration_cast<std::chrono::microseconds>(Tend - Tstart).count() / 1000000;
+
+            LOG(Helper::LogLevel::LL_Info,
+            "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
+            pastTime,
+            numQueries / pastTime,
+            static_cast<uint32_t>(numQueries));
         }
 
         template <typename ValueType>

@@ -41,57 +41,57 @@ namespace SPTAG
 
     namespace SPANN
     {
-        class NetworkJob : public Helper::ThreadPool::Job
-        {
-        public:
-            zmq::message_t* request;
-            zmq::message_t* reply;
-            int* in_flight;
-            NetworkJob(zmq::message_t* request, zmq::message_t* reply, int* in_flight)
-                : request(request), reply(reply), in_flight(in_flight) {}
-            ~NetworkJob() {}
-            inline void exec(IAbortOperation* p_abort) override {
-                *in_flight = 0;
-            }
-        };
+        // class NetworkJob : public Helper::ThreadPool::Job
+        // {
+        // public:
+        //     zmq::message_t* request;
+        //     zmq::message_t* reply;
+        //     int* in_flight;
+        //     NetworkJob(zmq::message_t* request, zmq::message_t* reply, int* in_flight)
+        //         : request(request), reply(reply), in_flight(in_flight) {}
+        //     ~NetworkJob() {}
+        //     inline void exec(IAbortOperation* p_abort) override {
+        //         *in_flight = 0;
+        //     }
+        // };
 
-        class NetworkThreadPool : public Helper::ThreadPool
-        {
-        public:
-            void initNetwork(int numberOfThreads, SPANN::Options& m_options) 
-            {
-                m_abort.SetAbort(false);
-                for (int i = 0; i < numberOfThreads; i++)
-                {
-                    m_threads.emplace_back([this, m_options] {
-                        zmq::context_t context(1);
-                        zmq::socket_t clientSocket(context, ZMQ_REQ);
-                        clientSocket.connect(m_options.m_ipAddrFrontend.c_str());
-                        Job *j;
-                        while (get(j))
-                        {
-                            try 
-                            {
-                                NetworkJob *nj = static_cast<NetworkJob*>(j);
-                                currentJobs++;
-                                clientSocket.send(*(nj->request));
-                                clientSocket.recv(nj->reply);
-                                *(nj->in_flight) = 0;
-                                currentJobs--;
-                            }
-                            catch (std::exception& e) {
-                                LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
-                            }
+        // class NetworkThreadPool : public Helper::ThreadPool
+        // {
+        // public:
+        //     void initNetwork(int numberOfThreads, SPANN::Options& m_options) 
+        //     {
+        //         m_abort.SetAbort(false);
+        //         for (int i = 0; i < numberOfThreads; i++)
+        //         {
+        //             m_threads.emplace_back([this, m_options] {
+        //                 zmq::context_t context(1);
+        //                 zmq::socket_t clientSocket(context, ZMQ_REQ);
+        //                 clientSocket.connect(m_options.m_ipAddrFrontend.c_str());
+        //                 Job *j;
+        //                 while (get(j))
+        //                 {
+        //                     try 
+        //                     {
+        //                         NetworkJob *nj = static_cast<NetworkJob*>(j);
+        //                         currentJobs++;
+        //                         clientSocket.send(*(nj->request));
+        //                         clientSocket.recv(nj->reply);
+        //                         *(nj->in_flight) = 0;
+        //                         currentJobs--;
+        //                     }
+        //                     catch (std::exception& e) {
+        //                         LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
+        //                     }
                             
-                            delete j;
-                        }
-                        clientSocket.close();
-                        context.shutdown();
-                        context.close();
-                    });
-                }
-            }
-        };
+        //                     delete j;
+        //                 }
+        //                 clientSocket.close();
+        //                 context.shutdown();
+        //                 context.close();
+        //             });
+        //         }
+        //     }
+        // };
 
         template<typename T>
         class Index : public VectorIndex
@@ -114,7 +114,7 @@ namespace SPTAG
             // If not Coord, than bind some port
             bool m_isCoordinator;
 
-            std::shared_ptr<NetworkThreadPool> m_clientThreadPool;
+            // std::shared_ptr<NetworkThreadPool> m_clientThreadPool;
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -387,17 +387,18 @@ namespace SPTAG
                     zmq::message_t request(msgLength);
                     zmq::message_t reply;
 
-                    int in_flight = 1;
-
-
                     memcpy(request.data(), ptr, msgLength);
 
-                    auto* curJob = new NetworkJob(&request, &reply, &in_flight);
-                    m_clientThreadPool->add(curJob);
+                    // int in_flight = 1;
 
-                    while (in_flight != 0) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(20));
-                    }
+                    // auto* curJob = new NetworkJob(&request, &reply, &in_flight);
+                    // m_clientThreadPool->add(curJob);
+
+                    // while (in_flight != 0) {
+                    //     std::this_thread::sleep_for(std::chrono::microseconds(20));
+                    // }
+                    clientSocket->send(request);
+                    clientSocket->recv(&reply);
 
                     int resultLength = reply.size();
                     int resultSize = (resultLength - 16) / 8;
@@ -435,17 +436,19 @@ namespace SPTAG
                     zmq::message_t request(msgLength);
                     zmq::message_t reply;
 
-                    int in_flight = 1;
-
-
                     memcpy(request.data(), ptr, msgLength);
 
-                    auto* curJob = new NetworkJob(&request, &reply, &in_flight);
-                    m_clientThreadPool->add(curJob);
+                    // int in_flight = 1;
 
-                    while (in_flight != 0) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(20));
-                    }
+                    // auto* curJob = new NetworkJob(&request, &reply, &in_flight);
+                    // m_clientThreadPool->add(curJob);
+
+                    // while (in_flight != 0) {
+                    //     std::this_thread::sleep_for(std::chrono::microseconds(20));
+                    // }
+
+                    clientSocket->send(request);
+                    clientSocket->recv(&reply);
 
                     ptr = static_cast<char*>(reply.data());
                     char msg_int[4];
@@ -503,19 +506,19 @@ namespace SPTAG
                 }
             }
 
-            // int ClientConnect() {
-            //     clientSocket.reset(new zmq::socket_t(context, ZMQ_REQ)); 
+            int ClientConnect() {
+                clientSocket.reset(new zmq::socket_t(context, ZMQ_REQ)); 
 
-            //     clientSocket->connect(m_options.m_ipAddrFrontend.c_str());
-            //     return 0;
-            // }
+                clientSocket->connect(m_options.m_ipAddrFrontend.c_str());
+                return 0;
+            }
 
-            // int ClientClose() {
-            //     clientSocket->close();
-            //     context.shutdown();
-            //     context.close();
-            //     return 0;
-            // }
+            int ClientClose() {
+                clientSocket->close();
+                context.shutdown();
+                context.close();
+                return 0;
+            }
 
             ErrorCode Worker() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
