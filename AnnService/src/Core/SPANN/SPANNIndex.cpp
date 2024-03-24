@@ -5,6 +5,7 @@
 #include "inc/Helper/VectorSetReaders/MemoryReader.h"
 #include "inc/Core/SPANN/ExtraStaticSearcher.h"
 #include "inc/Core/SPANN/ExtraDynamicSearcher.h"
+#include <cstddef>
 #include <shared_mutex>
 #include <chrono>
 #include <random>
@@ -22,11 +23,11 @@ namespace SPTAG
         template <typename T>
         thread_local std::shared_ptr<ExtraWorkSpace> Index<T>::m_workspace;
         
-        template <typename T>
-        thread_local std::shared_ptr<zmq::socket_t> Index<T>::clientSocket;
+        // template <typename T>
+        // thread_local std::shared_ptr<zmq::socket_t> Index<T>::clientSocket;
 
-        template <typename T>
-        thread_local zmq::context_t Index<T>::context(1); 
+        // template <typename T>
+        // thread_local zmq::context_t Index<T>::context(1); 
 
         std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> { return std::shared_ptr<Helper::DiskIO>(new Helper::AsyncFileIO()); };
 
@@ -68,7 +69,11 @@ namespace SPTAG
         {
             IndexAlgoType algoType = p_reader.GetParameter("Base", "IndexAlgoType", IndexAlgoType::Undefined);
             VectorValueType valueType = p_reader.GetParameter("Base", "ValueType", VectorValueType::Undefined);
-            if ((m_index = CreateInstance(algoType, valueType)) == nullptr) return ErrorCode::FailedParseValue;
+            int layers = p_reader.GetParameter("BuildSSDIndex", "Layers", 2);
+            bool isCoordinator = p_reader.GetParameter("BuildSSDIndex", "IsCoordinator", false);
+            if (layers == 2 || !isCoordinator) {
+                if ((m_index = CreateInstance(algoType, valueType)) == nullptr) return ErrorCode::FailedParseValue;
+            }
 
             std::string sections[] = { "Base", "SelectHead", "BuildHead", "BuildSSDIndex" };
             for (int i = 0; i < 4; i++) {
@@ -129,32 +134,118 @@ namespace SPTAG
         ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
             m_isCoordinator = m_options.m_isCoordinator;
-            if (m_isCoordinator) {
-                m_index->SetQuantizer(m_pQuantizer);
-                if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
+            if (m_options.m_layers == 2) {
+                if (m_isCoordinator) {
+                    m_vectorTranslateMaps.resize(1);
+                    m_index->SetQuantizer(m_pQuantizer);
+                    if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
 
-                m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
-                m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
-                m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
-                m_index->UpdateIndex();
-                m_index->SetReady(true);
-                if (m_options.m_excludehead) {
-                    m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
-                    std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
-                    if (ptr == nullptr || !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
-                        LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
+                    m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+                    m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
+                    m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
+                    m_index->UpdateIndex();
+                    m_index->SetReady(true);
+                    if (m_options.m_excludehead) {
+                        m_vectorTranslateMaps[0].reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
+                        std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+                        if (ptr == nullptr || !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
+                            LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
+                            return ErrorCode::Fail;
+                        }
+                        IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMaps[0].get()));
+                    }
+                    m_clientThreadPool = std::make_shared<NetworkThreadPool>();
+                    m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options);
+                } else {
+                    m_extraSearchers.resize(1);
+                    if (m_options.m_useKV) {
+                        m_extraSearchers[0].reset(new SPTAG::SPANN::ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                    } else {
+                        m_extraSearchers[0].reset(new ExtraStaticSearcher<T>());
+                        if (!m_extraSearchers[0]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
+                    }
+                }
+            } else {
+                int toLoadLayers = m_options.m_layers - 1;
+                std::string m_spannIndexFolder = "HeadIndexSPANN";
+                if (m_isCoordinator) {
+                    std::string headIndexPath = m_options.m_indexDirectory;
+
+                    for (int i = 0; i < toLoadLayers-1; i++) {
+                        headIndexPath += FolderSep;
+                        headIndexPath += m_spannIndexFolder;
+                    }
+                    headIndexPath += FolderSep;
+                    headIndexPath += m_options.m_headIndexFolder;
+
+                    LOG(Helper::LogLevel::LL_Info, "Loading L-0 index: %s\n", headIndexPath.c_str());
+                    if (LoadIndex(headIndexPath, m_index) != ErrorCode::Success) {
+                        LOG(Helper::LogLevel::LL_Error, "Cannot load head index from %s!\n", headIndexPath.c_str());
                         return ErrorCode::Fail;
                     }
-                    IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
+                    LOG(Helper::LogLevel::LL_Info, "Loading L-0 index finished\n");
+
+                    m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+                    m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
+                    m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
+                    m_index->UpdateIndex();
+                    m_index->SetReady(true);
+
+                    LOG(Helper::LogLevel::LL_Info, "Loading L-1 to L-%d index headmap\n", toLoadLayers);
+
+                    m_vectorTranslateMaps.resize(toLoadLayers);
+
+                    for (int i = toLoadLayers; i > 0; i--) {
+                        std::string folderPath = m_options.m_indexDirectory;
+                        for (int j = 1; j < i; j++) {
+                            folderPath += FolderSep;
+                            folderPath += m_spannIndexFolder;
+                        }
+                        folderPath += FolderSep;
+                        LOG(Helper::LogLevel::LL_Info, "Loading L-%d index headmap from: %s\n", toLoadLayers-i+1, folderPath.c_str());
+                        Helper::IniReader iniReader;
+                        {
+                            auto fp = SPTAG::f_createIO();
+                            if (fp == nullptr || !fp->Initialize((folderPath + "indexloader.ini").c_str(), std::ios::in)) return ErrorCode::FailedOpenFile;
+                            if (ErrorCode::Success != iniReader.LoadIni(fp)) return ErrorCode::FailedParseValue;
+                        }
+                        bool excludehead = iniReader.GetParameter("BuildSSDIndex", "ExcludeHead", true);
+
+                        if (excludehead) {
+                            int headSize = iniReader.GetParameter("BuildSSDIndex", "HeadSize", 0);
+                            m_vectorTranslateMaps[toLoadLayers-i].reset(new std::uint64_t[headSize], std::default_delete<std::uint64_t[]>());
+                            std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+
+                            if (ptr == nullptr || !ptr->Initialize((folderPath + FolderSep + m_options.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
+                                LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (folderPath + FolderSep + m_options.m_headIDFile).c_str());
+                                return ErrorCode::Fail;
+                            }
+                            IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[toLoadLayers-i].get()));
+                        }
+                        LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i);
+                    }
+                    m_clientThreadPool = std::make_shared<NetworkThreadPool>();
+                    m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options);
+                } else {
+                    m_extraSearchers.resize(toLoadLayers);
+                    for (int i = toLoadLayers; i > 0; i--) {
+                        std::string folderPath = m_options.m_indexDirectory;
+                        for (int j = 1; j < i; j++) {
+                            folderPath += FolderSep;
+                            folderPath += m_spannIndexFolder;
+                        }
+
+                        auto temp = m_options.m_indexDirectory;
+                        m_options.m_indexDirectory = folderPath;
+
+                        m_extraSearchers[toLoadLayers-i].reset(new ExtraStaticSearcher<T>());
+                        if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
+
+                        m_options.m_indexDirectory = temp;
+
+                    }
                 }
-                // m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                // m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options);
-            } else {
-                if (m_options.m_useKV) {
-                    m_extraSearcher.reset(new SPTAG::SPANN::ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                }
-                // m_clientThreadPool = std::make_shared<Helper::ThreadPool>();
-                // m_clientThreadPool->init(m_options.m_searchThreadNum);
+
             }
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
             return ErrorCode::Success;
@@ -845,7 +936,7 @@ namespace SPTAG
                     LOG(Helper::LogLevel::LL_Error, "Failed to read vector file.\n");
                     return ErrorCode::Fail;
                 }
-                m_options.m_vectorSize = vectorReader->GetVectorSet()->Count();
+                // m_options.m_vectorSize = vectorReader->GetVectorSet()->Count();
             }
 
             return BuildIndexInternal(vectorReader);

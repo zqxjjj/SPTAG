@@ -199,4 +199,9 @@ DefineSSDParameter(m_isCoordinator, bool, false, "IsCoordinator")
 DefineSSDParameter(m_remoteCalculation, bool, false, "RemoteCalculation")
 DefineSSDParameter(m_ipAddrFrontend, std::string, std::string(""), "IPAddrFrontend")
 DefineSSDParameter(m_ipAddrBackend, std::string, std::string(""), "IPAddrBackend")
+
+// SPectrum
+DefineSSDParameter(m_layers, int, 2, "Layers")
+DefineSSDParameter(m_headSize, int, 0, "HeadSize")
+
 #endif

@@ -182,6 +182,10 @@ namespace SPTAG {
             std::string m_ipAddrFrontend;
             std::string m_ipAddrBackend;
 
+            // SPectrum
+            int m_layers;
+            int m_headSize;
+
 
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \

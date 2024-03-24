@@ -289,13 +289,15 @@ namespace SPTAG {
 
             virtual void GetWritePosting(SizeType pid, std::string& posting, bool write = false) { return; }
 
-            virtual void GetMultiPosting(std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) { return; }
+            virtual void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) { return; }
 
             virtual bool Initialize() { return false; }
 
             virtual bool ExitBlockController() { return false; }
 
             virtual void InitPostingRecord(std::shared_ptr<VectorIndex> p_index) { return; }
+
+            virtual ErrorCode MigirateKVToFile(std::shared_ptr<VectorIndex> p_index, Options& m_options) {return ErrorCode::Undefined;}
         };
     } // SPANN
 } // SPTAG

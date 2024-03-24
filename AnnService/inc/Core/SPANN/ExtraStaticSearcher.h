@@ -222,7 +222,7 @@ namespace SPTAG
                     size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
                     char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[pi]).GetBuffer());
 
-#ifdef ASYNC_READ       
+#ifdef ASYNC_READ   
                     auto& request = p_exWorkSpace->m_diskRequests[pi];
                     request.m_offset = listInfo->listOffset;
                     request.m_readSize = totalBytes;
@@ -1310,6 +1310,56 @@ namespace SPTAG
                 posting.resize(realBytes);
             }
 
+            void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) override {
+                int postingListCount = postingIDs.size();
+                for (int i = 0; i < postingIDs.size(); i++) {
+                    SizeType pid = postingIDs[i];
+                    // std::string posting;
+                    ListInfo* listInfo = &(m_listInfos[pid]);
+                    size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
+                    // size_t realBytes = listInfo->listEleCount * m_vectorInfoSize;
+                    // posting.resize(totalBytes);
+                    int fileid = m_oneContext? 0: pid / m_listPerFile;
+                    char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[i]).GetBuffer());
+                    // Helper::DiskIO* indexFile = m_indexFiles[fileid].get();
+                    // auto numRead = indexFile->ReadBinary(totalBytes, posting.data(), listInfo->listOffset);
+                    // if (numRead != totalBytes) {
+                    //     LOG(Helper::LogLevel::LL_Error, "File %s read bytes, expected: %zu, acutal: %llu.\n", m_extraFullGraphFile.c_str(), totalBytes, numRead);
+                    //     throw std::runtime_error("File read mismatch");
+                    // }
+                    // char* ptr = (char*)(posting.c_str());
+                    // memcpy(ptr, posting.c_str() + listInfo->pageOffset, realBytes);
+                    // posting.resize(realBytes);
+                    // postingLists->push_back(posting);
+#ifdef ASYNC_READ   
+                    auto& request = p_exWorkSpace->m_diskRequests[i];
+                    request.m_offset = listInfo->listOffset;
+                    request.m_readSize = totalBytes;
+                    request.m_buffer = buffer;
+                    request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
+                    request.m_payload = (void*)listInfo; 
+                    request.m_success = false;
+
+#ifdef BATCH_READ // async batch read
+                    request.m_callback = [&p_exWorkSpace, &request, &postingLists, this](bool success)
+                    {
+                        char* buffer = request.m_buffer;
+                        ListInfo* listInfo = (ListInfo*)(request.m_payload);
+
+                        char* p_postingListFullData = buffer + listInfo->pageOffset;
+                        size_t realBytes = listInfo->listEleCount * m_vectorInfoSize;
+                        std::string posting;
+                        posting.resize(realBytes);
+                        char* ptr = (char*)(posting.c_str());
+                        memcpy(ptr, p_postingListFullData, realBytes);
+                        postingLists->push_back(posting);
+                    };
+#endif
+#endif
+                }
+                BatchReadFileAsync(m_indexFiles, (p_exWorkSpace->m_diskRequests).data(), postingListCount);
+            }
+
         private:
             
             std::string m_extraFullGraphFile;
@@ -1333,6 +1383,10 @@ namespace SPTAG
             int m_totalListCount = 0;
 
             int m_listPerFile = 0;
+
+            bool readCheck = false;
+            bool readBatchCheck = false;
+            bool readAsyncCheck = false;
         };
     } // namespace SPANN
 } // namespace SPTAG
