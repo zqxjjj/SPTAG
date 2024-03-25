@@ -305,6 +305,10 @@ namespace SPTAG
 
                 p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
 
+                p_stats->m_compLatencys.resize(m_options.m_layers-1);
+                p_stats->m_diskReadLatencys.resize(m_options.m_layers-1);
+                p_stats->m_exLatencys.resize(m_options.m_layers-1);
+
                 for (int layer = 0; layer < m_options.m_layers - 1; layer++) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
                     COMMON::QueryResultSet<T>* p_tempResult = (COMMON::QueryResultSet<T>*) & p_Result;
@@ -350,9 +354,17 @@ namespace SPTAG
 
                     double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
 
-                    p_stats->m_exLatency = remoteProcessTime / 1000;
+                    p_stats->m_exLatencys[layer] = remoteProcessTime / 1000;
 
-                    // p_stats->m_diskReadLatency = 0;
+                    if (m_options.m_remoteCalculation) {
+                        p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency - p_stats->m_compLatency;
+                    } else {
+                        p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency;
+                    }
+
+                    p_stats->m_diskReadLatencys[layer] = p_stats->m_diskReadLatency;
+
+                    p_stats->m_compLatencys[layer] = p_stats->m_compLatency;
 
                     p_tempResult->SortResult();
                     if (m_vectorTranslateMaps[layer].get() != nullptr) {
@@ -425,7 +437,7 @@ namespace SPTAG
 
                     p_stats->m_compLatency = (*(double *)(ptr + 8));
 
-                    p_stats->m_diskAccessCount = msgLength;
+                    p_stats->m_diskAccessCount = 0;
 
                     // p_stats->m_diskReadLatency = 0;
                     // p_stats->m_compLatency = 0;
@@ -654,7 +666,7 @@ namespace SPTAG
                         }
 
                         auto t1 = std::chrono::high_resolution_clock::now();
-                        m_extraSearcher->GetMultiPosting(m_workspace.get(), postingIDs, &postingLists);
+                        m_extraSearchers[layer]->GetMultiPosting(m_workspace.get(), postingIDs, &postingLists);
                         auto t2 = std::chrono::high_resolution_clock::now();
                         double diskReadTime = (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()) / 1000;
 

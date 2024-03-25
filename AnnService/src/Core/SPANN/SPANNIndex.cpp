@@ -222,7 +222,7 @@ namespace SPTAG
                             }
                             IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[toLoadLayers-i].get()));
                         }
-                        LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i);
+                        LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
                     }
                     m_clientThreadPool = std::make_shared<NetworkThreadPool>();
                     m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options);

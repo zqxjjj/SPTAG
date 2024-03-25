@@ -157,7 +157,7 @@ namespace SPTAG {
 
             LOG(Helper::LogLevel::LL_Info, "\nFinish ANN Search...\n");
 
-            LOG(Helper::LogLevel::LL_Info, "\nLocal In-memory Latency Distribution:\n");
+            LOG(Helper::LogLevel::LL_Info, "\nLocal L-0 In-memory Latency Distribution:\n");
             PrintPercentiles<double, SPANN::SearchStats>(stats,
                 [](const SPANN::SearchStats& ss) -> double
                 {
@@ -165,37 +165,36 @@ namespace SPTAG {
                 },
                 "%.3lf");
 
-            LOG(Helper::LogLevel::LL_Info, "\nComp Latency Distribution:\n");
-            PrintPercentiles<double, SPANN::SearchStats>(stats,
-                [](const SPANN::SearchStats& ss) -> double
-                {
-                    return ss.m_compLatency;
-                },
-                "%.3lf");
+            for (int layer = 0; layer < p_opts.m_layers-1; layer++) {
+                for (int i = 0; i < numQueries; ++i) {
+                    stats[i].m_compLatency = stats[i].m_compLatencys[layer];
+                    stats[i].m_diskReadLatency = stats[i].m_diskReadLatencys[layer];
+                    stats[i].m_exLatency = stats[i].m_exLatencys[layer];
+                }
+                LOG(Helper::LogLevel::LL_Info, "\nL-%d Comp Latency Distribution:\n", layer);
+                PrintPercentiles<double, SPANN::SearchStats>(stats,
+                    [](const SPANN::SearchStats& ss) -> double
+                    {
+                        return ss.m_compLatency;
+                    },
+                    "%.3lf");
 
-            LOG(Helper::LogLevel::LL_Info, "\nRemote Disk Read Latency Distribution:\n");
-            PrintPercentiles<double, SPANN::SearchStats>(stats,
-                [](const SPANN::SearchStats& ss) -> double
-                {
-                    return ss.m_diskReadLatency;
-                },
-                "%.3lf");
+                LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Disk Read Latency Distribution:\n", layer);
+                PrintPercentiles<double, SPANN::SearchStats>(stats,
+                    [](const SPANN::SearchStats& ss) -> double
+                    {
+                        return ss.m_diskReadLatency;
+                    },
+                    "%.3lf");
 
-            LOG(Helper::LogLevel::LL_Info, "\nRemote Transfer Latency Distribution:\n");
-            PrintPercentiles<double, SPANN::SearchStats>(stats,
-                [](const SPANN::SearchStats& ss) -> double
-                {
-                    return ss.m_exLatency - ss.m_diskReadLatency;
-                },
-                "%.3lf");
-
-            LOG(Helper::LogLevel::LL_Info, "\nTotal Remote Page Access Distribution(KB):\n");
-            PrintPercentiles<int, SPANN::SearchStats>(stats,
-                [](const SPANN::SearchStats& ss) -> int
-                {
-                    return ss.m_diskAccessCount;
-                },
-                "%4d");
+                LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Transfer Latency Distribution:\n", layer);
+                PrintPercentiles<double, SPANN::SearchStats>(stats,
+                    [](const SPANN::SearchStats& ss) -> double
+                    {
+                        return ss.m_exLatency;
+                    },
+                    "%.3lf");
+            }
 
             LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distribution:\n");
             PrintPercentiles<double, SPANN::SearchStats>(stats,
