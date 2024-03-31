@@ -431,6 +431,31 @@ namespace SPTAG
         }
 
         template<typename T>
+        ErrorCode Index<T>::SearchIndex(QueryResult &p_query, int& scannedVectors, bool p_searchDeleted)
+        {
+            if (!m_bReady) return ErrorCode::EmptyIndex;
+
+            if (m_workspace.get() == nullptr) {
+                m_workspace.reset(new COMMON::WorkSpace());
+                m_workspace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
+            }
+            m_workspace->Reset(m_iMaxCheck, p_query.GetResultNum());
+            SearchIndex(*((COMMON::QueryResultSet<T>*)&p_query), *m_workspace, p_searchDeleted, true);
+
+            scannedVectors = m_workspace->Count();
+
+            if (p_query.WithMeta() && nullptr != m_pMetadata)
+            {
+                for (int i = 0; i < p_query.GetResultNum(); ++i)
+                {
+                    SizeType result = p_query.GetResult(i)->VID;
+                    p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
+                }
+            }
+            return ErrorCode::Success;
+        }
+
+        template<typename T>
         ErrorCode Index<T>::RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted) const
         {
             if (m_workspace.get() == nullptr) {

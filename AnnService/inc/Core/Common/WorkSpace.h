@@ -28,6 +28,8 @@ namespace SPTAG
             // Max pool size.
             int m_poolSize;
 
+            int count;
+
             // Record 2 hash tables.
             // [0~m_poolSize + 1) is the first block.
             // [m_poolSize + 1, 2*(m_poolSize + 1)) is the second block;
@@ -63,6 +65,7 @@ namespace SPTAG
                 m_poolSize = (1 << (ex + exp)) - 1;
                 m_hashTable.reset(new SizeType[(m_poolSize + 1) * 2]);
                 clear();
+                count = 0;
             }
 
             void clear()
@@ -78,16 +81,21 @@ namespace SPTAG
                     m_secondHash = false;
                     memset(m_hashTable.get(), 0, 2 * sizeof(SizeType) * (m_poolSize + 1));
                 }
+                count = 0;
             }
 
             inline int HashTableExponent() const { return m_exp; }
 
             inline int MaxCheck() const { return (1 << (int)(log2(m_poolSize + 1) - m_exp)); }
 
+            inline int Count() const {return count;}
+
             inline bool CheckAndSet(SizeType idx)
             {
                 // Inner Index is begin from 1
-                return _CheckAndSet(m_hashTable.get(), m_poolSize, true, idx + 1) == 0;
+                bool flag = _CheckAndSet(m_hashTable.get(), m_poolSize, true, idx + 1) == 0;
+                if (!flag) count++;
+                return flag;
             }
 
             inline void DoubleSize()
@@ -254,6 +262,11 @@ namespace SPTAG
             }
 
             static void Reset() {}
+
+            inline int Count() const 
+            {
+                return nodeCheckStatus.Count();
+            }
 
             OptHashPosVector nodeCheckStatus;
 

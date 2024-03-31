@@ -295,8 +295,9 @@ namespace SPTAG
                     return ErrorCode::EmptyIndex;
                 }
 
+                p_stats->m_layerCounts.resize(m_options.m_layers);
                 auto t1 = std::chrono::high_resolution_clock::now();
-                m_index->SearchIndex(p_query);
+                m_index->SearchIndex(p_query, p_stats->m_layerCounts[0]);
                 auto t2 = std::chrono::high_resolution_clock::now();
 
                 p_stats->m_headLatency = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count())) / 1000;
@@ -420,7 +421,7 @@ namespace SPTAG
                     // clientSocket->recv(&reply);
 
                     int resultLength = reply.size();
-                    int resultSize = (resultLength - 16) / 8;
+                    int resultSize = (resultLength - 20) / 8;
 
                     ptr = static_cast<char*>(reply.data());
 
@@ -436,6 +437,8 @@ namespace SPTAG
                     p_stats->m_diskReadLatency = (*(double *)(ptr));
 
                     p_stats->m_compLatency = (*(double *)(ptr + 8));
+
+                    p_stats->m_layerCounts[layer+1] = (*(int *)(ptr + 16));
 
                     p_stats->m_diskAccessCount = 0;
 
@@ -606,15 +609,20 @@ namespace SPTAG
 
                         auto t3 = std::chrono::high_resolution_clock::now();
 
+                        int scannedNum = 0;
+
                         for (int j = 0; j < postingNum; j++) {
 
                             int vectorNum = (int)(postingLists[j].size() / m_vectorInfoSize);
+
+                            scannedNum += vectorNum;
 
                             for (int i = 0; i < vectorNum; i++) {
                                 char* vectorInfo = postingLists[j].data() + i * m_vectorInfoSize;
                                 int vectorID = *(reinterpret_cast<int*>(vectorInfo));
 
                                 if(m_workspace->m_deduper.CheckAndSet(vectorID)) {
+                                    scannedNum--;
                                     continue;
                                 }
 
@@ -631,7 +639,7 @@ namespace SPTAG
 
                         int resultSize = queryResults->GetResultNum();
                         
-                        zmq::message_t request(resultSize * (sizeof(int) + sizeof(float)) + 2 * sizeof(double));
+                        zmq::message_t request(resultSize * (sizeof(int) + sizeof(float)) + 2 * sizeof(double) + sizeof(int));
 
                         ptr = static_cast<char*>(request.data());
 
@@ -644,6 +652,8 @@ namespace SPTAG
                         memcpy(ptr, (char*)&diskReadTime, sizeof(double));
 
                         memcpy(ptr+8, ((char*)&computeTime), sizeof(double));
+
+                        memcpy(ptr+16, ((char*)&scannedNum), sizeof(int));
 
                         responder.send(request);
 

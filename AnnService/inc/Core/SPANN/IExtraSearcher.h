@@ -74,6 +74,8 @@ namespace SPTAG {
 
             std::vector<double> m_compLatencys;
 
+            std::vector<int> m_layerCounts;
+
             std::vector<double> m_diskReadLatencys;
 
             std::vector<double> m_exLatencys;

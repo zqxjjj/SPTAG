@@ -38,6 +38,8 @@ public:
     virtual ErrorCode DeleteIndex(const void* p_vectors, SizeType p_vectorNum) = 0;
 
     virtual ErrorCode SearchIndex(QueryResult& p_results, bool p_searchDeleted = false) const = 0;
+
+    virtual ErrorCode SearchIndex(QueryResult& p_results, int& scannedVectors, bool p_searchDeleted = false) { return ErrorCode::Undefined; }
     
     virtual ErrorCode RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const = 0;
 
