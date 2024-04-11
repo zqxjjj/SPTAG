@@ -194,14 +194,13 @@ DefineSSDParameter(m_searchDuringUpdate, bool, false, "SearchDuringUpdate")
 DefineSSDParameter(m_reassignK, int, 0, "ReassignK")
 DefineSSDParameter(m_virtualHead, bool, false, "VirtualHead")
 
-// DSPANN
+// SPectrum
 DefineSSDParameter(m_isCoordinator, bool, false, "IsCoordinator")
 DefineSSDParameter(m_remoteCalculation, bool, false, "RemoteCalculation")
 DefineSSDParameter(m_ipAddrFrontend, std::string, std::string(""), "IPAddrFrontend")
 DefineSSDParameter(m_ipAddrBackend, std::string, std::string(""), "IPAddrBackend")
-
-// SPectrum
 DefineSSDParameter(m_layers, int, 2, "Layers")
 DefineSSDParameter(m_headSize, int, 0, "HeadSize")
+DefineSSDParameter(m_isLocal, bool, false, "IsLocal")
 
 #endif

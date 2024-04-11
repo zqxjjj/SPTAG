@@ -198,13 +198,23 @@ namespace SPTAG {
                     },
                     "%.3lf");
 
-                LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Transfer Latency Distribution:\n", layer+1);
-                PrintPercentiles<double, SPANN::SearchStats>(stats,
-                    [](const SPANN::SearchStats& ss) -> double
-                    {
-                        return ss.m_exLatency;
-                    },
-                    "%.3lf");
+                if (!p_opts.m_isLocal) {
+                    LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Transfer Latency Distribution:\n", layer+1);
+                    PrintPercentiles<double, SPANN::SearchStats>(stats,
+                        [](const SPANN::SearchStats& ss) -> double
+                        {
+                            return ss.m_exLatency;
+                        },
+                        "%.3lf");
+                } else {
+                    LOG(Helper::LogLevel::LL_Info, "\nL-%d Latency Distribution:\n", layer+1);
+                    PrintPercentiles<double, SPANN::SearchStats>(stats,
+                        [](const SPANN::SearchStats& ss) -> double
+                        {
+                            return ss.m_exLatency;
+                        },
+                        "%.3lf");
+                }
                 LOG(Helper::LogLevel::LL_Info, "\nLocal L-%d In-memory Vectors:\n", layer+1);
                 PrintPercentiles<double, SPANN::SearchStats>(stats,
                     [](const SPANN::SearchStats& ss) -> double
@@ -258,7 +268,7 @@ namespace SPTAG {
             #define DefineVectorValueType(Name, Type) \
                 if (index->GetVectorValueType() == VectorValueType::Name) { \
                     opts = ((SPANN::Index<Type>*)index.get())->GetOptions(); \
-                    if (!opts->m_isCoordinator) { \
+                    if (!opts->m_isLocal && !opts->m_isCoordinator) { \
                         ((SPANN::Index<Type>*)index.get())->BrokerOn(); \
                     } else { \
                         SearchRemote((SPANN::Index<Type>*)index.get()); \

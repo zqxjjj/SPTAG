@@ -186,6 +186,7 @@ namespace SPTAG {
             int m_layers;
             int m_headSize;
 
+            bool m_isLocal;
 
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \

@@ -172,7 +172,7 @@ namespace SPTAG
             std::shared_ptr<std::vector<std::string>> GetIndexFiles() const
             {
                 std::shared_ptr<std::vector<std::string>> files(new std::vector<std::string>);
-                if (m_options.m_layers == 2||!m_options.m_isCoordinator) {
+                if (!m_options.m_isLocal && (m_options.m_layers == 2||!m_options.m_isCoordinator)) {
                     auto headfiles = m_index->GetIndexFiles();
                     for (auto file : *headfiles) {
                         files->push_back(m_options.m_headIndexFolder + FolderSep + file);
@@ -290,7 +290,7 @@ namespace SPTAG
 
             ErrorCode SearchIndexRemote(QueryResult &p_query, SearchStats* p_stats)
             {
-                if (!m_isCoordinator) {
+                if (!m_isCoordinator && !m_options.m_isLocal) {
                     LOG(Helper::LogLevel::LL_Info, "not Coordinator, can't not search!\n");
                     return ErrorCode::EmptyIndex;
                 }
@@ -346,26 +346,37 @@ namespace SPTAG
                         }
                     }
 
-                    /***Remote Transefer And Process**/
-                    auto t3 = std::chrono::high_resolution_clock::now();
-                    // int socket_fd = ClientConnect();
-                    RemoteQueryProcess(*p_queryResults, m_workspace->m_postingIDs, m_readedHead, p_stats, layer);
-                    // CloseConnect(socket_fd);
-                    auto t4 = std::chrono::high_resolution_clock::now();
+                    if (!m_options.m_isLocal) {
+                        /***Remote Transefer And Process**/
+                        auto t3 = std::chrono::high_resolution_clock::now();
+                        // int socket_fd = ClientConnect();
+                        RemoteQueryProcess(*p_queryResults, m_workspace->m_postingIDs, m_readedHead, p_stats, layer);
+                        // CloseConnect(socket_fd);
+                        auto t4 = std::chrono::high_resolution_clock::now();
 
-                    double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
+                        double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
 
-                    p_stats->m_exLatencys[layer] = remoteProcessTime / 1000;
+                        p_stats->m_exLatencys[layer] = remoteProcessTime / 1000;
 
-                    if (m_options.m_remoteCalculation) {
-                        p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency - p_stats->m_compLatency;
+                        if (m_options.m_remoteCalculation) {
+                            p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency - p_stats->m_compLatency;
+                        } else {
+                            p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency;
+                        }
+
+                        p_stats->m_diskReadLatencys[layer] = p_stats->m_diskReadLatency;
+
+                        p_stats->m_compLatencys[layer] = p_stats->m_compLatency;
                     } else {
-                        p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency;
+                        auto t3 = std::chrono::high_resolution_clock::now();
+                        m_extraSearchers[layer]->SearchIndex(m_workspace.get(), *p_queryResults, m_index, p_stats);
+                        auto t4 = std::chrono::high_resolution_clock::now();
+                        double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
+                        p_stats->m_exLatencys[layer] = localProcessTime / 1000;
+                        p_stats->m_compLatencys[layer] = p_stats->m_compLatency;
+                        p_stats->m_diskReadLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_compLatency;
+                        p_stats->m_layerCounts[layer+1] = p_stats->m_totalListElementsCount;
                     }
-
-                    p_stats->m_diskReadLatencys[layer] = p_stats->m_diskReadLatency;
-
-                    p_stats->m_compLatencys[layer] = p_stats->m_compLatency;
 
                     p_tempResult->SortResult();
                     if (m_vectorTranslateMaps[layer].get() != nullptr) {
