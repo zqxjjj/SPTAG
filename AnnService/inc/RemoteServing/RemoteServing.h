@@ -150,6 +150,20 @@ namespace SPTAG {
                 results[i].Reset();
             }
 
+            if (p_opts.m_warmup) {
+
+                LOG(Helper::LogLevel::LL_Info, "Start ANN Warm Up Search...\n");
+
+                SearchSequential(p_index, numThreads, results, stats, internalResultNum);
+
+                LOG(Helper::LogLevel::LL_Info, "\nFinish ANN Search...\n");
+
+                for (int i = 0; i < numQueries; ++i)
+                {
+                    (*((COMMON::QueryResultSet<ValueType>*)&results[i])).SetTarget(reinterpret_cast<ValueType*>(querySet->GetVector(i)), p_index->m_pQuantizer);
+                    results[i].Reset();
+                }
+            }
 
             LOG(Helper::LogLevel::LL_Info, "Start ANN Search...\n");
 

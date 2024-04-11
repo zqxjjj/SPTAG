@@ -187,6 +187,7 @@ namespace SPTAG {
             int m_headSize;
 
             bool m_isLocal;
+            bool m_warmup;
 
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \
