@@ -578,27 +578,23 @@ namespace SPTAG
                         QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
                         COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
 
+                        p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
+
                         int layer;
                         memcpy((char*)&layer, ptr + msg_size, sizeof(int));
 
                         int postingNum;
                         memcpy((char*)&postingNum, ptr + msg_size + sizeof(int), sizeof(int));
 
-                        std::vector<int> postingIDs(postingNum);
-                        memcpy((char*)postingIDs.data(), ptr + msg_size + 2*sizeof(int), sizeof(int) * postingNum);
-
-                        std::vector<std::string> postingLists;
-
                         if (m_workspace.get() == nullptr) {
                             m_workspace.reset(new ExtraWorkSpace());
                             m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
                         }
+                        m_workspace->m_postingIDs.resize(postingNum);
 
-                        auto t1 = std::chrono::high_resolution_clock::now();
-                        m_extraSearchers[layer]->GetMultiPosting(m_workspace.get(), postingIDs, &postingLists);
-                        auto t2 = std::chrono::high_resolution_clock::now();
-                        double diskReadTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-                        diskReadTime /= 1000;
+                        memcpy((char*)m_workspace->m_postingIDs.data(), ptr + msg_size + 2*sizeof(int), sizeof(int) * postingNum);
+
+                        // std::vector<std::string> postingLists;
 
                         int headNum;
                         memcpy((char*)&headNum, ptr + msg_size + 2*sizeof(int) + sizeof(int) * postingNum, sizeof(int));
@@ -612,41 +608,59 @@ namespace SPTAG
                             m_workspace->m_deduper.CheckAndSet(m_readedHead[i]);
                         }
 
-                        // int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
-                        int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int);
-
-                        // int m_metaDataSize = sizeof(int) + sizeof(uint8_t);
-                        int m_metaDataSize = sizeof(int);
-
-                        auto t3 = std::chrono::high_resolution_clock::now();
-
+                        double compLatency = 0;
                         int scannedNum = 0;
 
-                        for (int j = 0; j < postingNum; j++) {
+                        auto t1 = std::chrono::high_resolution_clock::now();
+                        // m_extraSearchers[layer]->GetMultiPosting(m_workspace.get(), postingIDs, &postingLists);
+                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
+                        auto t2 = std::chrono::high_resolution_clock::now();
 
-                            int vectorNum = (int)(postingLists[j].size() / m_vectorInfoSize);
+                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
+                        processTime /= 1000;
 
-                            scannedNum += vectorNum;
+                        double diskReadTime = processTime - compLatency;
+                        double computeTime = compLatency;
 
-                            for (int i = 0; i < vectorNum; i++) {
-                                char* vectorInfo = postingLists[j].data() + i * m_vectorInfoSize;
-                                int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+                        // double diskReadTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
+                        // diskReadTime /= 1000;
 
-                                if(m_workspace->m_deduper.CheckAndSet(vectorID)) {
-                                    scannedNum--;
-                                    continue;
-                                }
 
-                                auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((const T*)vectorBuffer, (const T*)(vectorInfo + m_metaDataSize), m_options.m_dim , m_options.m_distCalcMethod);
-                                queryResults->AddPoint(vectorID, distance2leaf);
-                            }
-                        }
+                        // // int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
+                        // int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int);
+
+                        // // int m_metaDataSize = sizeof(int) + sizeof(uint8_t);
+                        // int m_metaDataSize = sizeof(int);
+
+                        // auto t3 = std::chrono::high_resolution_clock::now();
+
+                        // int scannedNum = 0;
+
+                        // for (int j = 0; j < postingNum; j++) {
+
+                        //     int vectorNum = (int)(postingLists[j].size() / m_vectorInfoSize);
+
+                        //     scannedNum += vectorNum;
+
+                        //     for (int i = 0; i < vectorNum; i++) {
+                        //         char* vectorInfo = postingLists[j].data() + i * m_vectorInfoSize;
+                        //         int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+
+                        //         if(m_workspace->m_deduper.CheckAndSet(vectorID)) {
+                        //             scannedNum--;
+                        //             continue;
+                        //         }
+
+                        //         auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((const T*)vectorBuffer, (const T*)(vectorInfo + m_metaDataSize), m_options.m_dim , m_options.m_distCalcMethod);
+                        //         queryResults->AddPoint(vectorID, distance2leaf);
+                        //     }
+                        // }
 
                         queryResults->SortResult();
 
-                        auto t4 = std::chrono::high_resolution_clock::now();
+                        // auto t4 = std::chrono::high_resolution_clock::now();
 
-                        double computeTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())) / 1000;
+                        // double computeTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())) / 1000;
 
                         int resultSize = queryResults->GetResultNum();
                         

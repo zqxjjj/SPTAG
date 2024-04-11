@@ -299,6 +299,8 @@ namespace SPTAG {
 
             virtual void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) { return; }
 
+            virtual void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, double& compLatency, int& scannedNum, Options& p_options) { return; }
+
             virtual bool Initialize() { return false; }
 
             virtual bool ExitBlockController() { return false; }

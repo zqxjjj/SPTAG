@@ -1317,6 +1317,54 @@ namespace SPTAG
                 posting.resize(realBytes);
             }
 
+            void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, double& compLatency, int& scannedNum, Options& p_options) override {
+                COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*)&p_queryResults);
+                int postingListCount = p_exWorkSpace->m_postingIDs.size();
+                compLatency = 0;
+                scannedNum = 0;
+                for (int i = 0; i < postingListCount; i++) {
+                    SizeType pid = p_exWorkSpace->m_postingIDs[i];
+                    // std::string posting;
+                    ListInfo* listInfo = &(m_listInfos[pid]);
+                    size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
+                    int fileid = m_oneContext? 0: pid / m_listPerFile;
+                    char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[i]).GetBuffer());
+
+                    scannedNum += listInfo->listEleCount;
+
+                    auto& request = p_exWorkSpace->m_diskRequests[i];
+                    request.m_offset = listInfo->listOffset;
+                    request.m_readSize = totalBytes;
+                    request.m_buffer = buffer;
+                    request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
+                    request.m_payload = (void*)listInfo; 
+                    request.m_success = false;
+                    request.m_callback = [&p_exWorkSpace, &request, &queryResults, &compLatency, &p_options, this](bool success)
+                    {
+                        char* buffer = request.m_buffer;
+                        ListInfo* listInfo = (ListInfo*)(request.m_payload);
+
+                        char* p_postingListFullData = buffer + listInfo->pageOffset;
+                        size_t realBytes = listInfo->listEleCount * m_vectorInfoSize;
+
+                        auto t1 = std::chrono::high_resolution_clock::now();
+                        for (int i = 0; i < listInfo->listEleCount; i++) {
+                            uint64_t offsetVectorID, offsetVector;
+                            (this->*m_parsePosting)(offsetVectorID, offsetVector, i, listInfo->listEleCount);
+                            int vectorID = *(reinterpret_cast<int*>(p_postingListFullData + offsetVectorID));
+                            if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
+                            auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((ValueType *)queryResults.GetQuantizedTarget(), (ValueType *)p_postingListFullData + offsetVector, p_options.m_dim , p_options.m_distCalcMethod);
+                            queryResults.AddPoint(vectorID, distance2leaf);
+                        }
+                        auto t2 = std::chrono::high_resolution_clock::now();
+                        double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                        compLatency += (localProcessTime / 1000);
+                    };
+                }
+
+                BatchReadFileAsync(m_indexFiles, (p_exWorkSpace->m_diskRequests).data(), postingListCount);
+            }
+
             void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) override {
                 int postingListCount = postingIDs.size();
                 for (int i = 0; i < postingIDs.size(); i++) {
