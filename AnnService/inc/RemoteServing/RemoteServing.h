@@ -131,28 +131,166 @@ namespace SPTAG {
         {
             SPANN::Options& p_opts = *(p_index->GetOptions());
             // Initialize connector pool
-            InitDSPANNNetWork();
+            p_index->InitDSPANNNetWork();
 
             // Loading query & center
+            int internalResultNum = p_opts.m_searchInternalResultNum;
 
             auto querySet = LoadQuerySet(p_opts);
 
+            int numQueries = querySet->Count();
+
+            std::string truthFile = p_opts.m_truthPath;
+
+            int K = p_opts.m_resultNum;
+            int truthK = (p_opts.m_truthResultNum <= 0) ? K : p_opts.m_truthResultNum;
+
             std::vector<QueryResult> results(numQueries, QueryResult(NULL, max(K, internalResultNum), false));
-            std::vector<std::vector<double>> latency(numQueries, std::vector<double>(p_opts.m_dspannTopK));
+            std::vector<double> latency(numQueries);
             for (int i = 0; i < numQueries; ++i)
             {
                 (*((COMMON::QueryResultSet<ValueType>*)&results[i])).SetTarget(reinterpret_cast<ValueType*>(querySet->GetVector(i)), p_index->m_pQuantizer);
                 results[i].Reset();
             }
 
+            LOG(Helper::LogLevel::LL_Info, "Load Query Finished\n");
+
+            ValueType* centers = (ValueType*)ALIGN_ALLOC(sizeof(ValueType) * p_opts.m_dspannIndexFileNum * p_opts.m_dim);
+
+            {
+                auto ptr = f_createIO();
+                if (ptr == nullptr || !ptr->Initialize(p_opts.m_dspannCenters.c_str(), std::ios::binary | std::ios::in)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to read center file %s.\n", p_opts.m_dspannCenters.c_str());
+                }
+
+                SizeType r;
+                DimensionType c;
+                DimensionType col = p_opts.m_dim;
+                SizeType row = p_opts.m_dspannIndexFileNum;
+                ptr->ReadBinary(sizeof(SizeType), (char*)&r) != sizeof(SizeType);
+                ptr->ReadBinary(sizeof(DimensionType), (char*)&c) != sizeof(DimensionType);
+
+                if (r != row || c != col) {
+                    LOG(Helper::LogLevel::LL_Error, "Row(%d,%d) or Col(%d,%d) cannot match.\n", r, row, c, col);
+                }
+
+                ptr->ReadBinary(sizeof(ValueType) * row * col, (char*)centers);
+            }
+
+            LOG(Helper::LogLevel::LL_Info, "Load Center Finished\n");
+
             // Calculating query to shard
 
+            int top = p_opts.m_dspannTopK;
+
+            std::vector<std::vector<int>> needToTraverse(numQueries, std::vector<int>(top));
+
+            struct ShardWithDist
+            {
+                int id;
+
+                float dist;
+            };
+
+            for (int index = 0; index < numQueries; index++) {
+                std::vector<ShardWithDist> shardDist(p_opts.m_dspannIndexFileNum);
+                for (int j = 0; j < p_opts.m_dspannIndexFileNum; j++) {
+                    float dist = COMMON::DistanceUtils::ComputeDistance((const ValueType*)querySet->GetVector(index), (const ValueType*)centers + j* p_opts.m_dim, querySet->Dimension(), p_index->GetDistCalcMethod());
+                    shardDist[j].id = j;
+                    shardDist[j].dist = dist;
+                }
+
+                std::sort(shardDist.begin(), shardDist.end(), [&](ShardWithDist& a, const ShardWithDist& b){
+                    return a.dist == b.dist ? a.id < b.id : a.dist < b.dist;
+                });
+
+                for (int j = 0; j < top; j++) {
+                    needToTraverse[index][j] = shardDist[j].id;
+                }
+            }
 
             // Dispatching query to shard
 
+            std::atomic_size_t queriesSent(0);
+
+            std::vector<std::thread> threads;
+
+            LOG(Helper::LogLevel::LL_Info, "Searching: numThread: %d, numQueries: %d.\n", p_opts.m_searchThreadNum, numQueries);
+
+            SSDServing::Utils::StopW sw;
+
+            for (int i = 0; i < p_opts.m_searchThreadNum; i++) { threads.emplace_back([&, i]()
+                {
+                    // Helper::SetThreadAffinity( ((i+1) * 4), threads[i], 0, 0);
+                    // p_index->ClientConnect();
+                    size_t index = 0;
+                    while (true)
+                    {
+                        index = queriesSent.fetch_add(1);
+                        if (index < numQueries)
+                        {
+                            if ((index & ((1 << 14) - 1)) == 0)
+                            {
+                                LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
+                            }
+                            auto t1 = std::chrono::high_resolution_clock::now();
+                            p_index->SearchIndexShard(results[index], needToTraverse[index], top);
+                            auto t2 = std::chrono::high_resolution_clock::now();
+                            double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                            latency[index] = totalTime / 1000;
+                        }
+                        else
+                        {
+                            // p_index->ClientClose();
+                            return;
+                        }
+                    }
+                });
+            }
+            for (auto& thread : threads) { thread.join(); }
+
+            double sendingCost = sw.getElapsedSec();
+
+             LOG(Helper::LogLevel::LL_Info,
+                "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
+                sendingCost,
+                numQueries / sendingCost,
+                static_cast<uint32_t>(numQueries));
+
             // Loading Truth
 
-            // Calculating Truth & Print Stats
+            float recall = 0, MRR = 0;
+            std::vector<std::set<SizeType>> truth;
+            if (!truthFile.empty())
+            {
+                LOG(Helper::LogLevel::LL_Info, "Start loading TruthFile...\n");
+
+                auto ptr = f_createIO();
+                if (ptr == nullptr || !ptr->Initialize(truthFile.c_str(), std::ios::in | std::ios::binary)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed open truth file: %s\n", truthFile.c_str());
+                    exit(1);
+                }
+                int originalK = truthK;
+                COMMON::TruthSet::LoadTruth(ptr, truth, numQueries, originalK, truthK, p_opts.m_truthType);
+                char tmp[4];
+                if (ptr->ReadBinary(4, tmp) == 4) {
+                    LOG(Helper::LogLevel::LL_Error, "Truth number is larger than query number(%d)!\n", numQueries);
+                }
+
+                recall = COMMON::TruthSet::CalculateRecall<ValueType>(p_index, results, truth, K, truthK, querySet, nullptr, numQueries, nullptr, false, &MRR);
+                LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f MRR@%d: %f\n", truthK, K, recall, K, MRR);
+            }
+
+            // Print Stats
+
+            LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distirbution:\n");
+            PrintPercentiles<double, double>(latency,
+                [](const double& ss) -> double
+                {
+                    return ss;
+                },
+                "%.3lf");
+
         }
 
         template <typename ValueType>

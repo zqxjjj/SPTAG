@@ -119,7 +119,7 @@ namespace SPTAG
 
             std::shared_ptr<NetworkThreadPool> m_clientThreadPool;
 
-            stdvector<std::shared_ptr<NetworkThreadPool>> m_clientThreadPoolDSPANN;
+            std::vector<std::shared_ptr<NetworkThreadPool>> m_clientThreadPoolDSPANN;
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -249,7 +249,7 @@ namespace SPTAG
 
             void InitDSPANNNetWork() {
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
-                int port = 8000
+                int port = 8000;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, port += 2) {
                     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
                     addrPrefix += std::to_string(port);
@@ -300,6 +300,58 @@ namespace SPTAG
                 }
 
                 return m_extraSearcher->AddIndex(vectorSet, m_index, begin);
+            }
+
+            ErrorCode SearchIndexShard(QueryResult &p_query, std::vector<int>& needToTraverse, int top)
+            {
+                COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
+
+                std::vector<int> in_flight(top, 0);
+
+                zmq::message_t* request[top];
+                zmq::message_t* reply[top];
+
+                for (int i = 0; i < top; ++i) {
+                    request[i] = new zmq::message_t(m_options.m_dim * sizeof(T));
+                    reply[i] = new zmq::message_t();
+
+                    memcpy(request[i]->data(), (char*)p_query.GetTarget(), m_options.m_dim * sizeof(T));
+
+                    in_flight[i] = 1;
+
+                    auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
+                    m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
+                }
+
+                bool notReady = true;
+
+                std::vector<int> visit(top, 0);
+
+                while (notReady) {
+                    for (int i = 0; i < top; ++i) {
+                        if (in_flight[i] == 0 && visit[i] == 0) {
+                            visit[i] = 1;
+                            auto ptr = static_cast<char*>(reply[i]->data());
+                            for (int j = 0; j < m_options.m_resultNum; j++) {
+                                int VID;
+                                float Dist;
+                                memcpy((char *)&VID, ptr, sizeof(int));
+                                memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
+
+                                p_queryResults->AddPoint(VID, Dist);
+                                ptr += sizeof(int);
+                                ptr += sizeof(float);
+                            }
+                        }
+                    }
+                    notReady = false;
+                    for (int i = 0; i < top; ++i) {
+                        if (visit[i] != 1) notReady = true;
+                    }
+                }
+                p_queryResults->SortResult();
+
+                return ErrorCode::Success;
             }
 
             ErrorCode SearchIndexRemote(QueryResult &p_query, SearchStats* p_stats)
@@ -591,16 +643,16 @@ namespace SPTAG
                     memcpy(vectorBuffer, ptr, msg_size);
                     // copy vector
 
-                    QueryResult result(NULL, max(K, internalResultNum), false));
+                    QueryResult result(NULL, m_options.m_searchInternalResultNum, false);
 
-                    (*((COMMON::QueryResultSet<ValueType>*)&result)).SetTarget(reinterpret_cast<ValueType*>(vectorBuffer), p_index->m_pQuantizer);
+                    (*((COMMON::QueryResultSet<T>*)&result)).SetTarget(reinterpret_cast<T*>(vectorBuffer), m_pQuantizer);
                     result.Reset();
 
                     SearchStats stats;
 
                     m_options.m_isLocal = true;
 
-                    SearchIndexRemote(&result, &stats);
+                    SearchIndexRemote(result, &stats);
 
                     int K = m_options.m_resultNum;
                         
