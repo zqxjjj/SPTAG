@@ -121,6 +121,8 @@ namespace SPTAG
 
             std::vector<std::shared_ptr<NetworkThreadPool>> m_clientThreadPoolDSPANN;
 
+            std::vector<SPTAG::COMMON::Dataset<int>> mappingData;
+
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
             static thread_local std::shared_ptr<zmq::socket_t> clientSocket;
@@ -248,6 +250,8 @@ namespace SPTAG
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
 
             void InitDSPANNNetWork() {
+                mappingData.resize(m_options.m_dspannIndexFileNum);
+
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
                 int port = 8000;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, port += 2) {
@@ -256,6 +260,15 @@ namespace SPTAG
                     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
                     m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+
+                    std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
+                    LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
+                    auto ptr = f_createIO();
+                    if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                        LOG(Helper::LogLevel::LL_Info, "Initialize Mapping Error: %d\n", i);
+                        exit(1);
+                    }
+                    mappingData[i].Load(ptr, m_options.m_datasetRowsInBlock, m_options.m_datasetCapacity);
                 }
             }
 
@@ -327,6 +340,8 @@ namespace SPTAG
 
                 std::vector<int> visit(top, 0);
 
+                std::set<int> visited;
+
                 while (notReady) {
                     for (int i = 0; i < top; ++i) {
                         if (in_flight[i] == 0 && visit[i] == 0) {
@@ -338,7 +353,9 @@ namespace SPTAG
                                 memcpy((char *)&VID, ptr, sizeof(int));
                                 memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
 
-                                p_queryResults->AddPoint(VID, Dist);
+                                if (VID == -1) break;
+                                if (visited.find(*mappingData[needToTraverse[i]][VID]) != visited.end()) continue;
+                                p_queryResults->AddPoint(*mappingData[needToTraverse[i]][VID], Dist);
                                 ptr += sizeof(int);
                                 ptr += sizeof(float);
                             }
@@ -651,7 +668,6 @@ namespace SPTAG
                     SearchStats stats;
 
                     m_options.m_isLocal = true;
-
                     SearchIndexRemote(result, &stats);
 
                     int K = m_options.m_resultNum;
