@@ -204,4 +204,12 @@ DefineSSDParameter(m_headSize, int, 0, "HeadSize")
 DefineSSDParameter(m_isLocal, bool, false, "IsLocal")
 DefineSSDParameter(m_warmup, bool, false, "Warmup")
 
+// DSPANN
+DefineSSDParameter(m_dspann, bool, false, "DSPANN")
+DefineSSDParameter(m_dspannIndexFileNum, int, 5, "DSPANNIndexFileNum")
+DefineSSDParameter(m_dspannIndexLabelPrefix, std::string, "", "DSPANNIndexLabelPrefix")
+DefineSSDParameter(m_dspannCenters, std::string, "", "DSPANNCenters")
+DefineSSDParameter(m_dspannTopK, int, 5, "DSPANNTopK")
+DefineSSDParameter(m_ipAddrFrontendDSPANN, std::string, std::string(""), "IPAddrFrontendDSPANN")
+
 #endif

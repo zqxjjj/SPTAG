@@ -125,6 +125,36 @@ namespace SPTAG {
                 static_cast<uint32_t>(numQueries));
         }
 
+
+        template <typename ValueType>
+        void DSPANNSearch(SPANN::Index<ValueType>* p_index)
+        {
+            SPANN::Options& p_opts = *(p_index->GetOptions());
+            // Initialize connector pool
+            InitDSPANNNetWork();
+
+            // Loading query & center
+
+            auto querySet = LoadQuerySet(p_opts);
+
+            std::vector<QueryResult> results(numQueries, QueryResult(NULL, max(K, internalResultNum), false));
+            std::vector<std::vector<double>> latency(numQueries, std::vector<double>(p_opts.m_dspannTopK));
+            for (int i = 0; i < numQueries; ++i)
+            {
+                (*((COMMON::QueryResultSet<ValueType>*)&results[i])).SetTarget(reinterpret_cast<ValueType*>(querySet->GetVector(i)), p_index->m_pQuantizer);
+                results[i].Reset();
+            }
+
+            // Calculating query to shard
+
+
+            // Dispatching query to shard
+
+            // Loading Truth
+
+            // Calculating Truth & Print Stats
+        }
+
         template <typename ValueType>
         void SearchRemote(SPANN::Index<ValueType>* p_index)
         {
@@ -290,7 +320,7 @@ namespace SPTAG {
             #define DefineVectorValueType(Name, Type) \
                 if (index->GetVectorValueType() == VectorValueType::Name) { \
                     opts = ((SPANN::Index<Type>*)index.get())->GetOptions(); \
-                    if (!opts->m_isLocal && !opts->m_isCoordinator) { \
+                    if (opts->m_dspann ||(!opts->m_isLocal && !opts->m_isCoordinator)) { \
                         ((SPANN::Index<Type>*)index.get())->BrokerOn(); \
                     } else { \
                         SearchRemote((SPANN::Index<Type>*)index.get()); \

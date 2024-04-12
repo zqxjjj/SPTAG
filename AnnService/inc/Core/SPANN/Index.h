@@ -58,15 +58,15 @@ namespace SPTAG
         class NetworkThreadPool : public Helper::ThreadPool
         {
         public:
-            void initNetwork(int numberOfThreads, SPANN::Options& m_options) 
+            void initNetwork(int numberOfThreads, std::string& m_ipAddrFrontend) 
             {
                 m_abort.SetAbort(false);
                 for (int i = 0; i < numberOfThreads; i++)
                 {
-                    m_threads.emplace_back([this, m_options] {
+                    m_threads.emplace_back([this, m_ipAddrFrontend] {
                         zmq::context_t context(1);
                         zmq::socket_t clientSocket(context, ZMQ_REQ);
-                        clientSocket.connect(m_options.m_ipAddrFrontend.c_str());
+                        clientSocket.connect(m_ipAddrFrontend.c_str());
                         Job *j;
                         while (get(j))
                         {
@@ -118,6 +118,8 @@ namespace SPTAG
             bool m_isCoordinator;
 
             std::shared_ptr<NetworkThreadPool> m_clientThreadPool;
+
+            stdvector<std::shared_ptr<NetworkThreadPool>> m_clientThreadPoolDSPANN;
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -244,6 +246,18 @@ namespace SPTAG
             bool Initialize() { return m_extraSearcher->Initialize(); }
 
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
+
+            void InitDSPANNNetWork() {
+                m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+                int port = 8000
+                for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, port += 2) {
+                    std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                    addrPrefix += std::to_string(port);
+                    LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                    m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                    m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                }
+            }
 
             ErrorCode AddIndexSPFresh(const void *p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType* VID) {
                 if ((!m_options.m_useKV &&!m_options.m_useSPDK) || m_extraSearcher == nullptr) {
@@ -557,6 +571,55 @@ namespace SPTAG
             //     return 0;
             // }
 
+            ErrorCode WorkerDSPANN() {
+                LOG(Helper::LogLevel::LL_Info, "Start Worker DSPANN\n");
+                zmq::context_t context(1);
+
+                zmq::socket_t responder(context, ZMQ_REP);
+                responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                while(1) {
+                    int msg_size = m_options.m_dim * sizeof(T);
+                        
+                    char* vectorBuffer = new char[msg_size];
+
+                    zmq::message_t reply;
+                    responder.recv(&reply);
+
+                    char* ptr = static_cast<char*>(reply.data());
+
+                    memcpy(vectorBuffer, ptr, msg_size);
+                    // copy vector
+
+                    QueryResult result(NULL, max(K, internalResultNum), false));
+
+                    (*((COMMON::QueryResultSet<ValueType>*)&result)).SetTarget(reinterpret_cast<ValueType*>(vectorBuffer), p_index->m_pQuantizer);
+                    result.Reset();
+
+                    SearchStats stats;
+
+                    m_options.m_isLocal = true;
+
+                    SearchIndexRemote(&result, &stats);
+
+                    int K = m_options.m_resultNum;
+                        
+                    zmq::message_t request(K * (sizeof(int) + sizeof(float)));
+                    COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & result;
+
+                    ptr = static_cast<char*>(request.data());
+                    for (int i = 0; i < K; i++) {
+                        auto res = queryResults->GetResult(i);
+                        memcpy(ptr, (char *)&res->VID, sizeof(int));
+                        memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
+                        ptr+=8;
+                    }
+
+                    responder.send(request);
+                }
+                return ErrorCode::Success;
+            }
+
             ErrorCode Worker() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
                 zmq::context_t context(1);
@@ -752,7 +815,8 @@ namespace SPTAG
                 for (int i = 0; i < m_options.m_searchThreadNum; i++)
                 {
                     m_threads.emplace_back([this] {
-                        Worker();
+                        if (m_options.m_dspann) WorkerDSPANN();
+                        else Worker();
                     });
                 }
                 

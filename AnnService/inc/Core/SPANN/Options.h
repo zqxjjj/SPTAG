@@ -189,6 +189,14 @@ namespace SPTAG {
             bool m_isLocal;
             bool m_warmup;
 
+            // DSPANN
+            bool m_dspann;
+            int m_dspannIndexFileNum;
+            std::string m_dspannIndexLabelPrefix;
+            std::string m_dspannCenters;
+            int m_dspannTopK;
+            std::string m_ipAddrFrontendDSPANN;
+
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \
                 VarName = DefaultValue; \
