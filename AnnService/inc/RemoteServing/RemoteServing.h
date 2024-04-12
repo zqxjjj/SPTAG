@@ -194,6 +194,7 @@ namespace SPTAG {
                     stats[i].m_diskReadLatency = stats[i].m_diskReadLatencys[layer];
                     stats[i].m_exLatency = stats[i].m_exLatencys[layer];
                     stats[i].m_totalListElementsCount = stats[i].m_layerCounts[layer+1];
+                    stats[i].m_diskAccessCount = stats[i].m_diskReadPages[layer];
                 }
                 LOG(Helper::LogLevel::LL_Info, "\nL-%d Comp Latency Distribution:\n", layer+1);
                 PrintPercentiles<double, SPANN::SearchStats>(stats,
@@ -203,7 +204,7 @@ namespace SPTAG {
                     },
                     "%.3lf");
 
-                LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Disk Read Latency Distribution:\n", layer+1);
+                LOG(Helper::LogLevel::LL_Info, "\nL-%d Disk Read Latency Distribution:\n", layer+1);
                 PrintPercentiles<double, SPANN::SearchStats>(stats,
                     [](const SPANN::SearchStats& ss) -> double
                     {
@@ -227,8 +228,16 @@ namespace SPTAG {
                             return ss.m_exLatency;
                         },
                         "%.3lf");
+
+                    LOG(Helper::LogLevel::LL_Info, "\nL-%d Pages Distribution:\n", layer+1);
+                    PrintPercentiles<int, SPANN::SearchStats>(stats,
+                        [](const SPANN::SearchStats& ss) -> int
+                        {
+                            return ss.m_diskAccessCount;
+                        },
+                        "%4d");
                 }
-                LOG(Helper::LogLevel::LL_Info, "\nLocal L-%d In-memory Vectors:\n", layer+1);
+                LOG(Helper::LogLevel::LL_Info, "\nLocal L-%d Vectors:\n", layer+1);
                 PrintPercentiles<double, SPANN::SearchStats>(stats,
                     [](const SPANN::SearchStats& ss) -> double
                     {

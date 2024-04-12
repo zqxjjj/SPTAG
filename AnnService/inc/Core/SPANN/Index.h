@@ -309,6 +309,7 @@ namespace SPTAG
                 p_stats->m_compLatencys.resize(m_options.m_layers-1);
                 p_stats->m_diskReadLatencys.resize(m_options.m_layers-1);
                 p_stats->m_exLatencys.resize(m_options.m_layers-1);
+                p_stats->m_diskReadPages.resize(m_options.m_layers-1);
 
                 for (int layer = 0; layer < m_options.m_layers - 1; layer++) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
@@ -376,6 +377,7 @@ namespace SPTAG
                         p_stats->m_compLatencys[layer] = p_stats->m_compLatency;
                         p_stats->m_diskReadLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_compLatency;
                         p_stats->m_layerCounts[layer+1] = p_stats->m_totalListElementsCount;
+                        p_stats->m_diskReadPages[layer] = p_stats->m_diskAccessCount;
                     }
 
                     p_tempResult->SortResult();

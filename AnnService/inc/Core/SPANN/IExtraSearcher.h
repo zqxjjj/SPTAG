@@ -78,6 +78,8 @@ namespace SPTAG {
 
             std::vector<double> m_diskReadLatencys;
 
+            std::vector<double> m_diskReadPages;
+
             std::vector<double> m_exLatencys;
 
             std::chrono::steady_clock::time_point m_searchRequestTime;
