@@ -5,6 +5,7 @@
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/VectorSetReader.h"
+#include "inc/SSDServing/Utils.h"
 #include <future>
 
 #include <iomanip>
@@ -83,7 +84,7 @@ namespace SPTAG {
 
             LOG(Helper::LogLevel::LL_Info, "Searching: numThread: %d, numQueries: %d.\n", p_numThreads, numQueries);
 
-            auto Tstart = std::chrono::high_resolution_clock::now();
+            SSDServing::Utils::StopW sw;
 
             for (int i = 0; i < p_numThreads; i++) { threads.emplace_back([&, i]()
                 {
@@ -115,15 +116,13 @@ namespace SPTAG {
             }
             for (auto& thread : threads) { thread.join(); }
 
-            auto Tend = std::chrono::high_resolution_clock::now();
+            double sendingCost = sw.getElapsedSec();
 
-            double pastTime = std::chrono::duration_cast<std::chrono::microseconds>(Tend - Tstart).count() / 1000000;
-
-            LOG(Helper::LogLevel::LL_Info,
-            "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
-            pastTime,
-            numQueries / pastTime,
-            static_cast<uint32_t>(numQueries));
+             LOG(Helper::LogLevel::LL_Info,
+                "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
+                sendingCost,
+                numQueries / sendingCost,
+                static_cast<uint32_t>(numQueries));
         }
 
         template <typename ValueType>
