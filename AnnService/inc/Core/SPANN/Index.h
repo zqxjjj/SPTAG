@@ -652,14 +652,13 @@ namespace SPTAG
                 responder.connect(m_options.m_ipAddrBackend.c_str());
 
                 while(1) {
-                    auto t1 = std::chrono::high_resolution_clock::now();
-
                     int msg_size = m_options.m_dim * sizeof(T);
                         
                     char* vectorBuffer = new char[msg_size];
 
                     zmq::message_t reply;
                     responder.recv(&reply);
+                    auto t1 = std::chrono::high_resolution_clock::now();
 
                     char* ptr = static_cast<char*>(reply.data());
 
