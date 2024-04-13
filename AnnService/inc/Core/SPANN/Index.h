@@ -355,6 +355,7 @@ namespace SPTAG
 
                                 if (VID == -1) break;
                                 if (visited.find(*mappingData[needToTraverse[i]][VID]) != visited.end()) continue;
+                                visited.insert(*mappingData[needToTraverse[i]][VID]);
                                 p_queryResults->AddPoint(*mappingData[needToTraverse[i]][VID], Dist);
                                 ptr += sizeof(int);
                                 ptr += sizeof(float);
