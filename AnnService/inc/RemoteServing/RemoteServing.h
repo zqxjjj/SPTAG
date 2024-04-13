@@ -185,6 +185,8 @@ namespace SPTAG {
 
             std::vector<std::vector<int>> needToTraverse(numQueries, std::vector<int>(top));
 
+            std::vector<std::vector<double>> traverseLatency(numQueries, std::vector<double>(top));
+
             struct ShardWithDist
             {
                 int id;
@@ -234,7 +236,7 @@ namespace SPTAG {
                                 LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
                             }
                             auto t1 = std::chrono::high_resolution_clock::now();
-                            p_index->SearchIndexShard(results[index], needToTraverse[index], top);
+                            p_index->SearchIndexShard(results[index], needToTraverse[index], top, traverseLatency[index]);
                             auto t2 = std::chrono::high_resolution_clock::now();
                             double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
                             latency[index] = totalTime / 1000;
@@ -282,9 +284,33 @@ namespace SPTAG {
             }
 
             // Print Stats
+            std::vector<double> minLatency(numQueries);
+            std::vector<double> maxLatency(numQueries);
+
+            for (int i = 0; i < numQueries; i++) {
+                std::sort(traverseLatency[i].begin(), traverseLatency[i].end());
+                minLatency[i] = traverseLatency[i][0];
+                maxLatency[i] = traverseLatency[i][top-1];
+            }
 
             LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distirbution:\n");
             PrintPercentiles<double, double>(latency,
+                [](const double& ss) -> double
+                {
+                    return ss;
+                },
+                "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nMin Latency Distirbution:\n");
+            PrintPercentiles<double, double>(minLatency,
+                [](const double& ss) -> double
+                {
+                    return ss;
+                },
+                "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nMax Latency Distirbution:\n");
+            PrintPercentiles<double, double>(maxLatency,
                 [](const double& ss) -> double
                 {
                     return ss;

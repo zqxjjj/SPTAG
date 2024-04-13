@@ -315,7 +315,7 @@ namespace SPTAG
                 return m_extraSearcher->AddIndex(vectorSet, m_index, begin);
             }
 
-            ErrorCode SearchIndexShard(QueryResult &p_query, std::vector<int>& needToTraverse, int top)
+            ErrorCode SearchIndexShard(QueryResult &p_query, std::vector<int>& needToTraverse, int top, std::vector<double>& latency)
             {
                 COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
 
@@ -360,6 +360,9 @@ namespace SPTAG
                                 visited.insert(*mappingData[needToTraverse[i]][VID]);
                                 p_queryResults->AddPoint(*mappingData[needToTraverse[i]][VID], Dist);
                             }
+                            double processLatency;
+                            memcpy((char *)&processLatency, ptr, sizeof(double));
+                            latency[i] = processLatency;
                         }
                     }
                     notReady = false;
@@ -649,6 +652,8 @@ namespace SPTAG
                 responder.connect(m_options.m_ipAddrBackend.c_str());
 
                 while(1) {
+                    auto t1 = std::chrono::high_resolution_clock::now();
+
                     int msg_size = m_options.m_dim * sizeof(T);
                         
                     char* vectorBuffer = new char[msg_size];
@@ -673,7 +678,7 @@ namespace SPTAG
 
                     int K = m_options.m_resultNum;
                         
-                    zmq::message_t request(K * (sizeof(int) + sizeof(float)));
+                    zmq::message_t request(K * (sizeof(int) + sizeof(float))+ sizeof(double));
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & result;
 
                     ptr = static_cast<char*>(request.data());
@@ -683,6 +688,12 @@ namespace SPTAG
                         memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
                         ptr+=8;
                     }
+
+                    auto t2 = std::chrono::high_resolution_clock::now();
+
+                    double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+
+                    memcpy(ptr, (char *)&localProcessTime, sizeof(double));
 
                     responder.send(request);
                 }
