@@ -692,6 +692,8 @@ namespace SPTAG
                     auto t2 = std::chrono::high_resolution_clock::now();
 
                     double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    
+                    localProcessTime /= 1000;
 
                     memcpy(ptr, (char *)&localProcessTime, sizeof(double));
 

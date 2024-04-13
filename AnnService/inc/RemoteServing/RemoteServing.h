@@ -288,9 +288,12 @@ namespace SPTAG {
             std::vector<double> maxLatency(numQueries);
 
             for (int i = 0; i < numQueries; i++) {
-                std::sort(traverseLatency[i].begin(), traverseLatency[i].end());
                 minLatency[i] = traverseLatency[i][0];
-                maxLatency[i] = traverseLatency[i][top-1];
+                maxLatency[i] = traverseLatency[i][0];
+                for (int j = 1; j < top; j++) {
+                    if (traverseLatency[i][j] > maxLatency[i]) maxLatency[i] = traverseLatency[i][j];
+                    if (traverseLatency[i][j] < minLatency[i]) minLatency[i] = traverseLatency[i][j];
+                }
             }
 
             LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distirbution:\n");
