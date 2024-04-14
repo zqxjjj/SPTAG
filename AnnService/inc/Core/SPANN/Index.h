@@ -302,7 +302,9 @@ namespace SPTAG
             void InitDSPANNNetWork() {
                 if (m_options.m_multinode) {
                     mappingData.resize(m_options.m_dspannIndexFileNum);
-                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum * 2);
+                    // m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum * 2);
+                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+
                     // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
                     // for shard i, m_clientThreadPoolDSPANN[i*2] and m_clientThreadPoolDSPANN[i*2+1] are all for processing
                     int node = 4;
@@ -311,15 +313,17 @@ namespace SPTAG
                         addrPrefix += std::to_string(node);
                         addrPrefix += ":8000";
                         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        m_clientThreadPoolDSPANN[i*2] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        // m_clientThreadPoolDSPANN[i*2] = std::make_shared<NetworkThreadPool>();
+                        // m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
 
-                        addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        addrPrefix += std::to_string(node);
-                        addrPrefix += ":8002";
-                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        m_clientThreadPoolDSPANN[i*2+1] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        // addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                        // addrPrefix += std::to_string(node);
+                        // addrPrefix += ":8002";
+                        // LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                        // m_clientThreadPoolDSPANN[i*2+1] = std::make_shared<NetworkThreadPool>();
+                        // m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
 
                         std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
                         LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
@@ -414,12 +418,13 @@ namespace SPTAG
                     in_flight[i] = 1;
 
                     auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
-                    if (m_options.m_multinode) {
-                        if (m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->jobsize() > m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->jobsize()) {
-                            m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->add(curJob);
-                        } else m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->add(curJob);
-                    }
-                    else m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
+                    // if (m_options.m_multinode) {
+                    //     if (m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->jobsize() > m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->jobsize()) {
+                    //         m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->add(curJob);
+                    //     } else m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->add(curJob);
+                    // }
+                    // else 
+                    m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
                 }
 
                 bool notReady = true;
