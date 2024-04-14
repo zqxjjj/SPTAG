@@ -60,7 +60,12 @@ int BootProgramDSPANN(const char* configurationPath) {
 	auto index = readIndex(&my_map, configurationPath);
 	#define DefineVectorValueType(Name, Type) \
 	if (index->GetVectorValueType() == VectorValueType::Name) { \
-		RemoteServing::DSPANNSearch((SPANN::Index<Type>*)(index.get())); \
+		SPANN::Options* opts = ((SPANN::Index<Type>*)index.get())->GetOptions(); \
+		if (opts->m_multinode && opts->m_isCoordinator) { \
+			RemoteServing::SPectrumSearchMulti((SPANN::Index<Type>*)(index.get())); \
+		} else {\
+			RemoteServing::DSPANNSearch((SPANN::Index<Type>*)(index.get())); \
+		}\
 	} \
 
 	#include "inc/Core/DefinitionList.h"

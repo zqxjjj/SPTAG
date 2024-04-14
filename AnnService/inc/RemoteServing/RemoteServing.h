@@ -125,7 +125,106 @@ namespace SPTAG {
                 static_cast<uint32_t>(numQueries));
         }
 
+        template <typename ValueType>
+        void SPectrumSearchMulti(SPANN::Index<ValueType>* p_index)
+        {
+            SPANN::Options& p_opts = *(p_index->GetOptions());
 
+            p_index->InitSPectrumNetWork();
+
+            int internalResultNum = p_opts.m_searchInternalResultNum;
+            auto querySet = LoadQuerySet(p_opts);
+
+            int numQueries = querySet->Count();
+
+            std::string truthFile = p_opts.m_truthPath;
+
+            int K = p_opts.m_resultNum;
+            int truthK = (p_opts.m_truthResultNum <= 0) ? K : p_opts.m_truthResultNum;
+
+            std::vector<QueryResult> results(numQueries, QueryResult(NULL, max(K, internalResultNum), false));
+            std::vector<double> latency(numQueries);
+            std::vector<SPANN::SearchStats> traverseLatency(numQueries);
+            for (int i = 0; i < numQueries; ++i)
+            {
+                (*((COMMON::QueryResultSet<ValueType>*)&results[i])).SetTarget(reinterpret_cast<ValueType*>(querySet->GetVector(i)), p_index->m_pQuantizer);
+                results[i].Reset();
+            }
+            LOG(Helper::LogLevel::LL_Info, "Load Query Finished\n");
+
+            std::atomic_size_t queriesSent(0);
+
+            std::vector<std::thread> threads;
+
+            LOG(Helper::LogLevel::LL_Info, "Searching: numThread: %d, numQueries: %d.\n", p_opts.m_searchThreadNum, numQueries);
+
+            SSDServing::Utils::StopW sw;
+
+            for (int i = 0; i < p_opts.m_searchThreadNum; i++) { threads.emplace_back([&, i]()
+                {
+                    size_t index = 0;
+                    while (true)
+                    {
+                        index = queriesSent.fetch_add(1);
+                        if (index < numQueries)
+                        {
+                            if ((index & ((1 << 14) - 1)) == 0)
+                            {
+                                LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
+                            }
+                            auto t1 = std::chrono::high_resolution_clock::now();
+                            p_index->SearchIndexSPectrumMulti(results[index], index % p_opts.m_dspannIndexFileNum, &traverseLatency[index]);
+                            auto t2 = std::chrono::high_resolution_clock::now();
+                            double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                            latency[index] = totalTime / 1000;
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+                });
+            }
+            for (auto& thread : threads) { thread.join(); }
+
+            double sendingCost = sw.getElapsedSec();
+
+            LOG(Helper::LogLevel::LL_Info,
+                "Finish sending in %.3lf seconds, actuallQPS is %.2lf, query count %u.\n",
+                sendingCost,
+                numQueries / sendingCost,
+                static_cast<uint32_t>(numQueries));
+            
+            float recall = 0, MRR = 0;
+            std::vector<std::set<SizeType>> truth;
+            if (!truthFile.empty())
+            {
+                LOG(Helper::LogLevel::LL_Info, "Start loading TruthFile...\n");
+
+                auto ptr = f_createIO();
+                if (ptr == nullptr || !ptr->Initialize(truthFile.c_str(), std::ios::in | std::ios::binary)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed open truth file: %s\n", truthFile.c_str());
+                    exit(1);
+                }
+                int originalK = truthK;
+                COMMON::TruthSet::LoadTruth(ptr, truth, numQueries, originalK, truthK, p_opts.m_truthType);
+                char tmp[4];
+                if (ptr->ReadBinary(4, tmp) == 4) {
+                    LOG(Helper::LogLevel::LL_Error, "Truth number is larger than query number(%d)!\n", numQueries);
+                }
+
+                recall = COMMON::TruthSet::CalculateRecall<ValueType>(p_index, results, truth, K, truthK, querySet, nullptr, numQueries, nullptr, false, &MRR);
+                LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f MRR@%d: %f\n", truthK, K, recall, K, MRR);
+            }
+
+            LOG(Helper::LogLevel::LL_Info, "\nTotal Latency Distirbution:\n");
+            PrintPercentiles<double, double>(latency,
+                [](const double& ss) -> double
+                {
+                    return ss;
+                },
+                "%.3lf");
+        }
         template <typename ValueType>
         void DSPANNSearch(SPANN::Index<ValueType>* p_index)
         {

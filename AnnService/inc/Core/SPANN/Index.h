@@ -249,26 +249,109 @@ namespace SPTAG
 
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
 
-            void InitDSPANNNetWork() {
-                mappingData.resize(m_options.m_dspannIndexFileNum);
-
+            void InitSPectrumNetWork() {
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
-                int port = 8000;
-                for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, port += 2) {
+                int node = 4;
+                for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
                     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                    addrPrefix += std::to_string(port);
+                    addrPrefix += std::to_string(node);
+                    addrPrefix += ":8000";
                     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                    m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                    m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
+                }
+            }
 
-                    std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
-                    LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
-                    auto ptr = f_createIO();
-                    if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
-                        LOG(Helper::LogLevel::LL_Info, "Initialize Mapping Error: %d\n", i);
-                        exit(1);
+            ErrorCode SearchIndexSPectrumMulti(QueryResult &p_query, int dispatchedNode, SPANN::SearchStats* stats) {
+                COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
+                zmq::message_t request(m_options.m_dim * sizeof(T));
+                zmq::message_t reply;
+                int in_flight = 0;                
+                memcpy(request.data(), (char*)p_query.GetTarget(), m_options.m_dim * sizeof(T));
+                in_flight = 1;
+
+                auto* curJob = new NetworkJob(&request, &reply, &in_flight);
+
+                m_clientThreadPoolDSPANN[dispatchedNode]->add(curJob);
+
+                while (in_flight != 0) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(10));
+                }
+
+                auto ptr = static_cast<char*>(reply.data());
+                for (int j = 0; j < m_options.m_resultNum; j++) {
+                    int VID;
+                    float Dist;
+                    memcpy((char *)&VID, ptr, sizeof(int));
+                    memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
+                    ptr += sizeof(int);
+                    ptr += sizeof(float);
+
+                    if (VID == -1) break;
+                    p_queryResults->AddPoint(VID, Dist);
+                }
+                            
+                p_queryResults->SortResult();
+
+                //record stats
+
+                return ErrorCode::Success;
+                
+            }
+
+            void InitDSPANNNetWork() {
+                if (m_options.m_multinode) {
+                    mappingData.resize(m_options.m_dspannIndexFileNum);
+                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum * 2);
+                    // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
+                    // for shard i, m_clientThreadPoolDSPANN[i*2] and m_clientThreadPoolDSPANN[i*2+1] are all for processing
+                    int node = 4;
+                    for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                        std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                        addrPrefix += std::to_string(node);
+                        addrPrefix += ":8000";
+                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                        m_clientThreadPoolDSPANN[i*2] = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+
+                        addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                        addrPrefix += std::to_string(node);
+                        addrPrefix += ":8002";
+                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                        m_clientThreadPoolDSPANN[i*2+1] = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+
+                        std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
+                        LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
+                        auto ptr = f_createIO();
+                        if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                            LOG(Helper::LogLevel::LL_Info, "Initialize Mapping Error: %d\n", i);
+                            exit(1);
+                        }
+                        mappingData[i].Load(ptr, m_options.m_datasetRowsInBlock, m_options.m_datasetCapacity);
                     }
-                    mappingData[i].Load(ptr, m_options.m_datasetRowsInBlock, m_options.m_datasetCapacity);
+
+                } else {
+                    mappingData.resize(m_options.m_dspannIndexFileNum);
+
+                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+                    int port = 8000;
+                    for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, port += 2) {
+                        std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                        addrPrefix += std::to_string(port);
+                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                        m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+
+                        std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
+                        LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
+                        auto ptr = f_createIO();
+                        if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                            LOG(Helper::LogLevel::LL_Info, "Initialize Mapping Error: %d\n", i);
+                            exit(1);
+                        }
+                        mappingData[i].Load(ptr, m_options.m_datasetRowsInBlock, m_options.m_datasetCapacity);
+                    }
                 }
             }
 
@@ -318,11 +401,9 @@ namespace SPTAG
             ErrorCode SearchIndexShard(QueryResult &p_query, std::vector<int>& needToTraverse, int top, std::vector<double>& latency)
             {
                 COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-
-                std::vector<int> in_flight(top, 0);
-
                 zmq::message_t* request[top];
                 zmq::message_t* reply[top];
+                std::vector<int> in_flight(top, 0);                    
 
                 for (int i = 0; i < top; ++i) {
                     request[i] = new zmq::message_t(m_options.m_dim * sizeof(T));
@@ -333,7 +414,12 @@ namespace SPTAG
                     in_flight[i] = 1;
 
                     auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
-                    m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
+                    if (m_options.m_multinode) {
+                        if (m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->jobsize() > m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->jobsize()) {
+                            m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->add(curJob);
+                        } else m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->add(curJob);
+                    }
+                    else m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
                 }
 
                 bool notReady = true;

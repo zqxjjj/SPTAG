@@ -197,6 +197,9 @@ namespace SPTAG {
             int m_dspannTopK;
             std::string m_ipAddrFrontendDSPANN;
 
+            // Multinode
+            bool m_multinode;
+
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \
                 VarName = DefaultValue; \

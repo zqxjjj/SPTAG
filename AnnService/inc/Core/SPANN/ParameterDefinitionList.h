@@ -212,4 +212,7 @@ DefineSSDParameter(m_dspannCenters, std::string, "", "DSPANNCenters")
 DefineSSDParameter(m_dspannTopK, int, 5, "DSPANNTopK")
 DefineSSDParameter(m_ipAddrFrontendDSPANN, std::string, std::string(""), "IPAddrFrontendDSPANN")
 
+// Multinode
+DefineSSDParameter(m_multinode, bool, false, "MultiNode")
+
 #endif
