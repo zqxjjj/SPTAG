@@ -749,6 +749,8 @@ namespace SPTAG
 
                     zmq::message_t reply;
                     responder.recv(&reply);
+
+                    LOG(Helper::LogLevel::LL_Info, "reply size: %\n", reply.size());
                     auto t1 = std::chrono::high_resolution_clock::now();
 
                     char* ptr = static_cast<char*>(reply.data());
@@ -763,8 +765,11 @@ namespace SPTAG
 
                     SearchStats stats;
 
+                    LOG(Helper::LogLevel::LL_Info, "Search\n");
                     m_options.m_isLocal = true;
                     SearchIndexRemote(result, &stats);
+
+                    LOG(Helper::LogLevel::LL_Info, "Search Finish\n");
 
                     int K = m_options.m_resultNum;
                         
@@ -786,6 +791,8 @@ namespace SPTAG
                     localProcessTime /= 1000;
 
                     memcpy(ptr, (char *)&localProcessTime, sizeof(double));
+
+                    LOG(Helper::LogLevel::LL_Info, "Sending\n");
 
                     responder.send(request);
                 }
@@ -974,6 +981,8 @@ namespace SPTAG
                 zmq::socket_t frontend (context, ZMQ_ROUTER);
                 zmq::socket_t backend (context, ZMQ_DEALER);
 
+                LOG(Helper::LogLevel::LL_Info, "Connecting Frontend: %s\n", m_options.m_ipAddrFrontend.c_str());
+                LOG(Helper::LogLevel::LL_Info, "Connecting Backend: %s\n", m_options.m_ipAddrBackend.c_str());
                 frontend.bind(m_options.m_ipAddrFrontend.c_str());
                 backend.bind(m_options.m_ipAddrBackend.c_str());
 
