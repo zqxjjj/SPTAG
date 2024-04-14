@@ -750,7 +750,7 @@ namespace SPTAG
                     zmq::message_t reply;
                     responder.recv(&reply);
 
-                    LOG(Helper::LogLevel::LL_Info, "reply size: %\n", reply.size());
+                    LOG(Helper::LogLevel::LL_Info, "reply size: %d\n", reply.size());
                     auto t1 = std::chrono::high_resolution_clock::now();
 
                     char* ptr = static_cast<char*>(reply.data());
