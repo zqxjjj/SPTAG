@@ -314,7 +314,7 @@ namespace SPTAG
                         addrPrefix += ":8000";
                         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                         m_clientThreadPoolDSPANN[i*2] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
                         // m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
                         // m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
 
@@ -323,7 +323,7 @@ namespace SPTAG
                         addrPrefix += ":8002";
                         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                         m_clientThreadPoolDSPANN[i*2+1] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
 
                         std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
                         LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
