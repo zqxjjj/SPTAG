@@ -302,8 +302,8 @@ namespace SPTAG
             void InitDSPANNNetWork() {
                 if (m_options.m_multinode) {
                     mappingData.resize(m_options.m_dspannIndexFileNum);
-                    // m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum * 2);
-                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum * 2);
+                    // m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
 
                     // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
                     // for shard i, m_clientThreadPoolDSPANN[i*2] and m_clientThreadPoolDSPANN[i*2+1] are all for processing
@@ -313,17 +313,17 @@ namespace SPTAG
                         addrPrefix += std::to_string(node);
                         addrPrefix += ":8000";
                         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        // m_clientThreadPoolDSPANN[i*2] = std::make_shared<NetworkThreadPool>();
-                        // m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
-                        m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        m_clientThreadPoolDSPANN[i*2] = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        // m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                        // m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
 
-                        // addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        // addrPrefix += std::to_string(node);
-                        // addrPrefix += ":8002";
-                        // LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        // m_clientThreadPoolDSPANN[i*2+1] = std::make_shared<NetworkThreadPool>();
-                        // m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                        addrPrefix += std::to_string(node);
+                        addrPrefix += ":8002";
+                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                        m_clientThreadPoolDSPANN[i*2+1] = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
 
                         std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
                         LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
@@ -750,7 +750,6 @@ namespace SPTAG
                     zmq::message_t reply;
                     responder.recv(&reply);
 
-                    LOG(Helper::LogLevel::LL_Info, "reply size: %d\n", reply.size());
                     auto t1 = std::chrono::high_resolution_clock::now();
 
                     char* ptr = static_cast<char*>(reply.data());
@@ -765,11 +764,8 @@ namespace SPTAG
 
                     SearchStats stats;
 
-                    LOG(Helper::LogLevel::LL_Info, "Search\n");
                     m_options.m_isLocal = true;
                     SearchIndexRemote(result, &stats);
-
-                    LOG(Helper::LogLevel::LL_Info, "Search Finish\n");
 
                     int K = m_options.m_resultNum;
                         
@@ -791,8 +787,6 @@ namespace SPTAG
                     localProcessTime /= 1000;
 
                     memcpy(ptr, (char *)&localProcessTime, sizeof(double));
-
-                    LOG(Helper::LogLevel::LL_Info, "Sending\n");
 
                     responder.send(request);
                 }
