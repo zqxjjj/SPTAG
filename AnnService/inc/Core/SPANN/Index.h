@@ -424,7 +424,7 @@ namespace SPTAG
                         } else m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->add(curJob);
                     }
                     else 
-                    // m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
+                    m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
                 }
 
                 bool notReady = true;
