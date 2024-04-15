@@ -418,13 +418,13 @@ namespace SPTAG
                     in_flight[i] = 1;
 
                     auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
-                    // if (m_options.m_multinode) {
-                    //     if (m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->jobsize() > m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->jobsize()) {
-                    //         m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->add(curJob);
-                    //     } else m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->add(curJob);
-                    // }
-                    // else 
-                    m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
+                    if (m_options.m_multinode) {
+                        if (m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->jobsize() > m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->jobsize()) {
+                            m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->add(curJob);
+                        } else m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->add(curJob);
+                    }
+                    else 
+                    // m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
                 }
 
                 bool notReady = true;
