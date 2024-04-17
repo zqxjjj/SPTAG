@@ -494,6 +494,7 @@ namespace SPTAG
                 p_stats->m_diskReadLatencys.resize(m_options.m_layers-1);
                 p_stats->m_exLatencys.resize(m_options.m_layers-1);
                 p_stats->m_diskReadPages.resize(m_options.m_layers-1);
+                p_stats->m_exWaitLatencys.resize(m_options.m_layers-1);
 
                 for (int layer = 0; layer < m_options.m_layers - 1; layer++) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
@@ -569,7 +570,7 @@ namespace SPTAG
                         }
 
                         int resultLength = reply.size();
-                        int resultSize = (resultLength - sizeof(double) - sizeof(double)) / 8;
+                        int resultSize = (resultLength - sizeof(double) - sizeof(double) - sizeof(double)) / 8;
 
                         ptr = static_cast<char*>(reply.data());
 
@@ -591,7 +592,12 @@ namespace SPTAG
                         double remoteCompTime;
                         memcpy((char*)&remoteCompTime, ptr, sizeof(double));
 
-                        p_stats->m_compLatencys[layer] = remoteCompTime / 1000;
+                        ptr+=8;
+
+                        double remoteWaitTime;
+                        memcpy((char*)&remoteWaitTime, ptr, sizeof(double));
+
+                        p_stats->m_exWaitLatencys[layer] = remoteWaitTime / 1000;
 
                         auto t4 = std::chrono::high_resolution_clock::now();
 
@@ -1021,6 +1027,8 @@ namespace SPTAG
 
                         // wait for return and merge result
 
+                        auto t5 = std::chrono::high_resolution_clock::now();
+
                         bool notReady = true;
 
                         while (notReady) {
@@ -1048,9 +1056,13 @@ namespace SPTAG
                         }
                         queryResults->SortResult();
 
+                        auto t6 = std::chrono::high_resolution_clock::now();
+
+                        double waitProcessTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count()));
+
                         // return
                         int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + sizeof(double) + sizeof(double));
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + sizeof(double) + sizeof(double) + sizeof(double));
 
                         ptr = static_cast<char*>(replyClient.data());
                         for (int i = 0; i < K; i++) {
@@ -1069,6 +1081,10 @@ namespace SPTAG
                         ptr += 8;
 
                         memcpy(ptr, &localProcessTime, sizeof(double));
+
+                        ptr += 8;
+
+                        memcpy(ptr, &waitProcessTime, sizeof(double));
 
                         responder.send(replyClient);
 
