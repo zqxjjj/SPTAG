@@ -569,7 +569,7 @@ namespace SPTAG
                         }
 
                         int resultLength = reply.size();
-                        int resultSize = (resultLength - sizeof(double)) / 8;
+                        int resultSize = (resultLength - sizeof(double) - sizeof(double)) / 8;
 
                         ptr = static_cast<char*>(reply.data());
 
@@ -585,6 +585,13 @@ namespace SPTAG
                         memcpy((char*)&remoteLocalTime, ptr, sizeof(double));
 
                         p_stats->m_diskReadLatencys[layer] = remoteLocalTime / 1000;
+
+                        ptr+=8;
+
+                        double remoteCompTime;
+                        memcpy((char*)&remoteCompTime, ptr, sizeof(double));
+
+                        p_stats->m_compLatencys[layer] = remoteCompTime / 1000;
 
                         auto t4 = std::chrono::high_resolution_clock::now();
 
@@ -992,6 +999,8 @@ namespace SPTAG
                             }
                         }
                         // Search local
+                        auto t3 = std::chrono::high_resolution_clock::now();
+
                         m_workspace->m_deduper.clear();
                         m_workspace->m_postingIDs.clear();
                         // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
@@ -1005,6 +1014,10 @@ namespace SPTAG
                             m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
                         }
                         visit[MyNodeId()] = 1;
+
+                        auto t4 = std::chrono::high_resolution_clock::now();
+
+                        double localProcessTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count()));
 
                         // wait for return and merge result
 
@@ -1037,7 +1050,7 @@ namespace SPTAG
 
                         // return
                         int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + sizeof(double));
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + sizeof(double) + sizeof(double));
 
                         ptr = static_cast<char*>(replyClient.data());
                         for (int i = 0; i < K; i++) {
@@ -1052,6 +1065,10 @@ namespace SPTAG
                         double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
 
                         memcpy(ptr, (char *)&processTime, sizeof(double));
+
+                        ptr += 8;
+
+                        memcpy(ptr, &localProcessTime, sizeof(double));
 
                         responder.send(replyClient);
 
