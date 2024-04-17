@@ -1049,6 +1049,11 @@ namespace SPTAG
                                         if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
                                         queryResults->AddPoint(VID, Dist);
                                     }
+                                    auto t7 = std::chrono::high_resolution_clock::now();
+                                    double thisQueryTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t7 - t3).count()));
+                                    double thisTime;
+                                    memcpy((char *)&thisTime, ptr, sizeof(double));
+                                    LOG(Helper::LogLevel::LL_Info, "Remote Process Time: %lf, Remote Wait Time: %lf\n", thisTime, thisQueryTime);
                                 }
                             }
                             notReady = false;
@@ -1092,6 +1097,7 @@ namespace SPTAG
 
                     } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1) == reply.size()) {
                         // worker request
+                        auto t1 = std::chrono::high_resolution_clock::now();
                         if (m_workspace.get() == nullptr) {
                             m_workspace.reset(new ExtraWorkSpace());
                             m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
@@ -1110,9 +1116,13 @@ namespace SPTAG
                         // Return result
                         queryResults->SortResult();
 
+                        auto t2 = std::chrono::high_resolution_clock::now();
+
+                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
+
                         int K = m_options.m_searchInternalResultNum;
                         
-                        zmq::message_t request(K * (sizeof(int) + sizeof(float)));
+                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double));
 
                         ptr = static_cast<char*>(request.data());
                         for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
@@ -1121,6 +1131,9 @@ namespace SPTAG
                             memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
                             ptr+=8;
                         }
+
+                        memcpy(ptr, (char *)&processTime, sizeof(double));
+
 
                         responder.send(request);
 

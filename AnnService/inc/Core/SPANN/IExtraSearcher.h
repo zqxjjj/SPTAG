@@ -84,6 +84,8 @@ namespace SPTAG {
 
             std::vector<double> m_exWaitLatencys;
 
+            std::vector<double> m_waitComLatencys;
+
             std::chrono::steady_clock::time_point m_searchRequestTime;
 
             int m_threadID;
