@@ -533,7 +533,6 @@ namespace SPTAG
                     if (m_options.m_distKV) {
                         //sending request to the distKV
                         // 
-
                         auto t3 = std::chrono::high_resolution_clock::now();
 
                         int postingIDSize = m_workspace->m_postingIDs.size();
@@ -566,11 +565,11 @@ namespace SPTAG
                         m_clientThreadPool->add(curJob);
 
                         while (in_flight != 0) {
-                            std::this_thread::sleep_for(std::chrono::microseconds(20));
+                            std::this_thread::sleep_for(std::chrono::microseconds(5));
                         }
 
                         int resultLength = reply.size();
-                        int resultSize = (resultLength) / 8;
+                        int resultSize = (resultLength - sizeof(double)) / 8;
 
                         ptr = static_cast<char*>(reply.data());
 
@@ -582,6 +581,10 @@ namespace SPTAG
                             p_queryResults->AddPoint(*(int *)(ptr) , *(float *)(ptr+4));
                             ptr += 8;
                         } 
+                        double remoteLocalTime;
+                        memcpy((char*)&remoteLocalTime, ptr, sizeof(double));
+
+                        p_stats->m_diskReadLatencys[layer] = remoteLocalTime / 1000;
 
                         auto t4 = std::chrono::high_resolution_clock::now();
 
@@ -905,6 +908,7 @@ namespace SPTAG
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
                     zmq::message_t reply;
                     responder.recv(&reply);
+                    auto t1 = std::chrono::high_resolution_clock::now();
                     // client request, a list of key and vector and layer
                     // worker request, a list of key and vector and and char "0"
                     int size;
@@ -1067,7 +1071,7 @@ namespace SPTAG
 
                         int K = m_options.m_searchInternalResultNum;
                         
-                        zmq::message_t request(K * (sizeof(int) + sizeof(float)));
+                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double));
 
                         ptr = static_cast<char*>(request.data());
                         for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
@@ -1076,6 +1080,11 @@ namespace SPTAG
                             memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
                             ptr+=8;
                         }
+                        auto t2 = std::chrono::high_resolution_clock::now();
+
+                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
+
+                        memcpy(ptr, (char *)&processTime, sizeof(double));
 
                         responder.send(request);
 
