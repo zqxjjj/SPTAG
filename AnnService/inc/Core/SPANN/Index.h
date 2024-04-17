@@ -1053,7 +1053,7 @@ namespace SPTAG
                                     double thisQueryTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t7 - t3).count()));
                                     double thisTime;
                                     memcpy((char *)&thisTime, ptr, sizeof(double));
-                                    LOG(Helper::LogLevel::LL_Info, "Remote Process Time: %lf, Remote Wait Time: %lf\n", thisTime, thisQueryTime);
+                                    LOG(Helper::LogLevel::LL_Info, "Remote Process Time: %lf, Remote Wait Time: %lf, localProcessTime: %lf\n", thisTime, thisQueryTime, localProcessTime);
                                 }
                             }
                             notReady = false;
