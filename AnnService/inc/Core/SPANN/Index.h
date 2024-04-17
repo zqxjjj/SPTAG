@@ -500,6 +500,7 @@ namespace SPTAG
                 p_stats->m_exLatencys.resize(m_options.m_layers-1);
                 p_stats->m_diskReadPages.resize(m_options.m_layers-1);
                 p_stats->m_exWaitLatencys.resize(m_options.m_layers-1);
+                p_stats->m_RemoteRemoteLatencys.resize(m_options.m_layers-1);
 
                 for (int layer = 0; layer < m_options.m_layers - 1; layer++) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
@@ -575,7 +576,7 @@ namespace SPTAG
                         }
 
                         int resultLength = reply.size();
-                        int resultSize = (resultLength - sizeof(double) - sizeof(double) - sizeof(double)) / 8;
+                        int resultSize = (resultLength - 4* sizeof(double)) / 8;
 
                         ptr = static_cast<char*>(reply.data());
 
@@ -603,6 +604,13 @@ namespace SPTAG
 
                         double remoteWaitTime;
                         memcpy((char*)&remoteWaitTime, ptr, sizeof(double));
+
+                        ptr+=8;
+
+                        double avgRemoteRemoteTime;
+                        memcpy((char*)&avgRemoteRemoteTime, ptr, sizeof(double));
+
+                        p_stats->m_RemoteRemoteLatencys[layer] = avgRemoteRemoteTime / 1000;
 
                         p_stats->m_exWaitLatencys[layer] = remoteWaitTime / 1000;
 
@@ -969,11 +977,13 @@ namespace SPTAG
                             m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
                         }
 
+                        int count = 0;
                         for (int i = 0; i < GroupNum(); i++) {
                             if (i == MyNodeId()) {
                                 continue;
                             } else {
                                 if (keys_eachNode[i].size() != 0) {
+                                    count++;
                                     request[i] = new zmq::message_t(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
                                     reply[i] = new zmq::message_t();
                                     in_flight[i] = 1;
@@ -1037,6 +1047,8 @@ namespace SPTAG
 
                         auto t5 = std::chrono::high_resolution_clock::now();
 
+                        double avgProcessTime = 0;
+
                         bool notReady = true;
 
                         while (notReady) {
@@ -1057,8 +1069,9 @@ namespace SPTAG
                                     }
                                     // auto t7 = std::chrono::high_resolution_clock::now();
                                     // double thisQueryTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t7 - t3).count()));
-                                    // double thisTime;
-                                    // memcpy((char *)&thisTime, ptr, sizeof(double));
+                                    double thisTime;
+                                    memcpy((char *)&thisTime, ptr, sizeof(double));
+                                    avgProcessTime += thisTime;
                                     // LOG(Helper::LogLevel::LL_Info, "Remote Process Time: %lf, Remote Wait Time: %lf, localProcessTime: %lf, realTransferTime: %lf\n", thisTime, thisQueryTime, localProcessTime, realLatency[i]);
                                 }
                             }
@@ -1076,7 +1089,7 @@ namespace SPTAG
 
                         // return
                         int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + sizeof(double) + sizeof(double) + sizeof(double));
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 4*sizeof(double));
 
                         ptr = static_cast<char*>(replyClient.data());
                         for (int i = 0; i < K; i++) {
@@ -1099,6 +1112,12 @@ namespace SPTAG
                         ptr += 8;
 
                         memcpy(ptr, &waitProcessTime, sizeof(double));
+
+                        ptr += 8;
+
+                        avgProcessTime /= (count);
+
+                        memcpy(ptr, &avgProcessTime, sizeof(double));
 
                         responder.send(replyClient);
 
