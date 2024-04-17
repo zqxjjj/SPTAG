@@ -946,17 +946,7 @@ namespace SPTAG
 
                         for (int i = 0; i < GroupNum(); i++) {
                             if (i == MyNodeId()) {
-                                m_workspace->m_deduper.clear();
-                                m_workspace->m_postingIDs.clear();
-                                // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
-                                for (int j = 0; j < keys_eachNode[i].size(); j++) {
-                                    m_workspace->m_postingIDs.push_back(keys_eachNode[i][j]);
-                                }
-                                p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
-                                double compLatency = 0;
-                                int scannedNum = 0;
-                                m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
-                                visit[i] = 1;
+                                continue;
                             } else {
                                 if (keys_eachNode[i].size() != 0) {
                                     request[i] = new zmq::message_t(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
@@ -997,6 +987,21 @@ namespace SPTAG
                                 //Send request
                             }
                         }
+                        // Search local
+                        m_workspace->m_deduper.clear();
+                        m_workspace->m_postingIDs.clear();
+                        // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
+                        if (keys_eachNode[GroupNum()].size() != 0) {
+                            for (int j = 0; j < keys_eachNode[GroupNum()].size(); j++) {
+                                m_workspace->m_postingIDs.push_back(keys_eachNode[GroupNum()][j]);
+                            }
+                            p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
+                            double compLatency = 0;
+                            int scannedNum = 0;
+                            m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
+                        }
+                        visit[GroupNum()] = 1;
+
                         // wait for return and merge result
 
                         bool notReady = true;
