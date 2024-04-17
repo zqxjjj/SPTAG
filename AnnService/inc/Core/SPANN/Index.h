@@ -604,15 +604,8 @@ namespace SPTAG
 
                         double remoteWaitTime;
                         memcpy((char*)&remoteWaitTime, ptr, sizeof(double));
-                        
-                        ptr+=8;
 
                         p_stats->m_exWaitLatencys[layer] = remoteWaitTime / 1000;
-
-                        double avgRemoteRemoteTime;
-                        memcpy((char*)&avgRemoteRemoteTime, ptr, sizeof(double));
-
-                        p_stats->m_RemoteRemoteLatencys[layer] = avgRemoteRemoteTime / 1000;
 
                         auto t4 = std::chrono::high_resolution_clock::now();
 
@@ -1089,7 +1082,7 @@ namespace SPTAG
 
                         // return
                         int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 4*sizeof(double));
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 3*sizeof(double));
 
                         ptr = static_cast<char*>(replyClient.data());
                         for (int i = 0; i < K; i++) {
@@ -1112,12 +1105,6 @@ namespace SPTAG
                         ptr += 8;
 
                         memcpy(ptr, &waitProcessTime, sizeof(double));
-
-                        ptr += 8;
-
-                        if (count != 0) avgProcessTime /= (count);
-
-                        memcpy(ptr, &avgProcessTime, sizeof(double));
 
                         responder.send(replyClient);
 

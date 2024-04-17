@@ -492,18 +492,18 @@ namespace SPTAG {
                     stats[i].m_totalListElementsCount = stats[i].m_layerCounts[layer+1];
                     stats[i].m_diskAccessCount = stats[i].m_diskReadPages[layer];
                     stats[i].m_headLatency = stats[i].m_exWaitLatencys[layer];
-                    stats[i].m_queueLatency = stats[i].m_RemoteRemoteLatencys[layer];
+                    // stats[i].m_queueLatency = stats[i].m_RemoteRemoteLatencys[layer];
                 }
 
                 if (p_opts.m_distKV) {
 
-                    LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Remote Latency Distribution:\n", layer+1);
-                    PrintPercentiles<double, SPANN::SearchStats>(stats,
-                        [](const SPANN::SearchStats& ss) -> double
-                        {
-                            return ss.m_queueLatency;
-                        },
-                        "%.3lf");
+                    // LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Remote Latency Distribution:\n", layer+1);
+                    // PrintPercentiles<double, SPANN::SearchStats>(stats,
+                    //     [](const SPANN::SearchStats& ss) -> double
+                    //     {
+                    //         return ss.m_queueLatency;
+                    //     },
+                    //     "%.3lf");
 
                     LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Wait Latency Distribution:\n", layer+1);
                     PrintPercentiles<double, SPANN::SearchStats>(stats,
