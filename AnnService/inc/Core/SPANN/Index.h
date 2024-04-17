@@ -991,16 +991,16 @@ namespace SPTAG
                         m_workspace->m_deduper.clear();
                         m_workspace->m_postingIDs.clear();
                         // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
-                        if (keys_eachNode[GroupNum()].size() != 0) {
-                            for (int j = 0; j < keys_eachNode[GroupNum()].size(); j++) {
-                                m_workspace->m_postingIDs.push_back(keys_eachNode[GroupNum()][j]);
+                        if (keys_eachNode[MyNodeId()].size() != 0) {
+                            for (int j = 0; j < keys_eachNode[MyNodeId()].size(); j++) {
+                                m_workspace->m_postingIDs.push_back(keys_eachNode[MyNodeId()][j]);
                             }
                             p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
                             double compLatency = 0;
                             int scannedNum = 0;
                             m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
                         }
-                        visit[GroupNum()] = 1;
+                        visit[MyNodeId()] = 1;
 
                         // wait for return and merge result
 
