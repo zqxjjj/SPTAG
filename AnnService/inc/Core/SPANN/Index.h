@@ -67,7 +67,7 @@ namespace SPTAG
                 for (int i = 0; i < numberOfThreads; i++)
                 {
                     m_threads.emplace_back([this, m_ipAddrFrontend] {
-                        zmq::context_t context(1);
+                        zmq::context_t context(2);
                         zmq::socket_t clientSocket(context, ZMQ_REQ);
                         clientSocket.connect(m_ipAddrFrontend.c_str());
                         Job *j;
@@ -823,7 +823,7 @@ namespace SPTAG
 
             ErrorCode WorkerDSPANN() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DSPANN\n");
-                zmq::context_t context(1);
+                zmq::context_t context(2);
 
                 zmq::socket_t responder(context, ZMQ_REP);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
@@ -918,7 +918,7 @@ namespace SPTAG
 
             ErrorCode WorkerDistKV() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DistKV\n");
-                zmq::context_t context(1);
+                zmq::context_t context(2);
 
                 zmq::socket_t responder(context, ZMQ_REP);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
@@ -1041,7 +1041,7 @@ namespace SPTAG
 
                         while (notReady) {
                             for (int i = 0; i < GroupNum(); ++i) {
-                                if (in_flight[i] == 0 && visit[i] == 0) {
+                                if (visit[i] == 0 && in_flight[i] == 0) {
                                     visit[i] = 1;
                                     auto ptr = static_cast<char*>(reply[i]->data());
                                     for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
@@ -1153,7 +1153,7 @@ namespace SPTAG
 
             ErrorCode Worker() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
-                zmq::context_t context(1);
+                zmq::context_t context(2);
 
                 zmq::socket_t responder(context, ZMQ_REP);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
@@ -1291,7 +1291,7 @@ namespace SPTAG
             ErrorCode BrokerOn() {
                 LOG(Helper::LogLevel::LL_Info, "Start Broker\n");
 
-                zmq::context_t context(1);
+                zmq::context_t context(2);
                 zmq::socket_t frontend (context, ZMQ_ROUTER);
                 zmq::socket_t backend (context, ZMQ_DEALER);
 
