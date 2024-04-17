@@ -594,6 +594,8 @@ namespace SPTAG
 
                         ptr+=8;
 
+                        p_stats->m_compLatencys[layer] = remoteCompTime / 1000;
+
                         double remoteWaitTime;
                         memcpy((char*)&remoteWaitTime, ptr, sizeof(double));
 

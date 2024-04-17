@@ -495,6 +495,14 @@ namespace SPTAG {
                 }
 
                 if (p_opts.m_distKV) {
+                    LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Wait Latency Distribution:\n", layer+1);
+                    PrintPercentiles<double, SPANN::SearchStats>(stats,
+                        [](const SPANN::SearchStats& ss) -> double
+                        {
+                            return ss.m_headLatency;
+                        },
+                        "%.3lf");
+
                     LOG(Helper::LogLevel::LL_Info, "\nL-%d Remote Disk Read + Comp Latency Distribution:\n", layer+1);
                     PrintPercentiles<double, SPANN::SearchStats>(stats,
                         [](const SPANN::SearchStats& ss) -> double
