@@ -25,6 +25,7 @@
 #include "IExtraSearcher.h"
 #include "Options.h"
 
+#include <cstddef>
 #include <cstring>
 #include <functional>
 #include <ratio>
@@ -48,8 +49,9 @@ namespace SPTAG
             zmq::message_t* request;
             zmq::message_t* reply;
             int* in_flight;
-            NetworkJob(zmq::message_t* request, zmq::message_t* reply, int* in_flight)
-                : request(request), reply(reply), in_flight(in_flight) {}
+            double* latency;
+            NetworkJob(zmq::message_t* request, zmq::message_t* reply, int* in_flight, double* latency = nullptr)
+                : request(request), reply(reply), in_flight(in_flight), latency(latency) {}
             ~NetworkJob() {}
             inline void exec(IAbortOperation* p_abort) override {
                 *in_flight = 0;
@@ -75,8 +77,11 @@ namespace SPTAG
                             {
                                 NetworkJob *nj = static_cast<NetworkJob*>(j);
                                 currentJobs++;
+                                auto t1 = std::chrono::high_resolution_clock::now();
                                 clientSocket.send(*(nj->request));
                                 clientSocket.recv(nj->reply);
+                                auto t2 = std::chrono::high_resolution_clock::now();
+                                if (nj->latency) *(nj->latency) = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
                                 *(nj->in_flight) = 0;
                                 currentJobs--;
                             }
@@ -957,6 +962,7 @@ namespace SPTAG
                         zmq::message_t* reply[GroupNum()];
                         std::vector<int> in_flight(GroupNum(), 0); 
                         std::vector<int> visit(GroupNum(), 0);
+                        std::vector<double> realLatency(GroupNum());
 
                         if (m_workspace.get() == nullptr) {
                             m_workspace.reset(new ExtraWorkSpace());
@@ -996,7 +1002,7 @@ namespace SPTAG
 
                                     memcpy(ptr, (char*)&code, sizeof(char));
 
-                                    auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
+                                    auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i], &realLatency[i]);
 
                                     m_clientThreadPoolDSPANN[i]->add(curJob);
                                     
@@ -1060,6 +1066,7 @@ namespace SPTAG
                             for (int i = 0; i < GroupNum(); ++i) {
                                 if (visit[i] != 1) notReady = true;
                             }
+                            if (notReady) std::this_thread::sleep_for(std::chrono::microseconds(5));
                         }
                         queryResults->SortResult();
 
@@ -1116,10 +1123,6 @@ namespace SPTAG
                         // Return result
                         queryResults->SortResult();
 
-                        auto t2 = std::chrono::high_resolution_clock::now();
-
-                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-
                         int K = m_options.m_searchInternalResultNum;
                         
                         zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double));
@@ -1131,6 +1134,10 @@ namespace SPTAG
                             memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
                             ptr+=8;
                         }
+
+                        auto t2 = std::chrono::high_resolution_clock::now();
+
+                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
 
                         memcpy(ptr, (char *)&processTime, sizeof(double));
 
