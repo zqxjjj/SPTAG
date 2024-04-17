@@ -604,15 +604,15 @@ namespace SPTAG
 
                         double remoteWaitTime;
                         memcpy((char*)&remoteWaitTime, ptr, sizeof(double));
-
+                        
                         ptr+=8;
+
+                        p_stats->m_exWaitLatencys[layer] = remoteWaitTime / 1000;
 
                         double avgRemoteRemoteTime;
                         memcpy((char*)&avgRemoteRemoteTime, ptr, sizeof(double));
 
                         p_stats->m_RemoteRemoteLatencys[layer] = avgRemoteRemoteTime / 1000;
-
-                        p_stats->m_exWaitLatencys[layer] = remoteWaitTime / 1000;
 
                         auto t4 = std::chrono::high_resolution_clock::now();
 
@@ -1115,7 +1115,7 @@ namespace SPTAG
 
                         ptr += 8;
 
-                        avgProcessTime /= (count);
+                        if (count != 0) avgProcessTime /= (count);
 
                         memcpy(ptr, &avgProcessTime, sizeof(double));
 
