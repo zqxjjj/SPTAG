@@ -204,7 +204,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
                             auto t1 = std::chrono::high_resolution_clock::now();
                             index.SearchIndex(results[qid]);
                             auto t2 = std::chrono::high_resolution_clock::now();
-                            latencies[qid] = (float)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000000.0);
+                            latencies[qid] = (float)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000.0);
                         }
                         else
                         {
