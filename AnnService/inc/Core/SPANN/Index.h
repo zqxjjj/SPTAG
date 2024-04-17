@@ -25,6 +25,7 @@
 #include "IExtraSearcher.h"
 #include "Options.h"
 
+#include <cstring>
 #include <functional>
 #include <ratio>
 #include <shared_mutex>
@@ -122,6 +123,11 @@ namespace SPTAG
             std::vector<std::shared_ptr<NetworkThreadPool>> m_clientThreadPoolDSPANN;
 
             std::vector<SPTAG::COMMON::Dataset<int>> mappingData;
+
+            // Distributed KV Coordinator : maintain the map that where all vectors are stored
+            // Given a key, Coordinator hash it, the hash value tells Coordinator where to read the value
+
+            // For static searcher, we only need to directly send the read request to the specific node without converting the key
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -524,8 +530,65 @@ namespace SPTAG
                             res->Dist = MaxDist;
                         }
                     }
+                    if (m_options.m_distKV) {
+                        //sending request to the distKV
+                        // 
 
-                    if (!m_options.m_isLocal) {
+                        auto t3 = std::chrono::high_resolution_clock::now();
+
+                        int postingIDSize = m_workspace->m_postingIDs.size();
+
+                        zmq::message_t request((postingIDSize+1)*sizeof(int) + m_options.m_dim * sizeof(T) + sizeof(int));
+                        zmq::message_t reply;
+                        int in_flight = 0;
+
+                        in_flight= 1;
+
+                        auto ptr = static_cast<char*>(request.data());
+
+                        memcpy(ptr, (char*)&postingIDSize, sizeof(int));
+
+                        ptr += sizeof(int);
+
+                        memcpy(ptr, (char*)m_workspace->m_postingIDs.data(), sizeof(int)*postingIDSize);
+
+                        ptr += sizeof(int)*postingIDSize;
+
+                        memcpy(ptr, p_queryResults->GetQuantizedTarget(), sizeof(T) * m_options.m_dim);
+
+                        ptr += sizeof(T) * m_options.m_dim;
+
+                        memcpy(ptr, (char*)&layer, sizeof(int));
+                          
+                        // wait for return result
+
+                        auto* curJob = new NetworkJob(&request, &reply, &in_flight);
+                        m_clientThreadPool->add(curJob);
+
+                        while (in_flight != 0) {
+                            std::this_thread::sleep_for(std::chrono::microseconds(20));
+                        }
+
+                        int resultLength = reply.size();
+                        int resultSize = (resultLength) / 8;
+
+                        ptr = static_cast<char*>(reply.data());
+
+                        /** id & dist (ResultNum) **/
+
+                        COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
+
+                        for (int i = 0; i < resultSize; i++) {
+                            p_queryResults->AddPoint(*(int *)(ptr) , *(float *)(ptr+4));
+                            ptr += 8;
+                        } 
+
+                        auto t4 = std::chrono::high_resolution_clock::now();
+
+                        double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
+
+                        p_stats->m_exLatencys[layer] = remoteProcessTime / 1000;
+                    } else if (!m_options.m_isLocal) {
                         /***Remote Transefer And Process**/
                         auto t3 = std::chrono::high_resolution_clock::now();
                         // int socket_fd = ClientConnect();
@@ -793,6 +856,231 @@ namespace SPTAG
                 return ErrorCode::Success;
             }
 
+            void initDistKVNetWork() {
+                m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+                int node = 0;
+                for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                    if (node != MyNodeId()) {
+                        std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                        addrPrefix += std::to_string(node + 4);
+                        addrPrefix += ":8000";
+                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                        m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                    }
+                }
+                // Debug version
+                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                //     if (node != MyNodeId()) {
+                //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                //         addrPrefix += std::to_string(node * 2);
+                //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                //         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                //         m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                //     }
+                // }
+            }
+
+            int NodeHash(int key, int layer) {
+                return key % m_options.m_dspannIndexFileNum;
+            }
+
+            int MyNodeId() {
+                return m_options.m_myNodeId;
+            }
+
+            int GroupNum() {
+                return m_options.m_dspannIndexFileNum;
+            }
+
+            ErrorCode WorkerDistKV() {
+                LOG(Helper::LogLevel::LL_Info, "Start Worker DistKV\n");
+                zmq::context_t context(1);
+
+                zmq::socket_t responder(context, ZMQ_REP);
+                responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                while(1) {
+                    QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
+                    COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
+                    zmq::message_t reply;
+                    responder.recv(&reply);
+                    // client request, a list of key and vector and layer
+                    // worker request, a list of key and vector and and char "0"
+                    int size;
+                    char* ptr = static_cast<char*>(reply.data());
+                    memcpy((char *)&size, ptr, sizeof(int));
+                    ptr += sizeof(int);
+                    std::vector<int> keys(size);
+                    memcpy((char *)keys.data(), ptr, sizeof(int)*size);
+                    ptr += sizeof(int)*size;
+                        
+                    char* vectorBuffer = new char[m_options.m_dim * sizeof(T)];
+
+                    memcpy(vectorBuffer, ptr, m_options.m_dim * sizeof(T));
+
+                    ptr += m_options.m_dim * sizeof(T);
+
+                    int layer;
+
+                    memcpy((char *)&layer, ptr, sizeof(int));
+
+                    if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T)) == reply.size()) {
+                        // client request, a list of 
+                        std::vector<std::vector<int>> keys_eachNode(GroupNum());
+
+                        for (auto key: keys) {
+                            int node = NodeHash(key, layer);
+                            keys_eachNode[node].push_back(key);
+                        }
+
+                        zmq::message_t* request[GroupNum()];
+                        zmq::message_t* reply[GroupNum()];
+                        std::vector<int> in_flight(GroupNum(), 0); 
+                        std::vector<int> visit(GroupNum(), 0);
+
+                        if (m_workspace.get() == nullptr) {
+                            m_workspace.reset(new ExtraWorkSpace());
+                            m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                        }
+
+                        for (int i = 0; i < GroupNum(); i++) {
+                            if (i == MyNodeId()) {
+                                m_workspace->m_deduper.clear();
+                                m_workspace->m_postingIDs.clear();
+                                // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
+                                for (int j = 0; j < keys_eachNode[i].size(); j++) {
+                                    m_workspace->m_postingIDs.push_back(keys_eachNode[i][j]);
+                                }
+                                p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
+                                double compLatency = 0;
+                                int scannedNum = 0;
+                                m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
+                                visit[i] = 1;
+                            } else {
+                                if (keys_eachNode[i].size() != 0) {
+                                    request[i] = new zmq::message_t(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
+                                    reply[i] = new zmq::message_t();
+                                    in_flight[i] = 1;
+
+                                    ptr = static_cast<char*>(request[i]->data());
+
+                                    int keys_size = keys_eachNode[i].size();
+
+                                    memcpy(ptr, (char*)&keys_size, sizeof(int));
+                                    
+                                    ptr += sizeof(int);
+
+                                    memcpy(ptr, (char*)keys_eachNode[i].data(), sizeof(int)*keys_eachNode[i].size());
+
+                                    ptr += sizeof(int)*keys_eachNode[i].size();
+
+                                    memcpy(ptr, (char*)vectorBuffer, m_options.m_dim * sizeof(T));
+
+                                    ptr += m_options.m_dim * sizeof(T);
+
+                                    memcpy(ptr, (char*)&layer, sizeof(int));
+
+                                    ptr += sizeof(int);
+
+                                    char code = 0;
+
+                                    memcpy(ptr, (char*)&code, sizeof(char));
+
+                                    auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
+
+                                    m_clientThreadPoolDSPANN[i]->add(curJob);
+                                    
+                                } else {
+                                    visit[i] = 1;
+                                }
+                                //Send request
+                            }
+                        }
+                        // wait for return and merge result
+
+                        bool notReady = true;
+
+                        while (notReady) {
+                            for (int i = 0; i < GroupNum(); ++i) {
+                                if (in_flight[i] == 0 && visit[i] == 0) {
+                                    visit[i] = 1;
+                                    auto ptr = static_cast<char*>(reply[i]->data());
+                                    for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
+                                        int VID;
+                                        float Dist;
+                                        memcpy((char *)&VID, ptr, sizeof(int));
+                                        memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
+                                        ptr += sizeof(int);
+                                        ptr += sizeof(float);
+                                        if (VID == -1) break;
+                                        if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
+                                        queryResults->AddPoint(VID, Dist);
+                                    }
+                                }
+                            }
+                            notReady = false;
+                            for (int i = 0; i < GroupNum(); ++i) {
+                                if (visit[i] != 1) notReady = true;
+                            }
+                        }
+                        queryResults->SortResult();
+
+                        // return
+                        int K = m_options.m_searchInternalResultNum;
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)));
+
+                        ptr = static_cast<char*>(replyClient.data());
+                        for (int i = 0; i < K; i++) {
+                            auto res = queryResults->GetResult(i);
+                            memcpy(ptr, (char *)&res->VID, sizeof(int));
+                            memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
+                            ptr+=8;
+                        }
+
+                        responder.send(replyClient);
+
+                    } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1) == reply.size()) {
+                        // worker request
+                        if (m_workspace.get() == nullptr) {
+                            m_workspace.reset(new ExtraWorkSpace());
+                            m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                        }
+                        m_workspace->m_deduper.clear();
+                        m_workspace->m_postingIDs.clear();
+                        // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
+                        for (auto key: keys) {
+                            m_workspace->m_postingIDs.push_back(key);
+                        }
+                        p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
+                        double compLatency = 0;
+                        int scannedNum = 0;
+                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
+
+                        // Return result
+                        queryResults->SortResult();
+
+                        int K = m_options.m_searchInternalResultNum;
+                        
+                        zmq::message_t request(K * (sizeof(int) + sizeof(float)));
+
+                        ptr = static_cast<char*>(request.data());
+                        for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
+                            auto res = queryResults->GetResult(i);
+                            memcpy(ptr, (char *)&res->VID, sizeof(int));
+                            memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
+                            ptr+=8;
+                        }
+
+                        responder.send(request);
+
+                    } else {
+                        LOG(Helper::LogLevel::LL_Error, "Invalid msg: %d\n", reply.size());
+                        exit(1);
+                    }
+                }
+            }
+
             ErrorCode Worker() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
                 zmq::context_t context(1);
@@ -860,45 +1148,7 @@ namespace SPTAG
                         double diskReadTime = processTime - compLatency;
                         double computeTime = compLatency;
 
-                        // double diskReadTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-                        // diskReadTime /= 1000;
-
-
-                        // // int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
-                        // int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int);
-
-                        // // int m_metaDataSize = sizeof(int) + sizeof(uint8_t);
-                        // int m_metaDataSize = sizeof(int);
-
-                        // auto t3 = std::chrono::high_resolution_clock::now();
-
-                        // int scannedNum = 0;
-
-                        // for (int j = 0; j < postingNum; j++) {
-
-                        //     int vectorNum = (int)(postingLists[j].size() / m_vectorInfoSize);
-
-                        //     scannedNum += vectorNum;
-
-                        //     for (int i = 0; i < vectorNum; i++) {
-                        //         char* vectorInfo = postingLists[j].data() + i * m_vectorInfoSize;
-                        //         int vectorID = *(reinterpret_cast<int*>(vectorInfo));
-
-                        //         if(m_workspace->m_deduper.CheckAndSet(vectorID)) {
-                        //             scannedNum--;
-                        //             continue;
-                        //         }
-
-                        //         auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((const T*)vectorBuffer, (const T*)(vectorInfo + m_metaDataSize), m_options.m_dim , m_options.m_distCalcMethod);
-                        //         queryResults->AddPoint(vectorID, distance2leaf);
-                        //     }
-                        // }
-
                         queryResults->SortResult();
-
-                        // auto t4 = std::chrono::high_resolution_clock::now();
-
-                        // double computeTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())) / 1000;
 
                         int resultSize = queryResults->GetResultNum();
                         
@@ -986,11 +1236,17 @@ namespace SPTAG
                     { backend, 0, ZMQ_POLLIN, 0 }
                 };
 
+                initDistKVNetWork();
+
                 std::vector<std::thread> m_threads;
                 for (int i = 0; i < m_options.m_searchThreadNum; i++)
                 {
                     m_threads.emplace_back([this] {
-                        if (m_options.m_dspann) WorkerDSPANN();
+                        if (m_options.m_dspann) 
+                            if (m_options.m_distKV)
+                                WorkerDistKV();
+                            else 
+                                WorkerDSPANN();
                         else Worker();
                     });
                 }

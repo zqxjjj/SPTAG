@@ -200,6 +200,9 @@ namespace SPTAG {
             // Multinode
             bool m_multinode;
 
+            bool m_distKV;
+            int m_myNodeId;
+
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \
                 VarName = DefaultValue; \

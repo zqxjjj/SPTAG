@@ -215,4 +215,7 @@ DefineSSDParameter(m_ipAddrFrontendDSPANN, std::string, std::string(""), "IPAddr
 // Multinode
 DefineSSDParameter(m_multinode, bool, false, "MultiNode")
 
+DefineSSDParameter(m_distKV, bool, false, "DistKV")
+DefineSSDParameter(m_myNodeId, int, 0, "MyNodeId")
+
 #endif

@@ -235,8 +235,15 @@ namespace SPTAG
                         }
                         IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMaps[0].get()));
                     }
-                    m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                    m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
+                    if (m_options.m_distKV) {
+                        LOG(Helper::LogLevel::LL_Info, "Dist KV test, only connect to one node\n");
+                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
+                        // initDistKVNetWork();
+                    } else {
+                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
+                    }
                 } else {
                     m_extraSearchers.resize(1);
                     if (m_options.m_useKV) {
@@ -305,8 +312,15 @@ namespace SPTAG
                         }
                         LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
                     }
-                    m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                    m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
+                    if (m_options.m_distKV) {
+                        // initDistKVNetWork(); 
+                        LOG(Helper::LogLevel::LL_Info, "Dist KV test, only connect to one node\n");
+                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
+                    } else {
+                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
+                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
+                    }
                 } else {
                     m_extraSearchers.resize(toLoadLayers);
                     for (int i = toLoadLayers; i > 0; i--) {
