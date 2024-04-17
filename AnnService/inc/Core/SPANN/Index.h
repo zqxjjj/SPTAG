@@ -67,7 +67,7 @@ namespace SPTAG
                 for (int i = 0; i < numberOfThreads; i++)
                 {
                     m_threads.emplace_back([this, m_ipAddrFrontend] {
-                        zmq::context_t context(2);
+                        zmq::context_t context(1);
                         zmq::socket_t clientSocket(context, ZMQ_REQ);
                         clientSocket.connect(m_ipAddrFrontend.c_str());
                         Job *j;
@@ -823,7 +823,7 @@ namespace SPTAG
 
             ErrorCode WorkerDSPANN() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DSPANN\n");
-                zmq::context_t context(2);
+                zmq::context_t context(1);
 
                 zmq::socket_t responder(context, ZMQ_REP);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
@@ -918,7 +918,7 @@ namespace SPTAG
 
             ErrorCode WorkerDistKV() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DistKV\n");
-                zmq::context_t context(2);
+                zmq::context_t context(1);
 
                 zmq::socket_t responder(context, ZMQ_REP);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
@@ -1055,11 +1055,11 @@ namespace SPTAG
                                         if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
                                         queryResults->AddPoint(VID, Dist);
                                     }
-                                    auto t7 = std::chrono::high_resolution_clock::now();
-                                    double thisQueryTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t7 - t3).count()));
-                                    double thisTime;
-                                    memcpy((char *)&thisTime, ptr, sizeof(double));
-                                    LOG(Helper::LogLevel::LL_Info, "Remote Process Time: %lf, Remote Wait Time: %lf, localProcessTime: %lf, realTransferTime: %lf\n", thisTime, thisQueryTime, localProcessTime, realLatency[i]);
+                                    // auto t7 = std::chrono::high_resolution_clock::now();
+                                    // double thisQueryTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t7 - t3).count()));
+                                    // double thisTime;
+                                    // memcpy((char *)&thisTime, ptr, sizeof(double));
+                                    // LOG(Helper::LogLevel::LL_Info, "Remote Process Time: %lf, Remote Wait Time: %lf, localProcessTime: %lf, realTransferTime: %lf\n", thisTime, thisQueryTime, localProcessTime, realLatency[i]);
                                 }
                             }
                             notReady = false;
@@ -1153,7 +1153,7 @@ namespace SPTAG
 
             ErrorCode Worker() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
-                zmq::context_t context(2);
+                zmq::context_t context(1);
 
                 zmq::socket_t responder(context, ZMQ_REP);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
@@ -1291,7 +1291,7 @@ namespace SPTAG
             ErrorCode BrokerOn() {
                 LOG(Helper::LogLevel::LL_Info, "Start Broker\n");
 
-                zmq::context_t context(2);
+                zmq::context_t context(1);
                 zmq::socket_t frontend (context, ZMQ_ROUTER);
                 zmq::socket_t backend (context, ZMQ_DEALER);
 
