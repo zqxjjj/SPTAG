@@ -1037,7 +1037,7 @@ namespace SPTAG
 
                         // return
                         int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)));
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + sizeof(double));
 
                         ptr = static_cast<char*>(replyClient.data());
                         for (int i = 0; i < K; i++) {
@@ -1046,6 +1046,12 @@ namespace SPTAG
                             memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
                             ptr+=8;
                         }
+
+                        auto t2 = std::chrono::high_resolution_clock::now();
+
+                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
+
+                        memcpy(ptr, (char *)&processTime, sizeof(double));
 
                         responder.send(replyClient);
 
@@ -1071,7 +1077,7 @@ namespace SPTAG
 
                         int K = m_options.m_searchInternalResultNum;
                         
-                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double));
+                        zmq::message_t request(K * (sizeof(int) + sizeof(float)));
 
                         ptr = static_cast<char*>(request.data());
                         for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
@@ -1080,11 +1086,6 @@ namespace SPTAG
                             memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
                             ptr+=8;
                         }
-                        auto t2 = std::chrono::high_resolution_clock::now();
-
-                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-
-                        memcpy(ptr, (char *)&processTime, sizeof(double));
 
                         responder.send(request);
 
