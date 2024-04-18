@@ -203,6 +203,11 @@ namespace SPTAG {
             bool m_distKV;
             int m_myNodeId;
 
+            // 0, 1, 2
+            int m_hashPlan;
+
+            std::string m_headLayerMap;
+
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \
                 VarName = DefaultValue; \

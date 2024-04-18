@@ -31,6 +31,7 @@
 #include <ratio>
 #include <shared_mutex>
 
+#include <string>
 #include <zmq.hpp>
 
 namespace SPTAG
@@ -111,6 +112,7 @@ namespace SPTAG
 
             std::vector<std::shared_ptr<IExtraSearcher>> m_extraSearchers;
             std::vector<std::shared_ptr<std::uint64_t>> m_vectorTranslateMaps;
+            std::vector<std::shared_ptr<short>> m_vectorHashMaps;
 
             Options m_options;
 
@@ -259,6 +261,34 @@ namespace SPTAG
             bool Initialize() { return m_extraSearcher->Initialize(); }
 
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
+
+            ErrorCode InitNodeHashMap(int headSize, int layer) {
+                if (m_options.m_hashPlan == 0) return ErrorCode::Success;
+                else if (m_options.m_hashPlan == 1) {
+                    m_vectorHashMaps[layer].reset(new short[headSize], std::default_delete<short[]>());
+                    #pragma omp parallel for num_threads(20)
+                    for (int i = 0; i < headSize; i++)
+                    (m_vectorHashMaps[layer].get())[i] = COMMON::Utils::rand(0, m_options.m_dspannIndexFileNum);
+                } else {
+                    std::string folderPath = m_options.m_indexDirectory;
+                    std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+
+                    std::string filename = m_options.m_headLayerMap + std::to_string(layer);
+
+                    if (ptr == nullptr || !ptr->Initialize((folderPath + FolderSep + filename).c_str(), std::ios::binary | std::ios::in)) {
+                        LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (folderPath + FolderSep + filename).c_str());
+                        return ErrorCode::Fail;
+                    }
+
+                    //read the first 2 int
+                    SizeType rows;
+                    DimensionType cols;
+                    IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&rows);
+                    IOBINARY(ptr, ReadBinary, sizeof(DimensionType), (char*)&cols);
+
+                    IOBINARY(ptr, ReadBinary, sizeof(short) * headSize, (char*)(m_vectorHashMaps[layer].get()));
+                }
+            }
 
             void InitSPectrumNetWork() {
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
@@ -906,7 +936,10 @@ namespace SPTAG
             }
 
             int NodeHash(int key, int layer) {
-                return key % m_options.m_dspannIndexFileNum;
+                if (m_options.m_hashPlan != 0) {
+                    return(m_vectorHashMaps[layer].get())[key];
+                } else
+                    return key % m_options.m_dspannIndexFileNum;
             }
 
             int MyNodeId() {

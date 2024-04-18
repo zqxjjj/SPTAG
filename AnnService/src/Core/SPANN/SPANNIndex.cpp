@@ -165,6 +165,7 @@ namespace SPTAG
                 LOG(Helper::LogLevel::LL_Info, "Loading L-1 to L-%d index headmap\n", toLoadLayers);
 
                 m_vectorTranslateMaps.resize(toLoadLayers);
+                m_vectorHashMaps.resize(toLoadLayers);
 
                 for (int i = toLoadLayers; i > 0; i--) {
                     std::string folderPath = m_options.m_indexDirectory;
@@ -192,6 +193,7 @@ namespace SPTAG
                             return ErrorCode::Fail;
                         }
                         IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[toLoadLayers-i].get()));
+                        InitNodeHashMap(headSize, toLoadLayers-i);
                     }
                     LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
                 }

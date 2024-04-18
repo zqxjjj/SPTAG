@@ -217,5 +217,7 @@ DefineSSDParameter(m_multinode, bool, false, "MultiNode")
 
 DefineSSDParameter(m_distKV, bool, false, "DistKV")
 DefineSSDParameter(m_myNodeId, int, 0, "MyNodeId")
+DefineSSDParameter(m_hashPlan, int, 0, "HashPlan")
+DefineSSDParameter(m_headLayerMap, std::string, std::string(""), "HeadLayerMap")
 
 #endif
