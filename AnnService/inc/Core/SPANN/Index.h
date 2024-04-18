@@ -282,12 +282,14 @@ namespace SPTAG
 
                 if (m_options.m_hashPlan == 0) return ErrorCode::Success;
                 else if (m_options.m_hashPlan == 1) {
-                    // #pragma omp parallel for num_threads(20)
+                    LOG(Helper::LogLevel::LL_Info, "Hashing Plan 1, headSize: %d\n", rows);
+                    #pragma omp parallel for num_threads(20)
                     for (int i = 0; i < rows; i++)
-                        (m_vectorHashMaps[layer].get())[i] = COMMON::Utils::rand(0, m_options.m_dspannIndexFileNum);
+                        (m_vectorHashMaps[layer].get())[i] = (short) COMMON::Utils::rand(0, m_options.m_dspannIndexFileNum);
                 } else {
                     IOBINARY(ptr, ReadBinary, sizeof(short) * rows, (char*)(m_vectorHashMaps[layer].get()));
                 }
+                return ErrorCode::Success;
             }
 
             void InitSPectrumNetWork() {
