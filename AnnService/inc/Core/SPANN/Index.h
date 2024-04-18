@@ -262,16 +262,16 @@ namespace SPTAG
 
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
 
-            ErrorCode InitNodeHashMap(int layer) {
-                std::string folderPath = m_options.m_indexDirectory;
+            ErrorCode InitNodeHashMap(std::string indexDirectory, int layer) {
                 std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
 
-                std::string filename = m_options.m_headLayerMap + std::to_string(layer);
+                std::string filename = indexDirectory + m_options.m_headLayerMap;
 
-                if (ptr == nullptr || !ptr->Initialize((folderPath + FolderSep + filename).c_str(), std::ios::binary | std::ios::in)) {
-                    LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (folderPath + FolderSep + filename).c_str());
+                if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", filename.c_str());
                     return ErrorCode::Fail;
                 }
+                LOG(Helper::LogLevel::LL_Info, "Loading Hash Map Layer: %d from :%s\n", layer, filename.c_str());
                 //read the first 2 int
                 SizeType rows;
                 DimensionType cols;

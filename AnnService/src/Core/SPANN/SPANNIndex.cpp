@@ -254,7 +254,7 @@ namespace SPTAG
                         if (!m_extraSearchers[0]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
                     }
                     if (m_options.m_distKV) {
-                        InitNodeHashMap(0);
+                        InitNodeHashMap(m_options.m_indexDirectory, 0);
                     }
                 }
             } else {
@@ -340,10 +340,11 @@ namespace SPTAG
                         m_extraSearchers[toLoadLayers-i].reset(new ExtraStaticSearcher<T>());
                         if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
 
-                        m_options.m_indexDirectory = temp;
                         if (m_options.m_distKV) {
-                            InitNodeHashMap(toLoadLayers-i);
+                            InitNodeHashMap(m_options.m_indexDirectory, toLoadLayers-i);
                         }
+
+                        m_options.m_indexDirectory = temp;
 
                     }
                 }
