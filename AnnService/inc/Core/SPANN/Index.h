@@ -265,7 +265,7 @@ namespace SPTAG
             ErrorCode InitNodeHashMap(std::string indexDirectory, int layer) {
                 std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
 
-                std::string filename = indexDirectory + m_options.m_headLayerMap;
+                std::string filename = indexDirectory + FolderSep + m_options.m_headLayerMap;
 
                 if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
                     LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", filename.c_str());
