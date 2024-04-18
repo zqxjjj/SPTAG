@@ -285,7 +285,7 @@ namespace SPTAG
                     LOG(Helper::LogLevel::LL_Info, "Hashing Plan 1, headSize: %d\n", rows);
                     #pragma omp parallel for num_threads(20)
                     for (int i = 0; i < rows; i++)
-                        (m_vectorHashMaps[layer].get())[i] = (short) COMMON::Utils::rand(0, m_options.m_dspannIndexFileNum);
+                        (m_vectorHashMaps[layer].get())[i] = (short) COMMON::Utils::rand(m_options.m_dspannIndexFileNum, 0);
                 } else {
                     IOBINARY(ptr, ReadBinary, sizeof(short) * rows, (char*)(m_vectorHashMaps[layer].get()));
                 }
@@ -939,8 +939,8 @@ namespace SPTAG
 
             int NodeHash(int key, int layer) {
                 if (m_options.m_hashPlan != 0) {
-                    LOG(Helper::LogLevel::LL_Info, "Debug\n");
-                    LOG(Helper::LogLevel::LL_Info, "key: %d, node: %d\n", key, (m_vectorHashMaps[layer].get())[key]);
+                    // LOG(Helper::LogLevel::LL_Info, "Debug\n");
+                    // LOG(Helper::LogLevel::LL_Info, "key: %d, node: %d\n", key, (m_vectorHashMaps[layer].get())[key]);
                     return(m_vectorHashMaps[layer].get())[key];
                 } else
                     return key % m_options.m_dspannIndexFileNum;
@@ -992,7 +992,7 @@ namespace SPTAG
                         std::vector<std::vector<int>> keys_eachNode(GroupNum());
 
                         for (auto key: keys) {
-                            LOG(Helper::LogLevel::LL_Info, "Debug: key %d\n", key);
+                            // LOG(Helper::LogLevel::LL_Info, "Debug: key %d\n", key);
                             int node = NodeHash(key, layer);
                             keys_eachNode[node].push_back(key);
                         }
@@ -1008,7 +1008,7 @@ namespace SPTAG
                             m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
                         }
 
-                        LOG(Helper::LogLevel::LL_Info, "Sending\n");
+                        // LOG(Helper::LogLevel::LL_Info, "Sending\n");
                         int count = 0;
                         for (int i = 0; i < GroupNum(); i++) {
                             if (i == MyNodeId()) {
@@ -1054,7 +1054,7 @@ namespace SPTAG
                                 //Send request
                             }
                         }
-                        LOG(Helper::LogLevel::LL_Info, "Searching\n");
+                        // LOG(Helper::LogLevel::LL_Info, "Searching\n");
 
                         // Search local
                         auto t3 = std::chrono::high_resolution_clock::now();
@@ -1085,7 +1085,7 @@ namespace SPTAG
 
                         bool notReady = true;
 
-                        LOG(Helper::LogLevel::LL_Info, "Waiting\n");
+                        // LOG(Helper::LogLevel::LL_Info, "Waiting\n");
 
                         while (notReady) {
                             for (int i = 0; i < GroupNum(); ++i) {
@@ -1149,7 +1149,7 @@ namespace SPTAG
 
                         memcpy(ptr, &waitProcessTime, sizeof(double));
 
-                        LOG(Helper::LogLevel::LL_Info, "Returning\n");
+                        // LOG(Helper::LogLevel::LL_Info, "Returning\n");
 
                         responder.send(replyClient);
 
