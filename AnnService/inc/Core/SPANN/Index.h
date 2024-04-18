@@ -277,14 +277,14 @@ namespace SPTAG
                 DimensionType cols;
                 IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&rows);
                 IOBINARY(ptr, ReadBinary, sizeof(DimensionType), (char*)&cols);
-                
+
                 m_vectorHashMaps[layer].reset(new short[rows], std::default_delete<short[]>());
 
                 if (m_options.m_hashPlan == 0) return ErrorCode::Success;
                 else if (m_options.m_hashPlan == 1) {
-                    #pragma omp parallel for num_threads(20)
+                    // #pragma omp parallel for num_threads(20)
                     for (int i = 0; i < rows; i++)
-                    (m_vectorHashMaps[layer].get())[i] = COMMON::Utils::rand(0, m_options.m_dspannIndexFileNum);
+                        (m_vectorHashMaps[layer].get())[i] = COMMON::Utils::rand(0, m_options.m_dspannIndexFileNum);
                 } else {
                     IOBINARY(ptr, ReadBinary, sizeof(short) * rows, (char*)(m_vectorHashMaps[layer].get()));
                 }
