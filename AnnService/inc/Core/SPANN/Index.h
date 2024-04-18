@@ -939,6 +939,8 @@ namespace SPTAG
 
             int NodeHash(int key, int layer) {
                 if (m_options.m_hashPlan != 0) {
+                    LOG(Helper::LogLevel::LL_Info, "Debug\n");
+                    LOG(Helper::LogLevel::LL_Info, "key: %d, node: %d\n", key, (m_vectorHashMaps[layer].get())[key]);
                     return(m_vectorHashMaps[layer].get())[key];
                 } else
                     return key % m_options.m_dspannIndexFileNum;
