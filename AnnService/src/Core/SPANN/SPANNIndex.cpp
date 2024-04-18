@@ -193,7 +193,6 @@ namespace SPTAG
                             return ErrorCode::Fail;
                         }
                         IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[toLoadLayers-i].get()));
-                        InitNodeHashMap(headSize, toLoadLayers-i);
                     }
                     LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
                 }
@@ -253,6 +252,9 @@ namespace SPTAG
                     } else {
                         m_extraSearchers[0].reset(new ExtraStaticSearcher<T>());
                         if (!m_extraSearchers[0]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
+                    }
+                    if (m_options.m_distKV) {
+                        InitNodeHashMap(0);
                     }
                 }
             } else {
@@ -339,6 +341,9 @@ namespace SPTAG
                         if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
 
                         m_options.m_indexDirectory = temp;
+                        if (m_options.m_distKV) {
+                            InitNodeHashMap(toLoadLayers-i);
+                        }
 
                     }
                 }
