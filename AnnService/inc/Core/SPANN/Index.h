@@ -277,6 +277,7 @@ namespace SPTAG
                 DimensionType cols;
                 IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&rows);
                 IOBINARY(ptr, ReadBinary, sizeof(DimensionType), (char*)&cols);
+                
                 m_vectorHashMaps[layer].reset(new short[rows], std::default_delete<short[]>());
 
                 if (m_options.m_hashPlan == 0) return ErrorCode::Success;
