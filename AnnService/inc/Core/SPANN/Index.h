@@ -606,7 +606,7 @@ namespace SPTAG
                         }
 
                         int resultLength = reply.size();
-                        int resultSize = (resultLength - 4* sizeof(double)) / 8;
+                        int resultSize = (resultLength - 3* sizeof(double)) / 8;
 
                         ptr = static_cast<char*>(reply.data());
 
