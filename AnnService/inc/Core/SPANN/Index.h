@@ -298,7 +298,7 @@ namespace SPTAG
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
                     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
                     addrPrefix += std::to_string(node);
-                    addrPrefix += ":8000";
+                    addrPrefix += ":8002";
                     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
                     m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
@@ -571,79 +571,90 @@ namespace SPTAG
                     }
                     if (m_options.m_distKV) {
                         //sending request to the distKV
-                        // 
-                        auto t3 = std::chrono::high_resolution_clock::now();
+                        
 
-                        int postingIDSize = m_workspace->m_postingIDs.size();
+                        //Process m_postingIDs
 
-                        zmq::message_t request((postingIDSize+1)*sizeof(int) + m_options.m_dim * sizeof(T) + sizeof(int));
-                        zmq::message_t reply;
-                        int in_flight = 0;
+                        std::vector<std::vector<int>> keys_eachNode(GroupNum());
 
-                        in_flight= 1;
-
-                        auto ptr = static_cast<char*>(request.data());
-
-                        memcpy(ptr, (char*)&postingIDSize, sizeof(int));
-
-                        ptr += sizeof(int);
-
-                        memcpy(ptr, (char*)m_workspace->m_postingIDs.data(), sizeof(int)*postingIDSize);
-
-                        ptr += sizeof(int)*postingIDSize;
-
-                        memcpy(ptr, p_queryResults->GetQuantizedTarget(), sizeof(T) * m_options.m_dim);
-
-                        ptr += sizeof(T) * m_options.m_dim;
-
-                        memcpy(ptr, (char*)&layer, sizeof(int));
-                          
-                        // wait for return result
-
-                        auto* curJob = new NetworkJob(&request, &reply, &in_flight);
-                        m_clientThreadPool->add(curJob);
-
-                        while (in_flight != 0) {
-                            std::this_thread::sleep_for(std::chrono::microseconds(5));
+                        for (auto key: m_workspace->m_postingIDs) {
+                            // LOG(Helper::LogLevel::LL_Info, "Debug: key %d\n", key);
+                            int node = NodeHash(key, layer);
+                            keys_eachNode[node].push_back(key);
                         }
 
-                        int resultLength = reply.size();
-                        int resultSize = (resultLength - 3* sizeof(double)) / 8;
+                        zmq::message_t* request[GroupNum()];
+                        zmq::message_t* reply[GroupNum()];
+                        std::vector<int> in_flight(GroupNum(), 0); 
+                        std::vector<int> visit(GroupNum(), 0);
 
-                        ptr = static_cast<char*>(reply.data());
+                        //Send to all distKV
+                        for (int i = 0; i < GroupNum(); i++) {
+                            if (keys_eachNode[i].size() != 0) {
+                                request[i] = new zmq::message_t(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
+                                reply[i] = new zmq::message_t();
+                                in_flight[i] = 1;
 
-                        /** id & dist (ResultNum) **/
+                                char* ptr = static_cast<char*>(request[i]->data());
 
-                        COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
+                                int keys_size = keys_eachNode[i].size();
 
-                        for (int i = 0; i < resultSize; i++) {
-                            p_queryResults->AddPoint(*(int *)(ptr) , *(float *)(ptr+4));
-                            ptr += 8;
-                        } 
-                        double remoteLocalTime;
-                        memcpy((char*)&remoteLocalTime, ptr, sizeof(double));
+                                memcpy(ptr, (char*)&keys_size, sizeof(int));
+                                
+                                ptr += sizeof(int);
 
-                        p_stats->m_diskReadLatencys[layer] = remoteLocalTime / 1000;
+                                memcpy(ptr, (char*)keys_eachNode[i].data(), sizeof(int)*keys_eachNode[i].size());
 
-                        ptr+=8;
+                                ptr += sizeof(int)*keys_eachNode[i].size();
 
-                        double remoteCompTime;
-                        memcpy((char*)&remoteCompTime, ptr, sizeof(double));
+                                memcpy(ptr, (char*)p_queryResults->GetQuantizedTarget(), m_options.m_dim * sizeof(T));
 
-                        ptr+=8;
+                                ptr += m_options.m_dim * sizeof(T);
 
-                        p_stats->m_compLatencys[layer] = remoteCompTime / 1000;
+                                memcpy(ptr, (char*)&layer, sizeof(int));
 
-                        double remoteWaitTime;
-                        memcpy((char*)&remoteWaitTime, ptr, sizeof(double));
+                                ptr += sizeof(int);
 
-                        p_stats->m_exWaitLatencys[layer] = remoteWaitTime / 1000;
+                                char code = 0;
 
-                        auto t4 = std::chrono::high_resolution_clock::now();
+                                memcpy(ptr, (char*)&code, sizeof(char));
 
-                        double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
+                                auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
 
-                        p_stats->m_exLatencys[layer] = remoteProcessTime / 1000;
+                                m_clientThreadPoolDSPANN[i]->add(curJob);
+                                
+                            } else {
+                                visit[i] = 1;
+                            }
+                        }
+
+                        bool notReady = true;
+
+                        while (notReady) {
+                            for (int i = 0; i < GroupNum(); ++i) {
+                                if (visit[i] == 0 && in_flight[i] == 0) {
+                                    visit[i] = 1;
+                                    auto ptr = static_cast<char*>(reply[i]->data());
+                                    for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
+                                        int VID;
+                                        float Dist;
+                                        memcpy((char *)&VID, ptr, sizeof(int));
+                                        memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
+                                        ptr += sizeof(int);
+                                        ptr += sizeof(float);
+                                        if (VID == -1) break;
+                                        if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
+                                        p_queryResults->AddPoint(VID, Dist);
+                                    }
+                                }
+                            }
+                            notReady = false;
+                            for (int i = 0; i < GroupNum(); ++i) {
+                                if (visit[i] != 1) notReady = true;
+                            }
+                            if (notReady) std::this_thread::sleep_for(std::chrono::microseconds(5));
+                        }
+                        
                     } else if (!m_options.m_isLocal) {
                         /***Remote Transefer And Process**/
                         auto t3 = std::chrono::high_resolution_clock::now();
@@ -1357,7 +1368,7 @@ namespace SPTAG
                     { backend, 0, ZMQ_POLLIN, 0 }
                 };
 
-                initDistKVNetWork();
+                if (m_options.m_multinode) initDistKVNetWork();
 
                 std::vector<std::thread> m_threads;
                 for (int i = 0; i < m_options.m_searchThreadNum; i++)
@@ -1366,8 +1377,9 @@ namespace SPTAG
                         if (m_options.m_dspann) 
                             if (m_options.m_distKV)
                                 WorkerDistKV();
-                            else 
+                            else {
                                 WorkerDSPANN();
+                            }
                         else Worker();
                     });
                 }
