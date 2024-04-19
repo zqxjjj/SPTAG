@@ -107,6 +107,8 @@ namespace SPTAG
                                     key++;
                                     ptr += sizeof(int);
                                     memcpy(ptr, (nj->request)->data(), (nj->request)->size());
+
+                                    LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
                                     
                                     clientSocket.send(request);
                                 }
@@ -118,6 +120,7 @@ namespace SPTAG
                                     char* ptr = static_cast<char*>(reply.data());
                                     int currentKey;
                                     memcpy((char*)currentKey, ptr, sizeof(int));
+                                    LOG(Helper::LogLevel::LL_Info,"Receive key: %d\n", currentKey);
                                     ptr += sizeof(int);
                                     (unfinished[currentKey]->reply)->resize(reply.size()-sizeof(int));
                                     memcpy((unfinished[currentKey]->reply)->data(), ptr, reply.size()-sizeof(int));
@@ -950,10 +953,12 @@ namespace SPTAG
 
                     int K = m_options.m_resultNum;
                         
-                    zmq::message_t request(K * (sizeof(int) + sizeof(float))+ sizeof(double));
+                    zmq::message_t request(K * (sizeof(int) + sizeof(float))+ sizeof(double)+ sizeof(int));
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & result;
 
                     ptr = static_cast<char*>(request.data());
+                    memcpy(ptr, (char *)&currentKey, sizeof(int));
+                    ptr += sizeof(int);
                     for (int i = 0; i < K; i++) {
                         auto res = queryResults->GetResult(i);
                         memcpy(ptr, (char *)&res->VID, sizeof(int));
@@ -968,6 +973,8 @@ namespace SPTAG
                     localProcessTime /= 1000;
 
                     memcpy(ptr, (char *)&localProcessTime, sizeof(double));
+
+                    LOG(Helper::LogLevel::LL_Info, "Send Back\n");
 
                     responder.send(request);
                 }
@@ -1036,6 +1043,8 @@ namespace SPTAG
 
                     int currentKey;
                     memcpy((char *)&currentKey, ptr, sizeof(int));
+
+                    LOG(Helper::LogLevel::LL_Info, "KV Receive, key: %d\n", currentKey);
 
                     ptr+=sizeof(int);
                     memcpy((char *)&size, ptr, sizeof(int));
@@ -1267,6 +1276,7 @@ namespace SPTAG
 
                         memcpy(ptr, (char *)&processTime, sizeof(double));
 
+                        LOG(Helper::LogLevel::LL_Info, "Send Back\n");
 
                         responder.send(request);
 
