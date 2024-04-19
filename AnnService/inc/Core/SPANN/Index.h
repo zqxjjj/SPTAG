@@ -929,6 +929,12 @@ namespace SPTAG
 
                     char* ptr = static_cast<char*>(reply.data());
 
+                    int currentKey;
+
+                    memcpy((char*)&currentKey, ptr, sizeof(int));
+
+                    ptr+=sizeof(int);
+
                     memcpy(vectorBuffer, ptr, msg_size);
                     // copy vector
 
@@ -1027,6 +1033,11 @@ namespace SPTAG
                     // worker request, a list of key and vector and and char "0"
                     int size;
                     char* ptr = static_cast<char*>(reply.data());
+
+                    int currentKey;
+                    memcpy((char *)&currentKey, ptr, sizeof(int));
+
+                    ptr+=sizeof(int);
                     memcpy((char *)&size, ptr, sizeof(int));
                     ptr += sizeof(int);
                     std::vector<int> keys(size);
@@ -1043,7 +1054,7 @@ namespace SPTAG
 
                     memcpy((char *)&layer, ptr, sizeof(int));
 
-                    if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T)) == reply.size()) {
+                    if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + sizeof(int)) == reply.size()) {
                         // client request, a list of 
                         std::vector<std::vector<int>> keys_eachNode(GroupNum());
 
@@ -1182,9 +1193,11 @@ namespace SPTAG
 
                         // return
                         int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 3*sizeof(double));
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 3*sizeof(double) + sizeof(int));
 
                         ptr = static_cast<char*>(replyClient.data());
+                        memcpy(ptr, (char *)&currentKey, sizeof(int));
+                        ptr += sizeof(int);
                         for (int i = 0; i < K; i++) {
                             auto res = queryResults->GetResult(i);
                             memcpy(ptr, (char *)&res->VID, sizeof(int));
@@ -1210,7 +1223,7 @@ namespace SPTAG
 
                         responder.send(replyClient);
 
-                    } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1) == reply.size()) {
+                    } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1 + sizeof(int)) == reply.size()) {
                         // worker request
                         auto t1 = std::chrono::high_resolution_clock::now();
                         if (m_workspace.get() == nullptr) {
@@ -1233,9 +1246,14 @@ namespace SPTAG
 
                         int K = m_options.m_searchInternalResultNum;
                         
-                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double));
+                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double) + sizeof(int));
 
                         ptr = static_cast<char*>(request.data());
+
+                        memcpy(ptr, (char *)&currentKey, sizeof(int));
+
+                        ptr += sizeof(int);
+
                         for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
                             auto res = queryResults->GetResult(i);
                             memcpy(ptr, (char *)&res->VID, sizeof(int));
