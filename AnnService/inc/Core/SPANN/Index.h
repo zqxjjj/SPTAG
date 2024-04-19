@@ -92,6 +92,7 @@ namespace SPTAG
                         {
                             try 
                             {
+                                LOG(Helper::LogLevel::LL_Info,"Intering Loop\n");
                                 if (currentJobs == 0) {
                                     get(j);
                                 }
