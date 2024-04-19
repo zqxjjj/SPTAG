@@ -569,7 +569,7 @@ namespace SPTAG
                             res->Dist = MaxDist;
                         }
                     }
-                    if (m_options.m_distKV) {
+                    if (m_options.m_multinode) {
                         //sending request to the distKV
                         
 
