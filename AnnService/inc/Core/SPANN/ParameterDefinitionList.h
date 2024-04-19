@@ -219,5 +219,6 @@ DefineSSDParameter(m_distKV, bool, false, "DistKV")
 DefineSSDParameter(m_myNodeId, int, -1, "MyNodeId")
 DefineSSDParameter(m_hashPlan, int, 0, "HashPlan")
 DefineSSDParameter(m_headLayerMap, std::string, std::string(""), "HeadLayerMap")
+DefineSSDParameter(m_socketThreadNum, int, 2, "SocketThreadNum")
 
 #endif
