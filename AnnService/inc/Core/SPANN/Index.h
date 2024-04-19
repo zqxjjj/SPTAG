@@ -95,6 +95,20 @@ namespace SPTAG
                                 LOG(Helper::LogLevel::LL_Info,"Intering Loop\n");
                                 if (currentJobs == 0) {
                                     get(j);
+                                    NetworkJob *nj = static_cast<NetworkJob*>(j);
+                                    currentJobs++;
+                                    zmq::message_t request((nj->request)->size() + sizeof(int));
+
+                                    char* ptr = static_cast<char*>(request.data());
+
+                                    memcpy(ptr, (char*)&key, sizeof(int));
+                                    key++;
+                                    ptr += sizeof(int);
+                                    memcpy(ptr, (nj->request)->data(), (nj->request)->size());
+
+                                    LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
+                                    
+                                    clientSocket.send(request);
                                 }
 
                                 if (getNoBlock(j)) {
