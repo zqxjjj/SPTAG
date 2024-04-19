@@ -92,7 +92,7 @@ namespace SPTAG
                         {
                             try 
                             {
-                                LOG(Helper::LogLevel::LL_Info,"Intering Loop\n");
+                                // LOG(Helper::LogLevel::LL_Info,"Intering Loop\n");
                                 if (currentJobs == 0) {
                                     get(j);
                                     NetworkJob *nj = static_cast<NetworkJob*>(j);
@@ -106,7 +106,7 @@ namespace SPTAG
                                     ptr += sizeof(int);
                                     memcpy(ptr, (nj->request)->data(), (nj->request)->size());
 
-                                    LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
+                                    // LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
                                     
                                     clientSocket.send(request);
                                 }
