@@ -84,6 +84,7 @@ namespace SPTAG
                         std::map<int, NetworkJob*> unfinished;
                         zmq::context_t context(1);
                         zmq::socket_t clientSocket(context, ZMQ_DEALER);
+                        // zmq::socket_t clientSocket(context, ZMQ_REQ);
                         clientSocket.connect(m_ipAddrFrontend.c_str());
                         zmq::pollitem_t items[] = {
                             { clientSocket, 0, ZMQ_POLLIN, 0 } };
@@ -92,7 +93,6 @@ namespace SPTAG
                         {
                             try 
                             {
-                                // LOG(Helper::LogLevel::LL_Info,"Intering Loop\n");
                                 if (currentJobs == 0) {
                                     get(j);
                                     NetworkJob *nj = static_cast<NetworkJob*>(j);
@@ -102,16 +102,15 @@ namespace SPTAG
                                     char* ptr = static_cast<char*>(request.data());
 
                                     memcpy(ptr, (char*)&key, sizeof(int));
+                                    unfinished[key] = nj;
                                     key++;
                                     ptr += sizeof(int);
                                     memcpy(ptr, (nj->request)->data(), (nj->request)->size());
 
-                                    // LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
+                                    // LOG(Helper::LogLevel::LL_Info,"Send key: %d, size: %d\n", key-1, request.size());
                                     
                                     clientSocket.send(request);
-                                }
-
-                                if (getNoBlock(j)) {
+                                } else if (getNoBlock(j)) {
                                     NetworkJob *nj = static_cast<NetworkJob*>(j);
                                     currentJobs++;
                                     zmq::message_t request((nj->request)->size() + sizeof(int));
@@ -119,36 +118,42 @@ namespace SPTAG
                                     char* ptr = static_cast<char*>(request.data());
 
                                     memcpy(ptr, (char*)&key, sizeof(int));
+                                    unfinished[key] = nj;
                                     key++;
                                     ptr += sizeof(int);
                                     memcpy(ptr, (nj->request)->data(), (nj->request)->size());
 
-                                    LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
+                                    // LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
                                     
                                     clientSocket.send(request);
+                                } else {
+                                    std::this_thread::sleep_for(std::chrono::microseconds(1));
                                 }
 
                                 zmq::poll(items, 1, 0);
                                 if (items[0].revents & ZMQ_POLLIN) {
+                                    // LOG(Helper::LogLevel::LL_Info,"Get Reply\n");
                                     zmq::message_t reply;
                                     clientSocket.recv(reply);
+                                    // LOG(Helper::LogLevel::LL_Info,"reply size: %d\n", reply.size());
                                     char* ptr = static_cast<char*>(reply.data());
                                     int currentKey;
-                                    memcpy((char*)currentKey, ptr, sizeof(int));
-                                    LOG(Helper::LogLevel::LL_Info,"Receive key: %d\n", currentKey);
+                                    memcpy((char*)&currentKey, ptr, sizeof(int));
+                                    // LOG(Helper::LogLevel::LL_Info,"Receive key: %d\n", currentKey);
                                     ptr += sizeof(int);
                                     (unfinished[currentKey]->reply)->resize(reply.size()-sizeof(int));
+                                    // LOG(Helper::LogLevel::LL_Info,"Ready to copy\n", currentKey);
                                     memcpy((unfinished[currentKey]->reply)->data(), ptr, reply.size()-sizeof(int));
                                     *(unfinished[currentKey]->in_flight) = 0;
+                                    delete unfinished[currentKey];
                                     unfinished.erase(currentKey);
                                     currentJobs--;
+                                    // LOG(Helper::LogLevel::LL_Info,"Finish one job\n");
                                 }
                             }
                             catch (std::exception& e) {
                                 LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
                             }
-                            
-                            delete j;
                         }
                         clientSocket.close();
                         context.shutdown();
@@ -352,11 +357,21 @@ namespace SPTAG
 
             void InitSPectrumNetWork() {
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
-                int node = 4;
+                // int node = 4;
+                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                //     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                //     addrPrefix += std::to_string(node);
+                //     addrPrefix += ":8002";
+                //     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                //     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                //     m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
+                // }
+
+                // Debug version
+                int node = 0;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
                     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                    addrPrefix += std::to_string(node);
-                    addrPrefix += ":8002";
+                    addrPrefix += std::to_string(node*2);
                     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
                     m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
@@ -932,16 +947,25 @@ namespace SPTAG
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DSPANN\n");
                 zmq::context_t context(1);
 
-                zmq::socket_t responder(context, ZMQ_REP);
+                // zmq::socket_t responder(context, ZMQ_REP);
+                zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                LOG(Helper::LogLevel::LL_Info,"Ready For Recv\n");
 
                 while(1) {
                     int msg_size = m_options.m_dim * sizeof(T);
                         
                     char* vectorBuffer = new char[msg_size];
 
+                    zmq::message_t identity;
                     zmq::message_t reply;
+                    responder.recv(&identity);
                     responder.recv(&reply);
+
+                    char* iptr = static_cast<char*>(identity.data());
+
+                    // LOG(Helper::LogLevel::LL_Info,"Recv, identity: %d\n", *((int*)(iptr+1)));
 
                     auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -989,8 +1013,10 @@ namespace SPTAG
 
                     memcpy(ptr, (char *)&localProcessTime, sizeof(double));
 
-                    LOG(Helper::LogLevel::LL_Info, "Send Back\n");
+                    // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d, current key: %d\n", request.size(), currentKey);
 
+                    // responder.send(request);
+                    responder.send(identity, ZMQ_SNDMORE);
                     responder.send(request);
                 }
                 return ErrorCode::Success;
@@ -998,27 +1024,28 @@ namespace SPTAG
 
             void initDistKVNetWork() {
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+                // int node = 0;
+                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                //     if (node != MyNodeId()) {
+                //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                //         addrPrefix += std::to_string(node + 4);
+                //         addrPrefix += ":8000";
+                //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                //         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                //         m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
+                //     }
+                // }
+                // Debug version
                 int node = 0;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
                     if (node != MyNodeId()) {
                         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        addrPrefix += std::to_string(node + 4);
-                        addrPrefix += ":8000";
+                        addrPrefix += std::to_string(node * 2);
                         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
                         m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
                     }
                 }
-                // Debug version
-                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                //     if (node != MyNodeId()) {
-                //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                //         addrPrefix += std::to_string(node * 2);
-                //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                //         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                //         m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
-                //     }
-                // }
             }
 
             int NodeHash(int key, int layer) {
@@ -1042,13 +1069,16 @@ namespace SPTAG
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DistKV\n");
                 zmq::context_t context(1);
 
-                zmq::socket_t responder(context, ZMQ_REP);
+                // zmq::socket_t responder(context, ZMQ_REP);
+                zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
 
                 while(1) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
                     zmq::message_t reply;
+                    zmq::message_t identity;
+                    responder.recv(&identity);
                     responder.recv(&reply);
                     auto t1 = std::chrono::high_resolution_clock::now();
                     // client request, a list of key and vector and layer
@@ -1059,7 +1089,9 @@ namespace SPTAG
                     int currentKey;
                     memcpy((char *)&currentKey, ptr, sizeof(int));
 
-                    LOG(Helper::LogLevel::LL_Info, "KV Receive, key: %d\n", currentKey);
+                    char* iptr = static_cast<char*>(identity.data());
+
+                    // LOG(Helper::LogLevel::LL_Info, "KV Receive, key: %d, identity: %d\n", currentKey, *((int*)(iptr+1)));
 
                     ptr+=sizeof(int);
                     memcpy((char *)&size, ptr, sizeof(int));
@@ -1245,6 +1277,8 @@ namespace SPTAG
 
                         // LOG(Helper::LogLevel::LL_Info, "Returning\n");
 
+                        // responder.send(replyClient);
+                        responder.send(identity, ZMQ_SNDMORE);
                         responder.send(replyClient);
 
                     } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1 + sizeof(int)) == reply.size()) {
@@ -1291,8 +1325,10 @@ namespace SPTAG
 
                         memcpy(ptr, (char *)&processTime, sizeof(double));
 
-                        LOG(Helper::LogLevel::LL_Info, "Send Back\n");
+                        // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d\n", request.size());
 
+                        // responder.send(request);
+                        responder.send(identity, ZMQ_SNDMORE);
                         responder.send(request);
 
                     } else {
@@ -1472,44 +1508,53 @@ namespace SPTAG
                         else Worker();
                     });
                 }
+
+                try {
+                    zmq::proxy(static_cast<void*>(frontend),
+                            static_cast<void*>(backend),
+                            nullptr);
+                }
+                catch (std::exception &e) {}
                 
                 //  Switch messages between sockets
-                while (1) {
-                    zmq::message_t message;
-                    int more;               //  Multipart detection
+                // while (1) {
+                //     zmq::message_t message;
+                //     int more;               //  Multipart detection
 
-                    zmq::poll (&items [0], 2, -1);
+                //     zmq::poll (&items [0], 2, -1);
                     
-                    if (items [0].revents & ZMQ_POLLIN) {
-                        while (1) {
-                            //  Process all parts of the message
-                            frontend.recv(&message);
-                            // frontend.recv(message, zmq::recv_flags::none); // new syntax
-                            size_t more_size = sizeof (more);
-                            frontend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
-                            backend.send(message, more? ZMQ_SNDMORE: 0);
-                            // more = frontend.get(zmq::sockopt::rcvmore); // new syntax
-                            // backend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
+                //     if (items [0].revents & ZMQ_POLLIN) {
+                //         while (1) {
+                //             //  Process all parts of the message
+                //             frontend.recv(&message);
+                //             LOG(Helper::LogLevel::LL_Info, "Router Recv Connection, size: %d\n", message.size());
+                //             // frontend.recv(message, zmq::recv_flags::none); // new syntax
+                //             size_t more_size = sizeof (more);
+                //             frontend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
+                //             backend.send(message, more? ZMQ_SNDMORE: 0);
+                //             // more = frontend.get(zmq::sockopt::rcvmore); // new syntax
+                //             // backend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
                             
-                            if (!more)
-                                break;      //  Last message part
-                        }
-                    }
-                    if (items [1].revents & ZMQ_POLLIN) {
-                        while (1) {
-                            //  Process all parts of the message
-                            backend.recv(&message);
-                            size_t more_size = sizeof (more);
-                            backend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
-                            frontend.send(message, more? ZMQ_SNDMORE: 0);
-                            // more = backend.get(zmq::sockopt::rcvmore); // new syntax
-                            //frontend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
+                //             if (!more)
+                //                 break;      //  Last message part
+                //         }
+                //     }
+                //     if (items [1].revents & ZMQ_POLLIN) {
+                //         while (1) {
+                //             //  Process all parts of the message
+                //             backend.recv(&message);
+                //             LOG(Helper::LogLevel::LL_Info, "DEALER Recv Connection, size: %d\n", message.size());
+                //             size_t more_size = sizeof (more);
+                //             backend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
+                //             frontend.send(message, more? ZMQ_SNDMORE: 0);
+                //             // more = backend.get(zmq::sockopt::rcvmore); // new syntax
+                //             //frontend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
 
-                            if (!more)
-                                break;      //  Last message part
-                        }
-                    }
-                }            
+                //             if (!more)
+                //                 break;      //  Last message part
+                //         }
+                //     }
+                // }            
                 return ErrorCode::Success;
             }
         };
