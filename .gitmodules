@@ -7,3 +7,12 @@
 [submodule "ThirdParty/isal-l_crypto"]
 	path = ThirdParty/isal-l_crypto
 	url = https://github.com/intel/isa-l_crypto
+[submodule "ThirdParty/cppzmq"]
+	path = ThirdParty/cppzmq
+	url = https://github.com/zeromq/cppzmq.git
+[submodule "ThirdParty/libzmq"]
+	path = ThirdParty/libzmq
+	url = https://github.com/zeromq/libzmq.git
+[submodule "ThirdParty/rocksdb"]
+	path = ThirdParty/rocksdb
+	url = https://github.com/PtilopsisL/rocksdb.git
