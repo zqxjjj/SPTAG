@@ -632,7 +632,8 @@ VectorIndex::LoadIndex(const std::string& p_loaderFilePath, std::shared_ptr<Vect
     size_t metaStart = p_vectorIndex->GetIndexFiles()->size();
     if (iniReader.DoesSectionExist("MetaData"))
     {
-        p_vectorIndex->SetMetadata(new MemMetadataSet(handles[metaStart], handles[metaStart + 1], 
+        // p_vectorIndex->SetMetadata(new MemMetadataSet(handles[metaStart], handles[metaStart + 1], 
+        p_vectorIndex->SetMetadata(new FileMetadataSet(handles[metaStart], handles[metaStart + 1], 
             p_vectorIndex->m_iDataBlockSize, p_vectorIndex->m_iDataCapacity, p_vectorIndex->m_iMetaRecordSize));
 
         if (!(p_vectorIndex->GetMetadata()->Available()))

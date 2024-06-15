@@ -49,6 +49,9 @@ class FileMetadataSet : public MetadataSet
 public:
     FileMetadataSet(const std::string& p_metaFile, const std::string& p_metaindexFile, 
         std::uint64_t p_blockSize = 1024 * 1024, std::uint64_t p_capacity = MaxSize, std::uint64_t p_metaSize = 10);
+
+    FileMetadataSet(std::shared_ptr<Helper::DiskIO> p_metain, std::shared_ptr<Helper::DiskIO> p_metaindexin, 
+        std::uint64_t p_blockSize = 1024 * 1024, std::uint64_t p_capacity =  MaxSize, std::uint64_t p_metaSize = 10);
     
     ~FileMetadataSet();
 

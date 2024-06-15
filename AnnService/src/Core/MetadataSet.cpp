@@ -127,6 +127,26 @@ FileMetadataSet::FileMetadataSet(const std::string& p_metafile, const std::strin
     LOG(Helper::LogLevel::LL_Info, "Load MetaIndex(%d) Meta(%llu)\n", m_count, m_offsets[m_count]);
 }
 
+FileMetadataSet::FileMetadataSet(std::shared_ptr<Helper::DiskIO> m_fp, std::shared_ptr<Helper::DiskIO> fpidx, std::uint64_t p_blockSize, std::uint64_t p_capacity, std::uint64_t p_metaSize)
+{
+    if (fpidx->ReadBinary(sizeof(m_count), (char*)&m_count) != sizeof(m_count)) {
+        LOG(Helper::LogLevel::LL_Error, "ERROR: Cannot read FileMetadataSet!\n");
+        throw std::runtime_error("Cannot read meta files");
+    }
+
+    m_offsets.reserve(p_blockSize);
+    m_offsets.resize(m_count + 1);
+    if (fpidx->ReadBinary(sizeof(std::uint64_t) * (m_count + 1), (char*)m_offsets.data()) != sizeof(std::uint64_t) * (m_count + 1)) {
+        LOG(Helper::LogLevel::LL_Error, "ERROR: Cannot read FileMetadataSet!\n");
+        throw std::runtime_error("Cannot read meta files");
+    }
+    m_newdata.reserve(p_blockSize * p_metaSize);
+    m_lock.reset(new std::shared_timed_mutex, std::default_delete<std::shared_timed_mutex>());
+    LOG(Helper::LogLevel::LL_Info, "Load MetaIndex(%d) Meta(%llu)\n", m_count, m_offsets[m_count]);
+}
+
+
+
 
 FileMetadataSet::~FileMetadataSet()
 {

@@ -10,6 +10,7 @@
 #include "inc/Core/Common/VersionLabel.h"
 #include "inc/Helper/AsyncFileReader.h"
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 #include <chrono>
@@ -308,6 +309,8 @@ namespace SPTAG {
             virtual void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) { return; }
 
             virtual void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, double& compLatency, int& scannedNum, Options& p_options) { return; }
+
+            virtual int GetPostingSize(SizeType headID) { return -1;}
 
             virtual bool Initialize() { return false; }
 

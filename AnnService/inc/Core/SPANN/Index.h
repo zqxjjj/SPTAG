@@ -241,6 +241,18 @@ namespace SPTAG
             ErrorCode BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader);
 
         public:
+            uint64_t ReturnTrueId(uint64_t headID) {
+                return (m_vectorTranslateMaps[0].get())[headID];
+            }
+
+            int ReturnPostingSize(SizeType headID) {
+                return m_extraSearchers[0]->GetPostingSize(headID);
+            }
+
+            void ReadPosting(SizeType headID, std::string& posting) {
+                m_extraSearchers[0]->GetWritePosting(headID, posting);
+            }
+
             bool AllFinished() { if (m_options.m_useKV || m_options.m_useSPDK) return m_extraSearcher->AllFinished(); return true; }
 
             void GetDBStat() { 
