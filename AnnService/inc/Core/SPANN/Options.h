@@ -206,6 +206,8 @@ namespace SPTAG {
             // 0, 1, 2
             int m_hashPlan;
 
+            int m_socketThreadNum;
+
             std::string m_headLayerMap;
 
             Options() {

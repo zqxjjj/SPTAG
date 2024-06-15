@@ -244,17 +244,17 @@ namespace SPTAG
                         m_clientThreadPool = std::make_shared<NetworkThreadPool>();
                         m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
                     }
-                } else {
                     m_vectorHashMaps.resize(1);
+                    if (m_options.m_multinode) {
+                        InitNodeHashMap(m_options.m_indexDirectory, 0);
+                    }
+                } else {
                     m_extraSearchers.resize(1);
                     if (m_options.m_useKV) {
                         m_extraSearchers[0].reset(new SPTAG::SPANN::ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
                     } else {
                         m_extraSearchers[0].reset(new ExtraStaticSearcher<T>());
                         if (!m_extraSearchers[0]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
-                    }
-                    if (m_options.m_distKV) {
-                        InitNodeHashMap(m_options.m_indexDirectory, 0);
                     }
                 }
             } else {
@@ -285,6 +285,8 @@ namespace SPTAG
 
                     LOG(Helper::LogLevel::LL_Info, "Loading L-1 to L-%d index headmap\n", toLoadLayers);
 
+                    m_vectorHashMaps.resize(toLoadLayers);
+
                     m_vectorTranslateMaps.resize(toLoadLayers);
 
                     for (int i = toLoadLayers; i > 0; i--) {
@@ -294,6 +296,11 @@ namespace SPTAG
                             folderPath += m_spannIndexFolder;
                         }
                         folderPath += FolderSep;
+
+                        if (m_options.m_multinode) {
+                            InitNodeHashMap(folderPath, toLoadLayers-i);
+                        }
+
                         LOG(Helper::LogLevel::LL_Info, "Loading L-%d index headmap from: %s\n", toLoadLayers-i+1, folderPath.c_str());
                         Helper::IniReader iniReader;
                         {
@@ -326,7 +333,6 @@ namespace SPTAG
                         m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
                     }
                 } else {
-                    m_vectorHashMaps.resize(toLoadLayers);
                     m_extraSearchers.resize(toLoadLayers);
                     for (int i = toLoadLayers; i > 0; i--) {
                         std::string folderPath = m_options.m_indexDirectory;
@@ -340,10 +346,6 @@ namespace SPTAG
 
                         m_extraSearchers[toLoadLayers-i].reset(new ExtraStaticSearcher<T>());
                         if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
-
-                        if (m_options.m_distKV) {
-                            InitNodeHashMap(m_options.m_indexDirectory, toLoadLayers-i);
-                        }
 
                         m_options.m_indexDirectory = temp;
 

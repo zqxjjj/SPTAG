@@ -32,6 +32,7 @@
 #include <shared_mutex>
 
 #include <string>
+#include <zmq.h>
 #include <zmq.hpp>
 
 namespace SPTAG
@@ -47,11 +48,11 @@ namespace SPTAG
         class NetworkJob : public Helper::ThreadPool::Job
         {
         public:
-            zmq::message_t* request;
-            zmq::message_t* reply;
+            std::string* request;
+            std::string* reply;
             int* in_flight;
             double* latency;
-            NetworkJob(zmq::message_t* request, zmq::message_t* reply, int* in_flight, double* latency = nullptr)
+            NetworkJob(std::string* request, std::string* reply, int* in_flight, double* latency = nullptr)
                 : request(request), reply(reply), in_flight(in_flight), latency(latency) {}
             ~NetworkJob() {}
             inline void exec(IAbortOperation* p_abort) override {
@@ -62,35 +63,97 @@ namespace SPTAG
         class NetworkThreadPool : public Helper::ThreadPool
         {
         public:
+            bool getNoBlock(Job*& j)
+            {
+                std::unique_lock<std::mutex> lock(m_lock);
+                if (m_jobs.empty()) return false;
+                if (!m_abort.ShouldAbort()) {
+                    j = m_jobs.front();
+                    m_jobs.pop();
+                }
+                return !m_abort.ShouldAbort();
+            }
+
             void initNetwork(int numberOfThreads, std::string& m_ipAddrFrontend) 
             {
                 m_abort.SetAbort(false);
                 for (int i = 0; i < numberOfThreads; i++)
                 {
                     m_threads.emplace_back([this, m_ipAddrFrontend] {
+                        int key = 0;
+                        std::map<int, NetworkJob*> unfinished;
                         zmq::context_t context(1);
-                        zmq::socket_t clientSocket(context, ZMQ_REQ);
+                        zmq::socket_t clientSocket(context, ZMQ_DEALER);
+                        // zmq::socket_t clientSocket(context, ZMQ_REQ);
                         clientSocket.connect(m_ipAddrFrontend.c_str());
+                        zmq::pollitem_t items[] = {
+                            { clientSocket, 0, ZMQ_POLLIN, 0 } };
                         Job *j;
-                        while (get(j))
+                        while (1)
                         {
                             try 
                             {
-                                NetworkJob *nj = static_cast<NetworkJob*>(j);
-                                currentJobs++;
-                                auto t1 = std::chrono::high_resolution_clock::now();
-                                clientSocket.send(*(nj->request));
-                                clientSocket.recv(nj->reply);
-                                auto t2 = std::chrono::high_resolution_clock::now();
-                                if (nj->latency) *(nj->latency) = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-                                *(nj->in_flight) = 0;
-                                currentJobs--;
+                                if (currentJobs == 0) {
+                                    get(j);
+                                    NetworkJob *nj = static_cast<NetworkJob*>(j);
+                                    currentJobs++;
+                                    zmq::message_t request((nj->request)->size() + sizeof(int));
+
+                                    char* ptr = static_cast<char*>(request.data());
+
+                                    memcpy(ptr, (char*)&key, sizeof(int));
+                                    unfinished[key] = nj;
+                                    key++;
+                                    ptr += sizeof(int);
+                                    memcpy(ptr, (nj->request)->data(), (nj->request)->size());
+
+                                    // LOG(Helper::LogLevel::LL_Info,"Send key: %d, size: %d\n", key-1, request.size());
+                                    
+                                    clientSocket.send(request);
+                                } else if (getNoBlock(j)) {
+                                    NetworkJob *nj = static_cast<NetworkJob*>(j);
+                                    currentJobs++;
+                                    zmq::message_t request((nj->request)->size() + sizeof(int));
+
+                                    char* ptr = static_cast<char*>(request.data());
+
+                                    memcpy(ptr, (char*)&key, sizeof(int));
+                                    unfinished[key] = nj;
+                                    key++;
+                                    ptr += sizeof(int);
+                                    memcpy(ptr, (nj->request)->data(), (nj->request)->size());
+
+                                    // LOG(Helper::LogLevel::LL_Info,"Send key: %d\n", key-1);
+                                    
+                                    clientSocket.send(request);
+                                } else {
+                                    std::this_thread::sleep_for(std::chrono::microseconds(1));
+                                }
+
+                                zmq::poll(items, 1, 0);
+                                if (items[0].revents & ZMQ_POLLIN) {
+                                    // LOG(Helper::LogLevel::LL_Info,"Get Reply\n");
+                                    zmq::message_t reply;
+                                    clientSocket.recv(reply);
+                                    // LOG(Helper::LogLevel::LL_Info,"reply size: %d\n", reply.size());
+                                    char* ptr = static_cast<char*>(reply.data());
+                                    int currentKey;
+                                    memcpy((char*)&currentKey, ptr, sizeof(int));
+                                    // LOG(Helper::LogLevel::LL_Info,"Receive key: %d\n", currentKey);
+                                    ptr += sizeof(int);
+                                    (unfinished[currentKey]->reply)->resize(reply.size()-sizeof(int));
+                                    // LOG(Helper::LogLevel::LL_Info,"Ready to copy\n", currentKey);
+                                    memcpy((unfinished[currentKey]->reply)->data(), ptr, reply.size()-sizeof(int));
+                                    *(unfinished[currentKey]->in_flight) = 0;
+                                    delete unfinished[currentKey];
+                                    unfinished.erase(currentKey);
+                                    currentJobs--;
+                                    // LOG(Helper::LogLevel::LL_Info,"Finish one job\n");
+                                }
                             }
                             catch (std::exception& e) {
                                 LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
                             }
-                            
-                            delete j;
                         }
                         clientSocket.close();
                         context.shutdown();
@@ -306,21 +369,32 @@ namespace SPTAG
 
             void InitSPectrumNetWork() {
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
-                int node = 4;
+                // int node = 4;
+                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                //     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                //     addrPrefix += std::to_string(node);
+                //     addrPrefix += ":8002";
+                //     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                //     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                //     m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
+                // }
+
+                // Debug version
+                int node = 0;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
                     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                    addrPrefix += std::to_string(node);
-                    addrPrefix += ":8000";
+                    addrPrefix += std::to_string(node*2);
                     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                    m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
+                    m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
                 }
             }
 
             ErrorCode SearchIndexSPectrumMulti(QueryResult &p_query, int dispatchedNode, SPANN::SearchStats* stats) {
                 COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-                zmq::message_t request(m_options.m_dim * sizeof(T));
-                zmq::message_t reply;
+                std::string request;
+                request.resize(m_options.m_dim * sizeof(T));
+                std::string reply;
                 int in_flight = 0;                
                 memcpy(request.data(), (char*)p_query.GetTarget(), m_options.m_dim * sizeof(T));
                 in_flight = 1;
@@ -460,13 +534,14 @@ namespace SPTAG
             ErrorCode SearchIndexShard(QueryResult &p_query, std::vector<int>& needToTraverse, int top, std::vector<double>& latency)
             {
                 COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-                zmq::message_t* request[top];
-                zmq::message_t* reply[top];
+                std::string* request[top];
+                std::string* reply[top];
                 std::vector<int> in_flight(top, 0);                    
 
                 for (int i = 0; i < top; ++i) {
-                    request[i] = new zmq::message_t(m_options.m_dim * sizeof(T));
-                    reply[i] = new zmq::message_t();
+                    request[i] = new std::string();
+                    request[i]->resize(m_options.m_dim * sizeof(T));
+                    reply[i] = new std::string();
 
                     memcpy(request[i]->data(), (char*)p_query.GetTarget(), m_options.m_dim * sizeof(T));
 
@@ -581,81 +656,93 @@ namespace SPTAG
                             res->Dist = MaxDist;
                         }
                     }
-                    if (m_options.m_distKV) {
+                    if (m_options.m_multinode) {
                         //sending request to the distKV
-                        // 
-                        auto t3 = std::chrono::high_resolution_clock::now();
+                        
 
-                        int postingIDSize = m_workspace->m_postingIDs.size();
+                        //Process m_postingIDs
 
-                        zmq::message_t request((postingIDSize+1)*sizeof(int) + m_options.m_dim * sizeof(T) + sizeof(int));
-                        zmq::message_t reply;
-                        int in_flight = 0;
+                        std::vector<std::vector<int>> keys_eachNode(GroupNum());
 
-                        in_flight= 1;
-
-                        auto ptr = static_cast<char*>(request.data());
-
-                        memcpy(ptr, (char*)&postingIDSize, sizeof(int));
-
-                        ptr += sizeof(int);
-
-                        memcpy(ptr, (char*)m_workspace->m_postingIDs.data(), sizeof(int)*postingIDSize);
-
-                        ptr += sizeof(int)*postingIDSize;
-
-                        memcpy(ptr, p_queryResults->GetQuantizedTarget(), sizeof(T) * m_options.m_dim);
-
-                        ptr += sizeof(T) * m_options.m_dim;
-
-                        memcpy(ptr, (char*)&layer, sizeof(int));
-                          
-                        // wait for return result
-
-                        auto* curJob = new NetworkJob(&request, &reply, &in_flight);
-                        m_clientThreadPool->add(curJob);
-
-                        while (in_flight != 0) {
-                            std::this_thread::sleep_for(std::chrono::microseconds(5));
+                        for (auto key: m_workspace->m_postingIDs) {
+                            // LOG(Helper::LogLevel::LL_Info, "Debug: key %d\n", key);
+                            int node = NodeHash(key, layer);
+                            keys_eachNode[node].push_back(key);
                         }
 
-                        int resultLength = reply.size();
-                        int resultSize = (resultLength - 3* sizeof(double)) / 8;
+                        std::string* request[GroupNum()];
+                        std::string* reply[GroupNum()];
+                        std::vector<int> in_flight(GroupNum(), 0); 
+                        std::vector<int> visit(GroupNum(), 0);
 
-                        ptr = static_cast<char*>(reply.data());
+                        //Send to all distKV
+                        for (int i = 0; i < GroupNum(); i++) {
+                            if (keys_eachNode[i].size() != 0) {
+                                request[i] = new std::string();
+                                request[i]->resize(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
+                                reply[i] = new std::string();
+                                in_flight[i] = 1;
 
-                        /** id & dist (ResultNum) **/
+                                char* ptr = static_cast<char*>(request[i]->data());
 
-                        COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
+                                int keys_size = keys_eachNode[i].size();
 
-                        for (int i = 0; i < resultSize; i++) {
-                            p_queryResults->AddPoint(*(int *)(ptr) , *(float *)(ptr+4));
-                            ptr += 8;
-                        } 
-                        double remoteLocalTime;
-                        memcpy((char*)&remoteLocalTime, ptr, sizeof(double));
+                                memcpy(ptr, (char*)&keys_size, sizeof(int));
+                                
+                                ptr += sizeof(int);
 
-                        p_stats->m_diskReadLatencys[layer] = remoteLocalTime / 1000;
+                                memcpy(ptr, (char*)keys_eachNode[i].data(), sizeof(int)*keys_eachNode[i].size());
 
-                        ptr+=8;
+                                ptr += sizeof(int)*keys_eachNode[i].size();
 
-                        double remoteCompTime;
-                        memcpy((char*)&remoteCompTime, ptr, sizeof(double));
+                                memcpy(ptr, (char*)p_queryResults->GetQuantizedTarget(), m_options.m_dim * sizeof(T));
 
-                        ptr+=8;
+                                ptr += m_options.m_dim * sizeof(T);
 
-                        p_stats->m_compLatencys[layer] = remoteCompTime / 1000;
+                                memcpy(ptr, (char*)&layer, sizeof(int));
 
-                        double remoteWaitTime;
-                        memcpy((char*)&remoteWaitTime, ptr, sizeof(double));
+                                ptr += sizeof(int);
 
-                        p_stats->m_exWaitLatencys[layer] = remoteWaitTime / 1000;
+                                char code = 0;
 
-                        auto t4 = std::chrono::high_resolution_clock::now();
+                                memcpy(ptr, (char*)&code, sizeof(char));
 
-                        double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
+                                auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
 
-                        p_stats->m_exLatencys[layer] = remoteProcessTime / 1000;
+                                m_clientThreadPoolDSPANN[i]->add(curJob);
+                                
+                            } else {
+                                visit[i] = 1;
+                            }
+                        }
+
+                        bool notReady = true;
+
+                        while (notReady) {
+                            for (int i = 0; i < GroupNum(); ++i) {
+                                if (visit[i] == 0 && in_flight[i] == 0) {
+                                    visit[i] = 1;
+                                    auto ptr = static_cast<char*>(reply[i]->data());
+                                    for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
+                                        int VID;
+                                        float Dist;
+                                        memcpy((char *)&VID, ptr, sizeof(int));
+                                        memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
+                                        ptr += sizeof(int);
+                                        ptr += sizeof(float);
+                                        if (VID == -1) break;
+                                        if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
+                                        p_queryResults->AddPoint(VID, Dist);
+                                    }
+                                }
+                            }
+                            notReady = false;
+                            for (int i = 0; i < GroupNum(); ++i) {
+                                if (visit[i] != 1) notReady = true;
+                            }
+                            if (notReady) std::this_thread::sleep_for(std::chrono::microseconds(5));
+                        }
+                        
                     } else if (!m_options.m_isLocal) {
                         /***Remote Transefer And Process**/
                         auto t3 = std::chrono::high_resolution_clock::now();
@@ -726,8 +813,9 @@ namespace SPTAG
                     /** target vector(dim * valuetype) + searched postings(posting numbers + posting IDs) + searched head VIDs**/
                     Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead, layer);
 
-                    zmq::message_t request(msgLength);
-                    zmq::message_t reply;
+                    std::string request;
+                    request.resize(msgLength);
+                    std::string reply;
 
                     memcpy(request.data(), ptr, msgLength);
 
@@ -777,8 +865,9 @@ namespace SPTAG
                     Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead_temp, layer);
 
 
-                    zmq::message_t request(msgLength);
-                    zmq::message_t reply;
+                    std::string request;
+                    request.resize(msgLength);
+                    std::string reply;
 
                     memcpy(request.data(), ptr, msgLength);
 
@@ -870,20 +959,35 @@ namespace SPTAG
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DSPANN\n");
                 zmq::context_t context(1);
 
-                zmq::socket_t responder(context, ZMQ_REP);
+                // zmq::socket_t responder(context, ZMQ_REP);
+                zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                LOG(Helper::LogLevel::LL_Info,"Ready For Recv\n");
 
                 while(1) {
                     int msg_size = m_options.m_dim * sizeof(T);
                         
                     char* vectorBuffer = new char[msg_size];
 
+                    zmq::message_t identity;
                     zmq::message_t reply;
+                    responder.recv(&identity);
                     responder.recv(&reply);
+
+                    char* iptr = static_cast<char*>(identity.data());
+
+                    // LOG(Helper::LogLevel::LL_Info,"Recv, identity: %d\n", *((int*)(iptr+1)));
 
                     auto t1 = std::chrono::high_resolution_clock::now();
 
                     char* ptr = static_cast<char*>(reply.data());
+
+                    int currentKey;
+
+                    memcpy((char*)&currentKey, ptr, sizeof(int));
+
+                    ptr+=sizeof(int);
 
                     memcpy(vectorBuffer, ptr, msg_size);
                     // copy vector
@@ -900,10 +1004,12 @@ namespace SPTAG
 
                     int K = m_options.m_resultNum;
                         
-                    zmq::message_t request(K * (sizeof(int) + sizeof(float))+ sizeof(double));
+                    zmq::message_t request(K * (sizeof(int) + sizeof(float))+ sizeof(double)+ sizeof(int));
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & result;
 
                     ptr = static_cast<char*>(request.data());
+                    memcpy(ptr, (char *)&currentKey, sizeof(int));
+                    ptr += sizeof(int);
                     for (int i = 0; i < K; i++) {
                         auto res = queryResults->GetResult(i);
                         memcpy(ptr, (char *)&res->VID, sizeof(int));
@@ -919,6 +1025,10 @@ namespace SPTAG
 
                     memcpy(ptr, (char *)&localProcessTime, sizeof(double));
 
+                    // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d, current key: %d\n", request.size(), currentKey);
+
+                    // responder.send(request);
+                    responder.send(identity, ZMQ_SNDMORE);
                     responder.send(request);
                 }
                 return ErrorCode::Success;
@@ -926,27 +1036,28 @@ namespace SPTAG
 
             void initDistKVNetWork() {
                 m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+                // int node = 0;
+                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                //     if (node != MyNodeId()) {
+                //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                //         addrPrefix += std::to_string(node + 4);
+                //         addrPrefix += ":8000";
+                //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                //         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
+                //         m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
+                //     }
+                // }
+                // Debug version
                 int node = 0;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
                     if (node != MyNodeId()) {
                         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        addrPrefix += std::to_string(node + 4);
-                        addrPrefix += ":8000";
+                        addrPrefix += std::to_string(node * 2);
                         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
                         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
                     }
                 }
-                // Debug version
-                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                //     if (node != MyNodeId()) {
-                //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                //         addrPrefix += std::to_string(node * 2);
-                //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                //         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                //         m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
-                //     }
-                // }
             }
 
             int NodeHash(int key, int layer) {
@@ -970,19 +1081,31 @@ namespace SPTAG
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DistKV\n");
                 zmq::context_t context(1);
 
-                zmq::socket_t responder(context, ZMQ_REP);
+                // zmq::socket_t responder(context, ZMQ_REP);
+                zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
 
                 while(1) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
                     zmq::message_t reply;
+                    zmq::message_t identity;
+                    responder.recv(&identity);
                     responder.recv(&reply);
                     auto t1 = std::chrono::high_resolution_clock::now();
                     // client request, a list of key and vector and layer
                     // worker request, a list of key and vector and and char "0"
                     int size;
                     char* ptr = static_cast<char*>(reply.data());
+
+                    int currentKey;
+                    memcpy((char *)&currentKey, ptr, sizeof(int));
+
+                    char* iptr = static_cast<char*>(identity.data());
+
+                    // LOG(Helper::LogLevel::LL_Info, "KV Receive, key: %d, identity: %d\n", currentKey, *((int*)(iptr+1)));
+
+                    ptr+=sizeof(int);
                     memcpy((char *)&size, ptr, sizeof(int));
                     ptr += sizeof(int);
                     std::vector<int> keys(size);
@@ -999,7 +1122,7 @@ namespace SPTAG
 
                     memcpy((char *)&layer, ptr, sizeof(int));
 
-                    if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T)) == reply.size()) {
+                    if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + sizeof(int)) == reply.size()) {
                         // client request, a list of 
                         std::vector<std::vector<int>> keys_eachNode(GroupNum());
 
@@ -1009,8 +1132,8 @@ namespace SPTAG
                             keys_eachNode[node].push_back(key);
                         }
 
-                        zmq::message_t* request[GroupNum()];
-                        zmq::message_t* reply[GroupNum()];
+                        std::string* request[GroupNum()];
+                        std::string* reply[GroupNum()];
                         std::vector<int> in_flight(GroupNum(), 0); 
                         std::vector<int> visit(GroupNum(), 0);
                         std::vector<double> realLatency(GroupNum());
@@ -1028,8 +1151,9 @@ namespace SPTAG
                             } else {
                                 if (keys_eachNode[i].size() != 0) {
                                     count++;
-                                    request[i] = new zmq::message_t(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
-                                    reply[i] = new zmq::message_t();
+                                    request[i] = new std::string();
+                                    request[i]->resize(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
+                                    reply[i] = new std::string();
                                     in_flight[i] = 1;
 
                                     ptr = static_cast<char*>(request[i]->data());
@@ -1137,9 +1261,11 @@ namespace SPTAG
 
                         // return
                         int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 3*sizeof(double));
+                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 3*sizeof(double) + sizeof(int));
 
                         ptr = static_cast<char*>(replyClient.data());
+                        memcpy(ptr, (char *)&currentKey, sizeof(int));
+                        ptr += sizeof(int);
                         for (int i = 0; i < K; i++) {
                             auto res = queryResults->GetResult(i);
                             memcpy(ptr, (char *)&res->VID, sizeof(int));
@@ -1163,9 +1289,11 @@ namespace SPTAG
 
                         // LOG(Helper::LogLevel::LL_Info, "Returning\n");
 
+                        // responder.send(replyClient);
+                        responder.send(identity, ZMQ_SNDMORE);
                         responder.send(replyClient);
 
-                    } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1) == reply.size()) {
+                    } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1 + sizeof(int)) == reply.size()) {
                         // worker request
                         auto t1 = std::chrono::high_resolution_clock::now();
                         if (m_workspace.get() == nullptr) {
@@ -1188,9 +1316,14 @@ namespace SPTAG
 
                         int K = m_options.m_searchInternalResultNum;
                         
-                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double));
+                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double) + sizeof(int));
 
                         ptr = static_cast<char*>(request.data());
+
+                        memcpy(ptr, (char *)&currentKey, sizeof(int));
+
+                        ptr += sizeof(int);
+
                         for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
                             auto res = queryResults->GetResult(i);
                             memcpy(ptr, (char *)&res->VID, sizeof(int));
@@ -1204,7 +1337,10 @@ namespace SPTAG
 
                         memcpy(ptr, (char *)&processTime, sizeof(double));
 
+                        // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d\n", request.size());
 
+                        // responder.send(request);
+                        responder.send(identity, ZMQ_SNDMORE);
                         responder.send(request);
 
                     } else {
@@ -1369,7 +1505,7 @@ namespace SPTAG
                     { backend, 0, ZMQ_POLLIN, 0 }
                 };
 
-                initDistKVNetWork();
+                if (m_options.m_multinode) initDistKVNetWork();
 
                 std::vector<std::thread> m_threads;
                 for (int i = 0; i < m_options.m_searchThreadNum; i++)
@@ -1378,49 +1514,59 @@ namespace SPTAG
                         if (m_options.m_dspann) 
                             if (m_options.m_distKV)
                                 WorkerDistKV();
-                            else 
+                            else {
                                 WorkerDSPANN();
+                            }
                         else Worker();
                     });
                 }
+
+                try {
+                    zmq::proxy(static_cast<void*>(frontend),
+                            static_cast<void*>(backend),
+                            nullptr);
+                }
+                catch (std::exception &e) {}
                 
                 //  Switch messages between sockets
-                while (1) {
-                    zmq::message_t message;
-                    int more;               //  Multipart detection
+                // while (1) {
+                //     zmq::message_t message;
+                //     int more;               //  Multipart detection
 
-                    zmq::poll (&items [0], 2, -1);
+                //     zmq::poll (&items [0], 2, -1);
                     
-                    if (items [0].revents & ZMQ_POLLIN) {
-                        while (1) {
-                            //  Process all parts of the message
-                            frontend.recv(&message);
-                            // frontend.recv(message, zmq::recv_flags::none); // new syntax
-                            size_t more_size = sizeof (more);
-                            frontend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
-                            backend.send(message, more? ZMQ_SNDMORE: 0);
-                            // more = frontend.get(zmq::sockopt::rcvmore); // new syntax
-                            // backend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
+                //     if (items [0].revents & ZMQ_POLLIN) {
+                //         while (1) {
+                //             //  Process all parts of the message
+                //             frontend.recv(&message);
+                //             LOG(Helper::LogLevel::LL_Info, "Router Recv Connection, size: %d\n", message.size());
+                //             // frontend.recv(message, zmq::recv_flags::none); // new syntax
+                //             size_t more_size = sizeof (more);
+                //             frontend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
+                //             backend.send(message, more? ZMQ_SNDMORE: 0);
+                //             // more = frontend.get(zmq::sockopt::rcvmore); // new syntax
+                //             // backend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
                             
-                            if (!more)
-                                break;      //  Last message part
-                        }
-                    }
-                    if (items [1].revents & ZMQ_POLLIN) {
-                        while (1) {
-                            //  Process all parts of the message
-                            backend.recv(&message);
-                            size_t more_size = sizeof (more);
-                            backend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
-                            frontend.send(message, more? ZMQ_SNDMORE: 0);
-                            // more = backend.get(zmq::sockopt::rcvmore); // new syntax
-                            //frontend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
+                //             if (!more)
+                //                 break;      //  Last message part
+                //         }
+                //     }
+                //     if (items [1].revents & ZMQ_POLLIN) {
+                //         while (1) {
+                //             //  Process all parts of the message
+                //             backend.recv(&message);
+                //             LOG(Helper::LogLevel::LL_Info, "DEALER Recv Connection, size: %d\n", message.size());
+                //             size_t more_size = sizeof (more);
+                //             backend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
+                //             frontend.send(message, more? ZMQ_SNDMORE: 0);
+                //             // more = backend.get(zmq::sockopt::rcvmore); // new syntax
+                //             //frontend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
 
-                            if (!more)
-                                break;      //  Last message part
-                        }
-                    }
-                }            
+                //             if (!more)
+                //                 break;      //  Last message part
+                //         }
+                //     }
+                // }            
                 return ErrorCode::Success;
             }
         };
