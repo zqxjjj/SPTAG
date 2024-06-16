@@ -261,6 +261,7 @@ namespace SPTAG {
             size_t localTotalHeadNum = p_index->GetMemoryIndex()->GetNumSamples();
             LOG(Helper::LogLevel::LL_Info, "Total Posting Num: %d\n", localTotalHeadNum);
             for (size_t localHeadID = 0; localHeadID < localTotalHeadNum; localHeadID++) {
+
                 ByteArray globalVectorID_byteArray = p_index->GetMetadata(p_index->ReturnTrueId(localHeadID));
 
                 std::string globalVectorID_string;
@@ -268,7 +269,7 @@ namespace SPTAG {
 
                 memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
 
-                LOG(Helper::LogLevel::LL_Info, "Loacal HeadID: %d, Global Vector ID: %s\n", localHeadID, globalVectorID_string.c_str());
+                // LOG(Helper::LogLevel::LL_Info, "Loacal HeadID: %d, Local Vector ID: %d, Global Vector ID: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID_string.c_str());
 
                 std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
 
@@ -480,6 +481,7 @@ namespace SPTAG {
 
                 int postingLength = postingListFullData_prev.size() / (sizeof(int) + sizeof(ValueType) * p_opts.m_dim);
 
+                // if (id == 288) LOG(Helper::LogLevel::LL_Error, "Posting ID: %d, its length: %d\n", id, postingLength);
                 for (int i = 0; i < postingLength; i++) {
                     int localVectorID = *(int*)postingPtr_prev;
                     ByteArray globalVectorID_byteArray = p_index->GetMetadata(localVectorID);
@@ -490,6 +492,7 @@ namespace SPTAG {
                     memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
 
                     std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
+                    // if (id == 288) LOG(Helper::LogLevel::LL_Error, "Global ID : %lu\n", globalVectorID);
                     
                     memcpy(postingPtr, (char*)&globalVectorID, sizeof(size_t));
                     postingPtr += sizeof(size_t);
@@ -673,6 +676,7 @@ namespace SPTAG {
                 }
             };
 
+            LOG(Helper::LogLevel::LL_Info, "Start sorting\n");
             /* Here we just want to know the real posting num after merge*/
             std::priority_queue<Node, std::vector<Node>, CompareNode> merge_queue;
             for (int FileNo = 0; FileNo < p_opts.m_numFiles; FileNo++) {
@@ -699,6 +703,8 @@ namespace SPTAG {
                 }
                 prevGlobalID = merge_result[i].globalVectorID;
             }
+
+            LOG(Helper::LogLevel::LL_Info, "Sorting Completed\n");
 
             /* now we get total Size, begin online merge */
 
@@ -805,9 +811,25 @@ namespace SPTAG {
                 }
             }
 
+            // Write padding vals
+            if (paddingSize > 0)
+            {
+                if (ptr->WriteBinary(paddingSize, reinterpret_cast<char*>(paddingVals.get())) != paddingSize) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to write SSDIndex File!");
+                    throw std::runtime_error("Failed to write SSDIndex File");
+                }
+            }
+
+            if (static_cast<uint64_t>(ptr->TellP()) != listOffset)
+            {
+                LOG(Helper::LogLevel::LL_Info, "List offset not match! (%lu/%lu)\n", listOffset, ptr->TellP());
+                throw std::runtime_error("List offset mismatch");
+            }
+
             int m_vectorInfoSize = p_opts.m_dim * sizeof(ValueType) + sizeof(size_t);
 
             // now we begin on online merging
+            LOG(Helper::LogLevel::LL_Info, "Begin merge online\n");
 
             std::vector<size_t> postingListBytes(totalSize);
             std::unique_ptr<int[]> postPageNum(new int[totalSize]);
@@ -825,6 +847,8 @@ namespace SPTAG {
             std::uint64_t metalistOffset = listOffset;
             listOffset = 0;
 
+            size_t tempFlag = -1;
+
             while (index < merge_result.size()) {
                 /* First considering merging*/
                 size_t indexBeg = index;
@@ -836,11 +860,12 @@ namespace SPTAG {
                 size_t indexEnd = index;
                 std::string toWritePosting;
                 if (indexEnd != (indexBeg + 1)) {
+                    // LOG(Helper::LogLevel::LL_Info, "merging\n");
                     // require merging, need to copy into a new string
                     size_t postingPreSize = 0;
                     for (size_t i = indexBeg; i < indexEnd; i++) {
                         Node tempNode = merge_result[i];
-                        postingPreSize = m_listInfos[tempNode.fileNo][tempNode.listIndex].listEleCount;
+                        postingPreSize += m_listInfos[tempNode.fileNo][tempNode.listIndex].listEleCount;
                     }
                     toWritePosting.resize(postingPreSize * m_vectorInfoSize);
                     char* mptr = (char*)(toWritePosting.c_str());
@@ -848,12 +873,15 @@ namespace SPTAG {
                     for (size_t i = indexBeg; i < indexEnd; i++) {
                         Node tempNode = merge_result[i];
                         std::string currentPosting;
+                        // LOG(Helper::LogLevel::LL_Info, "fetching\n");
                         FetchPosting(ptrs[tempNode.fileNo], m_listInfos[tempNode.fileNo][tempNode.listIndex], currentPosting, m_vectorInfoSize);
                         char* pptr = (char*)(currentPosting.c_str());
                         // Scanning and Copying
-                        for (int vectorNum = (currentPosting.size()/m_vectorInfoSize), i = 0; i < vectorNum; i++, pptr += m_vectorInfoSize) {
+                        // if (tempNode.listIndex == 288) LOG(Helper::LogLevel::LL_Info, "scanning, vectorNum : %d, actual vectorNum : %d, it is file : %d, ith : posting : %d\n", (currentPosting.size()/m_vectorInfoSize), m_listInfos[tempNode.fileNo][tempNode.listIndex].listEleCount, tempNode.fileNo, tempNode.listIndex);
+                        for (int vectorNum = (currentPosting.size()/m_vectorInfoSize), i = 0; i < vectorNum; i++) {
                             char* vectorInfo = pptr + i * (m_vectorInfoSize);
                             size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
+                            // if (tempNode.listIndex == 288) LOG(Helper::LogLevel::LL_Info, "VID: %lu\n", VID);
                             if (VIDset.find(VID) == VIDset.end()) {
                                 VIDset.insert(VID);
                                 memcpy(mptr, pptr, m_vectorInfoSize);
@@ -864,7 +892,9 @@ namespace SPTAG {
                         }
                     }
                     toWritePosting.resize(postingPreSize * m_vectorInfoSize);
+                    // LOG(Helper::LogLevel::LL_Info, "merging finished\n");
                 } else {
+                    // LOG(Helper::LogLevel::LL_Info, "No need to merge, directly fetch\n");
                     // otherwise we just read it, then considering how to place it 
                     Node tempNode = merge_result[indexBeg];
                     FetchPosting(ptrs[tempNode.fileNo], m_listInfos[tempNode.fileNo][tempNode.listIndex], toWritePosting, m_vectorInfoSize);
@@ -876,11 +906,23 @@ namespace SPTAG {
                 localMergeBuffer[toWritePostingNum] = toWritePosting;
                 postingListBytes[postingIndex] = toWritePosting.size();
                 localHeadIDToGlobalVectorIDMap[postingIndex] = toMergePosting.globalVectorID;
+                // if (postingIndex == 22254 && NodeNo == 0) {
+                //     tempFlag = toWritePostingNum;
+                //     char* pptr = (char*)(toWritePosting.c_str()); 
+                //     LOG(Helper::LogLevel::LL_Info, "Global VID: %lu, size: %d\n", toMergePosting.globalVectorID, (toWritePosting.size()/m_vectorInfoSize));
+                //     for (int vectorNum = (toWritePosting.size()/m_vectorInfoSize), i = 0; i < vectorNum; i++) {
+                //         char* vectorInfo = pptr + i * (m_vectorInfoSize);
+                //         size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
+                //         LOG(Helper::LogLevel::LL_Info, "VID: %lu\n", VID);
+                        
+                //     }
+                // }
 
                 toWritePostingNum++;
                 postingIndex++;
 
                 if (toWritePostingNum == p_opts.m_localMergeBufferSize) {
+                    // LOG(Helper::LogLevel::LL_Info, "Batch full, begin to arrange writting\n");
                     /* Now the buffer is full, let's considering merge order */
                     lastPageNum = SelectPostingOffsetLocalBatch(postingListBytes, postPageNum, postPageOffset, postingOrderInIndex, lastPageNum, batchBeg, p_opts.m_localMergeBufferSize);
 
@@ -890,10 +932,11 @@ namespace SPTAG {
                     // iterate over all the batched posting lists
                     for (auto id : postingOrderInIndex)
                     {
+                        // LOG(Helper::LogLevel::LL_Info, "id: %d, its pageNum is: %d, postPageOffset:%d, size: %d\n", id, postPageNum[id + batchBeg], postPageOffset[id + batchBeg], postingListBytes[id + batchBeg]);
                         std::uint64_t targetOffset = static_cast<uint64_t>(postPageNum[id + batchBeg]) * PageSize + postPageOffset[id + batchBeg];
                         if (targetOffset < listOffset)
                         {
-                            LOG(Helper::LogLevel::LL_Info, "List offset not match, targetOffset < listOffset!\n");
+                            LOG(Helper::LogLevel::LL_Info, "List offset not match, targetOffset(%lu) < listOffset(%lu)!\n", targetOffset, listOffset);
                             throw std::runtime_error("List offset mismatch");
                         }
                         // write padding vals before the posting list
@@ -919,6 +962,18 @@ namespace SPTAG {
                         {
                             continue;
                         }
+                        // if (id == tempFlag) {
+                        //     LOG(Helper::LogLevel::LL_Info, "22254 posting's pageNum is %d, target offset: %lu\n", postPageNum[id + batchBeg], targetOffset);
+                        //     LOG(Helper::LogLevel::LL_Info, "MetaOffset: %lu, Current offset: %lu", metalistOffset, ptr->TellP());
+                        //     char* pptr = (char*)(localMergeBuffer[id].c_str()); 
+                        //     for (int vectorNum = (localMergeBuffer[id].size()/m_vectorInfoSize), i = 0; i < vectorNum; i++) {
+                        //         char* vectorInfo = pptr + i * (m_vectorInfoSize);
+                        //         size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
+                        //         LOG(Helper::LogLevel::LL_Info, "Temp flag VID: %lu\n", VID);
+                                
+                        //     }
+                        //     tempFlag = -1;
+                        // }
                         
                         if (ptr->WriteBinary(postingListBytes[id + batchBeg], localMergeBuffer[id].data()) != postingListBytes[id + batchBeg])
                         {
@@ -939,6 +994,7 @@ namespace SPTAG {
                         listOffset += paddingSize;
                         paddedSize += paddingSize;
                     }
+                    // LOG(Helper::LogLevel::LL_Info, "Padding in the batchend: %d, current offset: %d\n", paddingSize, listOffset);
 
                     if (paddingSize > 0)
                     {
@@ -948,12 +1004,13 @@ namespace SPTAG {
                             throw std::runtime_error("Failed to write SSDIndex File");
                         }
                     }
-                    listOffset += paddedSize;
 
                     batchBeg += p_opts.m_localMergeBufferSize;
                     toWritePostingNum = 0;
+                    // LOG(Helper::LogLevel::LL_Info, "Remaining %d\n", totalSize - batchBeg);
                 }
             }
+            // LOG(Helper::LogLevel::LL_Info, "mergeing the last batch\n");
             /* The final merge buffer need to clear */
             postingOrderInIndex.resize(postingIndex - batchBeg);
 
@@ -1023,8 +1080,8 @@ namespace SPTAG {
                     throw std::runtime_error("Failed to write SSDIndex File");
                 }
             }
-            listOffset += paddedSize;
 
+            LOG(Helper::LogLevel::LL_Info, "Data writing finish, come back to the begining\n");
             /* now back to the beginning to write metadata */
 
             // Here I do not write a wrap function for seekg, so I begin with write metalistOffset again
@@ -1049,6 +1106,7 @@ namespace SPTAG {
                 size_t globalVectorID = localHeadIDToGlobalVectorIDMap[i];
 
                 // Page number of the posting list
+                // if (i == 22254 && NodeNo == 0) LOG(Helper::LogLevel::LL_Info, "22254 posting's pageNum is %d\n", pageNum);
                 if (ptr->WriteBinary(sizeof(pageNum), reinterpret_cast<char*>(&pageNum)) != sizeof(pageNum)) {
                     LOG(Helper::LogLevel::LL_Error, "Failed to write SSDIndex File!");
                     throw std::runtime_error("Failed to write SSDIndex File");
@@ -1069,6 +1127,7 @@ namespace SPTAG {
                     throw std::runtime_error("Failed to write SSDIndex File");
                 }
                 // Global vector ID
+                // if (i == 22254 && NodeNo == 0) LOG(Helper::LogLevel::LL_Info, "22254 posting's global vector ID is %d\n", globalVectorID);
                 if (ptr->WriteBinary(sizeof(globalVectorID), reinterpret_cast<char*>(&globalVectorID)) != sizeof(globalVectorID)) {
                     LOG(Helper::LogLevel::LL_Error, "Failed to write SSDIndex File!");
                     throw std::runtime_error("Failed to write SSDIndex File");
@@ -1078,9 +1137,102 @@ namespace SPTAG {
         }
 
         template <typename ValueType>
+        void LoadingNewFiles(MergeOptions& p_opts, int NodeNo) {
+            std::string filename = p_opts.outputNewFile + '_' + std::to_string(NodeNo);
+            int m_vectorInfoSize = p_opts.m_dim * sizeof(ValueType) + sizeof(size_t);
+            auto ptr = SPTAG::f_createIO();
+
+            if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                LOG(Helper::LogLevel::LL_Error, "Failed open file %s\n", filename.c_str());
+                throw std::runtime_error("Failed to open file for SSD index save");
+            }
+
+            size_t m_listCount, m_listPageOffset;
+            std::vector<ListInfoSubFile> m_listInfo;
+
+            /* Compared to origin head info, here gets no data dimension and total vector information */
+            if (ptr->ReadBinary(sizeof(m_listCount), reinterpret_cast<char*>(&m_listCount)) != sizeof(m_listCount)) {
+                LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                throw std::runtime_error("Failed read file in LoadingHeadInfo");
+            }
+
+            // Number of vectors, current we set it as 0 since we don't know how many vectors are on this node
+            size_t u64Val;
+            if (ptr->ReadBinary(sizeof(u64Val), reinterpret_cast<char*>(&u64Val)) != sizeof(u64Val)) {
+                LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                throw std::runtime_error("Failed read file in LoadingHeadInfo");
+            }
+
+            // Vector dimension
+            int i32Val;
+            if (ptr->ReadBinary(sizeof(i32Val), reinterpret_cast<char*>(&i32Val)) != sizeof(i32Val)) {
+                LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                throw std::runtime_error("Failed read file in LoadingHeadInfo");
+            }
+
+            if (ptr->ReadBinary(sizeof(m_listPageOffset), reinterpret_cast<char*>(&m_listPageOffset)) != sizeof(m_listPageOffset)) {
+                LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                throw std::runtime_error("Failed read file in LoadingHeadInfo");
+            }
+
+            m_listInfo.resize(m_listCount);
+            int pageNum;
+            for (size_t i = 0; i < m_listCount; ++i) {
+                ListInfoSubFile* listInfo = &(m_listInfo[i]);
+                if (ptr->ReadBinary(sizeof(pageNum), reinterpret_cast<char*>(&(pageNum))) != sizeof(pageNum)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                    throw std::runtime_error("Failed read file in LoadingHeadInfo");
+                }
+                if (ptr->ReadBinary(sizeof(listInfo->pageOffset), reinterpret_cast<char*>(&(listInfo->pageOffset))) != sizeof(listInfo->pageOffset)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                    throw std::runtime_error("Failed read file in LoadingHeadInfo");
+                }
+                if (ptr->ReadBinary(sizeof(listInfo->listEleCount), reinterpret_cast<char*>(&(listInfo->listEleCount))) != sizeof(listInfo->listEleCount)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                    throw std::runtime_error("Failed read file in LoadingHeadInfo");
+                }
+                if (ptr->ReadBinary(sizeof(listInfo->listPageCount), reinterpret_cast<char*>(&(listInfo->listPageCount))) != sizeof(listInfo->listPageCount)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                    throw std::runtime_error("Failed read file in LoadingHeadInfo");
+                }
+
+                if (ptr->ReadBinary(sizeof(listInfo->globalVectorID), reinterpret_cast<char*>(&(listInfo->globalVectorID))) != sizeof(listInfo->globalVectorID)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
+                    throw std::runtime_error("Failed read file in LoadingHeadInfo");
+                }
+                listInfo->listOffset = (static_cast<uint64_t>(m_listPageOffset + pageNum) << PageSizeEx);
+                listInfo->listTotalBytes = listInfo->listEleCount * m_vectorInfoSize;
+                // listInfo->listEleCount = min(listInfo->listEleCount, (min(static_cast<int>(listInfo->listPageCount), p_postingPageLimit) << PageSizeEx) / m_vectorInfoSize);
+                listInfo->listPageCount = static_cast<std::uint16_t>(ceil((m_vectorInfoSize * listInfo->listEleCount + listInfo->pageOffset) * 1.0 / (1 << PageSizeEx)));
+            }
+
+            LOG(Helper::LogLevel::LL_Info, "Verifying postings randomly for ten times\n");
+            for (int i = 0; i < 10; i++) {
+                size_t randID = COMMON::Utils::rand(m_listCount, 0);
+                ListInfoSubFile listInfo = m_listInfo[randID];
+                LOG(Helper::LogLevel::LL_Info, "%lu posting, its global vector id is %lu\n", randID, listInfo.globalVectorID);
+                LOG(Helper::LogLevel::LL_Info, "Its size: %d\n", listInfo.listEleCount);
+                LOG(Helper::LogLevel::LL_Info, "Its target offset: %lu\n", listInfo.listOffset);
+
+                std::string verifyPosting;
+
+                FetchPosting(ptr, listInfo, verifyPosting, m_vectorInfoSize);
+
+                char* pptr = (char*)(verifyPosting.c_str());
+                for (int vectorNum = (verifyPosting.size()/m_vectorInfoSize), i = 0; i < vectorNum; i++) {
+                    char* vectorInfo = pptr + i * (m_vectorInfoSize);
+                    size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
+                    LOG(Helper::LogLevel::LL_Info,"VectorID : %lu\n", VID);
+                }
+            }
+
+        }
+
+        template <typename ValueType>
         void MergeSPectrumSingleNode() {
             for (int FileNo = 0; FileNo < options.m_numFiles; FileNo++) {
 
+                LOG(Helper::LogLevel::LL_Info, "Loading File No: %d\n", FileNo);
                 /* Loading Index */
 
                 std::shared_ptr<VectorIndex> m_toLoadIndex;
@@ -1100,9 +1252,12 @@ namespace SPTAG {
                 /* Divide Files into options.m_numNodes files*/
 
                 DivideAndWriteSubFiles<ValueType>(m_toMergeIndex, sortHeadByNodeAndGlobalVectorID, options, FileNo);
+
+                LOG(Helper::LogLevel::LL_Info, "Processing File No: %d Completed\n", FileNo);
             }
 
             for (int NodeNo = 0; NodeNo < options.m_numNodes; NodeNo++) {
+                LOG(Helper::LogLevel::LL_Info, "Processing Node No: %d\n", NodeNo);
                 
                 /* Loading all subFiles of there metadata & global vector id*/
                 std::vector<size_t> m_listCounts(options.m_numFiles);
@@ -1115,7 +1270,13 @@ namespace SPTAG {
                 /* Merge and write the merged postings into files */
 
                 MergeAndWriteFiles<ValueType>(options, m_listCounts, m_listPageOffsets, ptrs, m_listInfos, NodeNo);
+
+                LOG(Helper::LogLevel::LL_Info, "Processing Node No: %d Completed\n", NodeNo);
             }
+
+            // Here is some commented code for verify whether the written file is in right form
+            // LoadingNewFiles<ValueType>(options, 0);
+
         }
 
         int BootProgram(int p_restArgc, char** (p_args)) {

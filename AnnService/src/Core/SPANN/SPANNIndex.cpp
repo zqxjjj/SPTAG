@@ -183,11 +183,15 @@ namespace SPTAG
                     bool excludehead = iniReader.GetParameter("BuildSSDIndex", "ExcludeHead", true);
 
                     if (excludehead) {
+                        std::string filename = folderPath + FolderSep + m_options.m_headIDFile;
                         int headSize = iniReader.GetParameter("BuildSSDIndex", "HeadSize", 0);
+                        if (headSize == 0) {
+                            headSize = m_index->GetNumSamples();
+                        }
                         m_vectorTranslateMaps[toLoadLayers-i].reset(new std::uint64_t[headSize], std::default_delete<std::uint64_t[]>());
                         std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
 
-                        if (ptr == nullptr || !ptr->Initialize((folderPath + FolderSep + m_options.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
+                        if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
                             LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (folderPath + FolderSep + m_options.m_headIDFile).c_str());
                             return ErrorCode::Fail;
                         }
