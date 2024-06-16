@@ -33,10 +33,10 @@ namespace SPTAG {
                 AddRequiredOption(m_dim, "-d", "--dimension", "Dimension of vector.");
                 AddRequiredOption(m_numNodes, "-n", "--numnodes", "Deploy to n nodes");
                 AddRequiredOption(m_numFiles, "-f", "--numfiles", "Merge from f files");
-                AddRequiredOption(outputsubFile, "-o", "--outputsubfile", "the prefix of output subfile");
+                AddRequiredOption(outputsubFile, "-os", "--outputsubfile", "the prefix of output subfile");
                 AddRequiredOption(m_localMergeBufferSize, "-l", "--localmergebuffersize", "Merge l postings in memory for a batch");
-                AddRequiredOption(outputNewFile, "-o", "--outputnewfile", "the prefix of output final file");
-                AddRequiredOption(m_fileDir, "-d", "--nodedir", "the prefix of to-merge index dir");
+                AddRequiredOption(outputNewFile, "-on", "--outputnewfile", "the prefix of output final file");
+                AddRequiredOption(m_fileDir, "-fd", "--filedir", "the prefix of to-merge index dir");
 
                 
             }
@@ -257,7 +257,9 @@ namespace SPTAG {
         template <typename ValueType>
         void DispatchPostingToNode(SPANN::Index<ValueType>* p_index, std::vector<std::map<size_t, size_t>>& sortHeadByNodeAndGlobalVectorID, MergeOptions& p_opts) {
             // global vectorID module numNodes
+            LOG(Helper::LogLevel::LL_Info, "Dispatch Posting to Node\n");
             size_t localTotalHeadNum = p_index->GetMemoryIndex()->GetNumSamples();
+            LOG(Helper::LogLevel::LL_Info, "Total Posting Num: %d\n", localTotalHeadNum);
             for (size_t localHeadID = 0; localHeadID < localTotalHeadNum; localHeadID++) {
                 ByteArray globalVectorID_byteArray = p_index->GetMetadata(p_index->ReturnTrueId(localHeadID));
 
@@ -266,9 +268,15 @@ namespace SPTAG {
 
                 memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
 
+                LOG(Helper::LogLevel::LL_Info, "Loacal HeadID: %d, Global Vector ID: %s\n", localHeadID, globalVectorID_string.c_str());
+
                 std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
 
                 sortHeadByNodeAndGlobalVectorID[globalVectorID % p_opts.m_numNodes].emplace(globalVectorID, localHeadID);
+            }
+            
+            for (int i = 0; i < p_opts.m_numNodes; i++) {
+                LOG(Helper::LogLevel::LL_Info, "Dispatch Posting to Node %d : %d\n", i, sortHeadByNodeAndGlobalVectorID[i].size());
             }
 
         }

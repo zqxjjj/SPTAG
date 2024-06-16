@@ -201,7 +201,7 @@ DefineSSDParameter(m_ipAddrFrontend, std::string, std::string(""), "IPAddrFronte
 DefineSSDParameter(m_ipAddrBackend, std::string, std::string(""), "IPAddrBackend")
 DefineSSDParameter(m_layers, int, 2, "Layers")
 DefineSSDParameter(m_headSize, int, 0, "HeadSize")
-DefineSSDParameter(m_isLocal, bool, false, "IsLocal")
+DefineSSDParameter(m_isLocal, bool, true, "IsLocal")
 DefineSSDParameter(m_warmup, bool, false, "Warmup")
 
 // DSPANN

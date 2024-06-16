@@ -71,7 +71,7 @@ namespace SPTAG
             VectorValueType valueType = p_reader.GetParameter("Base", "ValueType", VectorValueType::Undefined);
             int layers = p_reader.GetParameter("BuildSSDIndex", "Layers", 2);
             bool isCoordinator = p_reader.GetParameter("BuildSSDIndex", "IsCoordinator", false);
-            bool isLocal = p_reader.GetParameter("BuildSSDIndex", "IsLocal", false);
+            bool isLocal = p_reader.GetParameter("BuildSSDIndex", "IsLocal", true);
             if (!isLocal && (layers == 2 || !isCoordinator)) {
                 if ((m_index = CreateInstance(algoType, valueType)) == nullptr) return ErrorCode::FailedParseValue;
             }
