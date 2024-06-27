@@ -36,15 +36,15 @@ namespace SPTAG
             std::unique_ptr<SizeType[]> m_hashTable;
 
 
-            inline unsigned hash_func2(unsigned idx, int poolSize, int loop)
+            inline unsigned long hash_func2(unsigned long idx, int poolSize, int loop)
             {
                 return (idx + loop) & poolSize;
             }
 
 
-            inline unsigned hash_func(unsigned idx, int poolSize)
+            inline unsigned long hash_func(unsigned long idx, int poolSize)
             {
-                return ((unsigned)(idx * 99991) + _rotl(idx, 2) + 101) & poolSize;
+                return ((unsigned long)(idx * 99991) + _rotl(idx, 2) + 101) & poolSize;
             }
 
         public:
@@ -115,7 +115,7 @@ namespace SPTAG
 
             inline int _CheckAndSet(SizeType* hashTable, int poolSize, bool isFirstTable, SizeType idx)
             {
-                unsigned index = hash_func((unsigned)idx, poolSize);
+                unsigned long index = hash_func((unsigned long)idx, poolSize);
                 for (int loop = 0; loop < m_maxLoop; ++loop)
                 {
                     if (!hashTable[index])

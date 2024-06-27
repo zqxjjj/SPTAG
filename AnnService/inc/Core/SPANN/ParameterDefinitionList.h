@@ -221,4 +221,7 @@ DefineSSDParameter(m_hashPlan, int, 0, "HashPlan")
 DefineSSDParameter(m_headLayerMap, std::string, std::string(""), "HeadLayerMap")
 DefineSSDParameter(m_socketThreadNum, int, 2, "SocketThreadNum")
 
+
+DefineSSDParameter(m_partKV, bool, false, "PartKV")
+
 #endif

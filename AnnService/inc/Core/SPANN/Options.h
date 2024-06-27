@@ -210,6 +210,8 @@ namespace SPTAG {
 
             std::string m_headLayerMap;
 
+            bool m_partKV;
+
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \
                 VarName = DefaultValue; \

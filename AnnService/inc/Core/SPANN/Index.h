@@ -389,7 +389,7 @@ namespace SPTAG
                     m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
                 }
             }
-
+            
             ErrorCode SearchIndexSPectrumMulti(QueryResult &p_query, int dispatchedNode, SPANN::SearchStats* stats) {
                 COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
                 std::string request;
@@ -1526,47 +1526,7 @@ namespace SPTAG
                             static_cast<void*>(backend),
                             nullptr);
                 }
-                catch (std::exception &e) {}
-                
-                //  Switch messages between sockets
-                // while (1) {
-                //     zmq::message_t message;
-                //     int more;               //  Multipart detection
-
-                //     zmq::poll (&items [0], 2, -1);
-                    
-                //     if (items [0].revents & ZMQ_POLLIN) {
-                //         while (1) {
-                //             //  Process all parts of the message
-                //             frontend.recv(&message);
-                //             LOG(Helper::LogLevel::LL_Info, "Router Recv Connection, size: %d\n", message.size());
-                //             // frontend.recv(message, zmq::recv_flags::none); // new syntax
-                //             size_t more_size = sizeof (more);
-                //             frontend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
-                //             backend.send(message, more? ZMQ_SNDMORE: 0);
-                //             // more = frontend.get(zmq::sockopt::rcvmore); // new syntax
-                //             // backend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
-                            
-                //             if (!more)
-                //                 break;      //  Last message part
-                //         }
-                //     }
-                //     if (items [1].revents & ZMQ_POLLIN) {
-                //         while (1) {
-                //             //  Process all parts of the message
-                //             backend.recv(&message);
-                //             LOG(Helper::LogLevel::LL_Info, "DEALER Recv Connection, size: %d\n", message.size());
-                //             size_t more_size = sizeof (more);
-                //             backend.getsockopt(ZMQ_RCVMORE, &more, &more_size);
-                //             frontend.send(message, more? ZMQ_SNDMORE: 0);
-                //             // more = backend.get(zmq::sockopt::rcvmore); // new syntax
-                //             //frontend.send(message, more? zmq::send_flags::sndmore : zmq::send_flags::none);
-
-                //             if (!more)
-                //                 break;      //  Last message part
-                //         }
-                //     }
-                // }            
+                catch (std::exception &e) {}          
                 return ErrorCode::Success;
             }
         };
