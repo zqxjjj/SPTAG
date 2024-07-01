@@ -175,18 +175,25 @@ namespace SPTAG {
             int m_spdkBatchSize;
             bool m_stressTest;
             int m_bufferLength;
-            
-            // RemoteDSPANN
-            bool m_isCoordinator;
-            bool m_remoteCalculation;
-            std::string m_ipAddrFrontend;
-            std::string m_ipAddrBackend;
 
-            // SPectrum
+            // SPectrum Hierarchy option
+            bool m_multiLayer;
             int m_layers;
             int m_headSize;
 
+            // Decouple L0 and other layer option
             bool m_isLocal;
+            int m_socketThreadNum;
+            bool m_isCoordinator;
+            std::string m_ipAddrFrontend;
+            std::string m_ipAddrBackend;
+
+            // Is the disk is part of KV
+            bool m_distKV;
+            int m_myNodeId;
+            std::string m_topSPANNMetaFile;
+            std::string m_topSPANNMetaIndex;
+
             bool m_warmup;
 
             // DSPANN
@@ -196,21 +203,6 @@ namespace SPTAG {
             std::string m_dspannCenters;
             int m_dspannTopK;
             std::string m_ipAddrFrontendDSPANN;
-
-            // Multinode
-            bool m_multinode;
-
-            bool m_distKV;
-            int m_myNodeId;
-
-            // 0, 1, 2
-            int m_hashPlan;
-
-            int m_socketThreadNum;
-
-            std::string m_headLayerMap;
-
-            bool m_partKV;
 
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \

@@ -196,7 +196,6 @@ DefineSSDParameter(m_virtualHead, bool, false, "VirtualHead")
 
 // SPectrum
 DefineSSDParameter(m_isCoordinator, bool, false, "IsCoordinator")
-DefineSSDParameter(m_remoteCalculation, bool, false, "RemoteCalculation")
 DefineSSDParameter(m_ipAddrFrontend, std::string, std::string(""), "IPAddrFrontend")
 DefineSSDParameter(m_ipAddrBackend, std::string, std::string(""), "IPAddrBackend")
 DefineSSDParameter(m_layers, int, 2, "Layers")
@@ -212,16 +211,12 @@ DefineSSDParameter(m_dspannCenters, std::string, "", "DSPANNCenters")
 DefineSSDParameter(m_dspannTopK, int, 5, "DSPANNTopK")
 DefineSSDParameter(m_ipAddrFrontendDSPANN, std::string, std::string(""), "IPAddrFrontendDSPANN")
 
-// Multinode
-DefineSSDParameter(m_multinode, bool, false, "MultiNode")
-
 DefineSSDParameter(m_distKV, bool, false, "DistKV")
 DefineSSDParameter(m_myNodeId, int, -1, "MyNodeId")
-DefineSSDParameter(m_hashPlan, int, 0, "HashPlan")
-DefineSSDParameter(m_headLayerMap, std::string, std::string(""), "HeadLayerMap")
 DefineSSDParameter(m_socketThreadNum, int, 2, "SocketThreadNum")
+DefineSSDParameter(m_topSPANNMetaFile, std::string, std::string(""), "TopSPANNMetaFile")
+DefineSSDParameter(m_topSPANNMetaIndex, std::string, std::string(""), "TopSPANNMetaIndex")
 
-
-DefineSSDParameter(m_partKV, bool, false, "PartKV")
+DefineSSDParameter(m_multiLayer, bool, false, "MultiLayer")
 
 #endif

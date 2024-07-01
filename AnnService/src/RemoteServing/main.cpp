@@ -55,17 +55,12 @@ std::shared_ptr<VectorIndex> readIndex(std::map<std::string, std::map<std::strin
 	return index;
 }
 
-int BootProgramDSPANN(const char* configurationPath) {
+int BootProgramClient(const char* configurationPath) {
 	std::map<std::string, std::map<std::string, std::string>> my_map;
 	auto index = readIndex(&my_map, configurationPath);
 	#define DefineVectorValueType(Name, Type) \
 	if (index->GetVectorValueType() == VectorValueType::Name) { \
-		SPANN::Options* opts = ((SPANN::Index<Type>*)index.get())->GetOptions(); \
-		if (opts->m_multinode && opts->m_isCoordinator) { \
-			RemoteServing::SPectrumSearchMulti((SPANN::Index<Type>*)(index.get())); \
-		} else {\
-			RemoteServing::DSPANNSearch((SPANN::Index<Type>*)(index.get())); \
-		}\
+		RemoteServing::SPectrumSearchClient((SPANN::Index<Type>*)(index.get())); \
 	} \
 
 	#include "inc/Core/DefinitionList.h"
@@ -86,8 +81,8 @@ int main(int argc, char* argv[]) {
 
 	if (argc == 3) {
 		LOG(Helper::LogLevel::LL_Info,
-			"DSPANN coordinator\n");
-		auto ret = BootProgramDSPANN(argv[1]);
+			"Distributed Search Client\n");
+		auto ret = BootProgramClient(argv[1]);
 	}
 	auto ret = RemoteServing::BootProgram(argv[1]);
 	return ret;

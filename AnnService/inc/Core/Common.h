@@ -120,7 +120,11 @@ namespace SPTAG
 
 #define ALIGN_ROUND(size) ((size) + 31) / 32 * 32
 
+#ifndef LARGE_VID
 typedef std::int32_t SizeType;
+#else
+typedef std::uint64_t SizeType;
+#endif 
 typedef std::int32_t DimensionType;
 
 const SizeType MaxSize = (std::numeric_limits<SizeType>::max)();

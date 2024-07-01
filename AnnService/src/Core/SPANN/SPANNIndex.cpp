@@ -132,136 +132,184 @@ namespace SPTAG
         }
 
         template <typename T>
-        ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
+        ErrorCode Index<T>::LoadIndexHierarchyDataLocal(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
-            if (m_options.m_isLocal) {
-                int toLoadLayers = m_options.m_layers - 1;
-
-                LOG(Helper::LogLevel::LL_Info, "Loading Head index\n");
-                std::string m_spannIndexFolder = "HeadIndexSPANN";
-
-                std::string headIndexPath = m_options.m_indexDirectory;
-
-                for (int i = 0; i < toLoadLayers-1; i++) {
-                    headIndexPath += FolderSep;
-                    headIndexPath += m_spannIndexFolder;
-                }
+            int toLoadLayers = m_options.m_layers - 1;
+            LOG(Helper::LogLevel::LL_Info, "Loading Head index\n");
+            std::string m_spannIndexFolder = "HeadIndexSPANN";
+            std::string headIndexPath = m_options.m_indexDirectory;
+            for (int i = 0; i < toLoadLayers-1; i++) {
                 headIndexPath += FolderSep;
-                headIndexPath += m_options.m_headIndexFolder;
-
-                LOG(Helper::LogLevel::LL_Info, "Loading L-0 index: %s\n", headIndexPath.c_str());
-                if (LoadIndex(headIndexPath, m_index) != ErrorCode::Success) {
-                    LOG(Helper::LogLevel::LL_Error, "Cannot load head index from %s!\n", headIndexPath.c_str());
-                    return ErrorCode::Fail;
-                }
-                LOG(Helper::LogLevel::LL_Info, "Loading L-0 index finished\n");
-
-                m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
-                m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
-                m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
-                m_index->UpdateIndex();
-                m_index->SetReady(true);
-
-                LOG(Helper::LogLevel::LL_Info, "Loading L-1 to L-%d index headmap\n", toLoadLayers);
-
-                m_vectorTranslateMaps.resize(toLoadLayers);
-
-                for (int i = toLoadLayers; i > 0; i--) {
-                    std::string folderPath = m_options.m_indexDirectory;
-                    for (int j = 1; j < i; j++) {
-                        folderPath += FolderSep;
-                        folderPath += m_spannIndexFolder;
-                    }
-                    folderPath += FolderSep;
-                    LOG(Helper::LogLevel::LL_Info, "Loading L-%d index headmap from: %s\n", toLoadLayers-i+1, folderPath.c_str());
-                    Helper::IniReader iniReader;
-                    {
-                        auto fp = SPTAG::f_createIO();
-                        if (fp == nullptr || !fp->Initialize((folderPath + "indexloader.ini").c_str(), std::ios::in)) return ErrorCode::FailedOpenFile;
-                        if (ErrorCode::Success != iniReader.LoadIni(fp)) return ErrorCode::FailedParseValue;
-                    }
-                    bool excludehead = iniReader.GetParameter("BuildSSDIndex", "ExcludeHead", true);
-
-                    if (excludehead) {
-                        std::string filename = folderPath + FolderSep + m_options.m_headIDFile;
-                        int headSize = iniReader.GetParameter("BuildSSDIndex", "HeadSize", 0);
-                        if (headSize == 0) {
-                            headSize = m_index->GetNumSamples();
-                        }
-                        m_vectorTranslateMaps[toLoadLayers-i].reset(new std::uint64_t[headSize], std::default_delete<std::uint64_t[]>());
-                        std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
-
-                        if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
-                            LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (folderPath + FolderSep + m_options.m_headIDFile).c_str());
-                            return ErrorCode::Fail;
-                        }
-                        IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[toLoadLayers-i].get()));
-                    }
-                    LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
-                }
-                m_extraSearchers.resize(toLoadLayers);
-                for (int i = toLoadLayers; i > 0; i--) {
-                    std::string folderPath = m_options.m_indexDirectory;
-                    for (int j = 1; j < i; j++) {
-                        folderPath += FolderSep;
-                        folderPath += m_spannIndexFolder;
-                    }
-
-                    auto temp = m_options.m_indexDirectory;
-                    m_options.m_indexDirectory = folderPath;
-
-                    m_extraSearchers[toLoadLayers-i].reset(new ExtraStaticSearcher<T>());
-                    if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
-
-                    m_options.m_indexDirectory = temp;
-                }
-                return ErrorCode::Success;
+                headIndexPath += m_spannIndexFolder;
             }
+            headIndexPath += FolderSep;
+            headIndexPath += m_options.m_headIndexFolder;
+            LOG(Helper::LogLevel::LL_Info, "Loading L-0 index: %s\n", headIndexPath.c_str());
+            if (LoadIndex(headIndexPath, m_index) != ErrorCode::Success) {
+                LOG(Helper::LogLevel::LL_Error, "Cannot load head index from %s!\n", headIndexPath.c_str());
+                return ErrorCode::Fail;
+            }
+            LOG(Helper::LogLevel::LL_Info, "Loading L-0 index finished\n");
+            m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+            m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
+            m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
+            m_index->UpdateIndex();
+            m_index->SetReady(true);
+            LOG(Helper::LogLevel::LL_Info, "Loading L-1 to L-%d index headmap\n", toLoadLayers);
+            m_vectorTranslateMaps.resize(toLoadLayers);
+            for (int i = toLoadLayers; i > 0; i--) {
+                std::string folderPath = m_options.m_indexDirectory;
+                for (int j = 1; j < i; j++) {
+                    folderPath += FolderSep;
+                    folderPath += m_spannIndexFolder;
+                }
+                folderPath += FolderSep;
+                LOG(Helper::LogLevel::LL_Info, "Loading L-%d index headmap from: %s\n", toLoadLayers-i+1, folderPath.c_str());
+                Helper::IniReader iniReader;
+                {
+                    auto fp = SPTAG::f_createIO();
+                    if (fp == nullptr || !fp->Initialize((folderPath + "indexloader.ini").c_str(), std::ios::in)) return ErrorCode::FailedOpenFile;
+                    if (ErrorCode::Success != iniReader.LoadIni(fp)) return ErrorCode::FailedParseValue;
+                }
+                bool excludehead = iniReader.GetParameter("BuildSSDIndex", "ExcludeHead", true);
+                if (excludehead) {
+                    std::string filename = folderPath + FolderSep + m_options.m_headIDFile;
+                    int headSize = iniReader.GetParameter("BuildSSDIndex", "HeadSize", 0);
+                    if (headSize == 0) {
+                        headSize = m_index->GetNumSamples();
+                    }
+                    m_vectorTranslateMaps[toLoadLayers-i].reset(new std::uint64_t[headSize], std::default_delete<std::uint64_t[]>());
+                    std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
 
+                    if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                        LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (folderPath + FolderSep + m_options.m_headIDFile).c_str());
+                        return ErrorCode::Fail;
+                    }
+                    IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[toLoadLayers-i].get()));
+                }
+                LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
+            }
+            m_extraSearchers.resize(toLoadLayers);
+            for (int i = toLoadLayers; i > 0; i--) {
+                std::string folderPath = m_options.m_indexDirectory;
+                for (int j = 1; j < i; j++) {
+                    folderPath += FolderSep;
+                    folderPath += m_spannIndexFolder;
+                }
+
+                auto temp = m_options.m_indexDirectory;
+                m_options.m_indexDirectory = folderPath;
+
+                m_extraSearchers[toLoadLayers-i].reset(new ExtraStaticSearcher<T>());
+                if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
+                m_options.m_indexDirectory = temp;
+            }
+            return ErrorCode::Success;
+        }
+
+        template <typename T>
+        ErrorCode Index<T>::LoadIndexHierarchyDataDistKV(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
+        {
             m_isCoordinator = m_options.m_isCoordinator;
-            if (m_options.m_layers == 2) {
+            {
+                int toLoadLayers = m_options.m_layers - 1;
+                std::string m_spannIndexFolder = "HeadIndexSPANN";
                 if (m_isCoordinator) {
-                    m_vectorTranslateMaps.resize(1);
-                    m_index->SetQuantizer(m_pQuantizer);
-                    if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
+                    std::string headIndexPath = m_options.m_indexDirectory;
+
+                    for (int i = 0; i < toLoadLayers-1; i++) {
+                        headIndexPath += FolderSep;
+                        headIndexPath += m_spannIndexFolder;
+                    }
+                    headIndexPath += FolderSep;
+                    std::string headMapPath = headIndexPath + m_options.m_headIDFile;
+                    std::string topSPANNMetaPath = headIndexPath + m_options.m_topSPANNMetaFile;
+                    std::string topSPANNMetaIndexPath = headIndexPath + m_options.m_topSPANNMetaIndex;
+                    headIndexPath += m_options.m_headIndexFolder;
+
+                    LOG(Helper::LogLevel::LL_Info, "Loading L-0 index: %s\n", headIndexPath.c_str());
+                    if (LoadIndex(headIndexPath, m_index) != ErrorCode::Success) {
+                        LOG(Helper::LogLevel::LL_Error, "Cannot load head index from %s!\n", headIndexPath.c_str());
+                        return ErrorCode::Fail;
+                    }
+                    LOG(Helper::LogLevel::LL_Info, "Loading L-0 index finished\n");
 
                     m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
                     m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
                     m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
                     m_index->UpdateIndex();
                     m_index->SetReady(true);
-                    if (m_options.m_excludehead) {
-                        m_vectorTranslateMaps[0].reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
-                        std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
-                        if (ptr == nullptr || !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
-                            LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
-                            return ErrorCode::Fail;
-                        }
-                        IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMaps[0].get()));
+
+                    LOG(Helper::LogLevel::LL_Info, "Loading L-1 head map and its metadata to generate new head global vector id map\n");
+
+                    m_vectorTranslateMaps.resize(1);
+
+                    int headSize = m_index->GetNumSamples();
+                   
+                    m_vectorTranslateMaps[0].reset(new std::uint64_t[headSize], std::default_delete<std::uint64_t[]>());
+                    std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+
+                    if (ptr == nullptr || !ptr->Initialize(headMapPath.c_str(), std::ios::binary | std::ios::in)) {
+                        LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", headMapPath.c_str());
+                        return ErrorCode::Fail;
                     }
-                    if (m_options.m_distKV) {
-                        LOG(Helper::LogLevel::LL_Info, "Dist KV test, only connect to one node\n");
-                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
-                        // initDistKVNetWork();
-                    } else {
-                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
+                    IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[0].get()));
+
+                    auto metaData = MemMetadataSet(topSPANNMetaPath, topSPANNMetaIndexPath, m_iDataBlockSize, m_iDataCapacity, m_iMetaRecordSize);
+                    if (!(metaData.Available()))
+                    {
+                        LOG(Helper::LogLevel::LL_Error, "Error: Failed to load metadata.\n");
+                        exit(0);
                     }
-                    m_vectorHashMaps.resize(1);
-                    if (m_options.m_multinode) {
-                        InitNodeHashMap(m_options.m_indexDirectory, 0);
+                    LOG(Helper::LogLevel::LL_Info, "Converting map From local head id -> global head id To local head id -> global vector id\n");
+                    for (int i = 0; i < headSize; i++) {
+                        ByteArray globalVectorID_byteArray = metaData.GetMetadata((m_vectorTranslateMaps[0].get())[i]);
+
+                        std::string globalVectorID_string;
+                        globalVectorID_string.resize(globalVectorID_byteArray.Length());
+
+                        memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
+
+                        std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
+
+                        (m_vectorTranslateMaps[0].get())[i] = globalVectorID;
                     }
+
                 } else {
-                    m_extraSearchers.resize(1);
-                    if (m_options.m_useKV) {
-                        m_extraSearchers[0].reset(new SPTAG::SPANN::ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    } else {
-                        m_extraSearchers[0].reset(new ExtraStaticSearcher<T>());
-                        if (!m_extraSearchers[0]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
+                    m_extraSearchers.resize(toLoadLayers);
+                    for (int i = toLoadLayers; i > 0; i--) {
+                        std::string folderPath = m_options.m_indexDirectory;
+                        for (int j = 1; j < i; j++) {
+                            folderPath += FolderSep;
+                            folderPath += m_spannIndexFolder;
+                        }
+
+                        auto temp = m_options.m_indexDirectory;
+                        m_options.m_indexDirectory = folderPath;
+
+                        m_extraSearchers[toLoadLayers-i].reset(new ExtraStaticSearcher<T>());
+                        if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
+
+                        m_options.m_indexDirectory = temp;
+
                     }
                 }
-            } else {
+            }
+            return ErrorCode::Success;
+        }
+
+        template <typename T>
+        ErrorCode Index<T>::LoadIndexHierarchyData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
+        {
+            if (m_options.m_isLocal) {
+                return LoadIndexHierarchyDataLocal(p_indexStreams);
+            } else if (m_options.m_distKV) {
+                // depart head and kv, and kv is distributed
+                return LoadIndexHierarchyDataDistKV(p_indexStreams);
+            }
+
+            m_isCoordinator = m_options.m_isCoordinator;
+            {
                 int toLoadLayers = m_options.m_layers - 1;
                 std::string m_spannIndexFolder = "HeadIndexSPANN";
                 if (m_isCoordinator) {
@@ -289,21 +337,16 @@ namespace SPTAG
 
                     LOG(Helper::LogLevel::LL_Info, "Loading L-1 to L-%d index headmap\n", toLoadLayers);
 
-                    m_vectorHashMaps.resize(toLoadLayers);
-
                     m_vectorTranslateMaps.resize(toLoadLayers);
 
                     for (int i = toLoadLayers; i > 0; i--) {
+                        
                         std::string folderPath = m_options.m_indexDirectory;
                         for (int j = 1; j < i; j++) {
                             folderPath += FolderSep;
                             folderPath += m_spannIndexFolder;
                         }
                         folderPath += FolderSep;
-
-                        if (m_options.m_multinode) {
-                            InitNodeHashMap(folderPath, toLoadLayers-i);
-                        }
 
                         LOG(Helper::LogLevel::LL_Info, "Loading L-%d index headmap from: %s\n", toLoadLayers-i+1, folderPath.c_str());
                         Helper::IniReader iniReader;
@@ -313,7 +356,6 @@ namespace SPTAG
                             if (ErrorCode::Success != iniReader.LoadIni(fp)) return ErrorCode::FailedParseValue;
                         }
                         bool excludehead = iniReader.GetParameter("BuildSSDIndex", "ExcludeHead", true);
-
                         if (excludehead) {
                             int headSize = iniReader.GetParameter("BuildSSDIndex", "HeadSize", 0);
                             m_vectorTranslateMaps[toLoadLayers-i].reset(new std::uint64_t[headSize], std::default_delete<std::uint64_t[]>());
@@ -324,17 +366,10 @@ namespace SPTAG
                                 return ErrorCode::Fail;
                             }
                             IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * headSize, (char*)(m_vectorTranslateMaps[toLoadLayers-i].get()));
+                        } else {
+                            LOG(Helper::LogLevel::LL_Info, "All ready include head in posting, skip loading headmap\n");
                         }
                         LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
-                    }
-                    if (m_options.m_distKV) {
-                        // initDistKVNetWork(); 
-                        LOG(Helper::LogLevel::LL_Info, "Dist KV test, only connect to one node\n");
-                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
-                    } else {
-                        m_clientThreadPool = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPool->initNetwork(m_options.m_searchThreadNum, m_options.m_ipAddrFrontend);
                     }
                 } else {
                     m_extraSearchers.resize(toLoadLayers);
@@ -357,6 +392,154 @@ namespace SPTAG
                 }
             }
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
+            return ErrorCode::Success;
+        }
+
+        template <typename T>
+        ErrorCode Index<T>::LoadIndexDataToSPDKDevice() {
+            int m_vectorLimit = m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t));
+            m_versionMap.Initialize(m_options.m_vectorSize, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
+            int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
+            LOG(Helper::LogLevel::LL_Info, "Copying data from static to SPDK\n");
+            std::shared_ptr<IExtraSearcher> storeExtraSearcher;
+            storeExtraSearcher.reset(new ExtraStaticSearcher<T>());
+            if (!storeExtraSearcher->LoadIndex(m_options, m_versionMap)) {
+                LOG(Helper::LogLevel::LL_Info, "Initialize Error\n");
+                exit(1);
+            }
+            int totalPostingNum = m_index->GetNumSamples();
+            m_extraSearcher->InitPostingRecord(m_index);
+
+            std::vector<std::thread> threads;
+            std::atomic_size_t vectorsSent(0);
+
+            auto func = [&]()
+            {
+                m_extraSearcher->Initialize();
+                size_t index = 0;
+                while (true)
+                {
+                    index = vectorsSent.fetch_add(1);
+                    if (index < totalPostingNum)
+                    {
+                        if ((index & ((1 << 14) - 1)) == 0)
+                        {
+                            LOG(Helper::LogLevel::LL_Info, "Copy to SPDK: Sent %.2lf%%...\n", index * 100.0 / totalPostingNum);
+                        }
+                        std::string tempPosting;
+                        storeExtraSearcher->GetWritePosting(index, tempPosting);
+                        int vectorNum = (int)(tempPosting.size() / (m_vectorInfoSize - sizeof(uint8_t)));
+
+                        if (vectorNum > m_vectorLimit) vectorNum = m_vectorLimit;
+                        auto* postingP = reinterpret_cast<char*>(&tempPosting.front());
+                        std::string newPosting(m_vectorInfoSize * vectorNum , '\0');
+                        char* ptr = (char*)(newPosting.c_str());
+                        for (int j = 0; j < vectorNum; ++j, ptr += m_vectorInfoSize) {
+                            char* vectorInfo = postingP + j * (m_vectorInfoSize - sizeof(uint8_t));
+                            int VID = *(reinterpret_cast<int*>(vectorInfo));
+                            uint8_t version = m_versionMap.GetVersion(VID);
+                            memcpy(ptr, &VID, sizeof(int));
+                            memcpy(ptr + sizeof(int), &version, sizeof(uint8_t));
+                            memcpy(ptr + sizeof(int) + sizeof(uint8_t), vectorInfo + sizeof(int), m_vectorInfoSize - sizeof(uint8_t) - sizeof(int));
+                        }
+
+                        if (m_options.m_excludehead) {
+                            auto VIDTrans = static_cast<SizeType>((m_vectorTranslateMap.get())[index]);
+                            uint8_t version = m_versionMap.GetVersion(VIDTrans);
+                            std::string appendPosting(m_vectorInfoSize, '\0');
+                            char* ptr = (char*)(appendPosting.c_str());
+                            memcpy(ptr, &VIDTrans, sizeof(VIDTrans));
+                            memcpy(ptr + sizeof(VIDTrans), &version, sizeof(version));
+                            memcpy(ptr + sizeof(int) + sizeof(uint8_t), m_index->GetSample(index), m_vectorInfoSize - sizeof(int) + sizeof(uint8_t));
+                            newPosting = appendPosting + newPosting;
+                        }
+
+                        m_extraSearcher->GetWritePosting(index, newPosting, true);
+                    }
+                    else
+                    {
+                        m_extraSearcher->ExitBlockController();
+                        return;
+                    }
+                }
+            };
+            for (int j = 0; j < m_options.m_iSSDNumberOfThreads; j++) { threads.emplace_back(func); }
+            for (auto& thread : threads) { thread.join(); }
+        }
+
+        template <typename T>
+        ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
+        {
+            if (m_options.m_multiLayer) {
+                return LoadIndexHierarchyData(p_indexStreams);
+            }
+
+            m_index->SetQuantizer(m_pQuantizer);
+            if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
+
+            m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+            m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
+            m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
+            m_index->UpdateIndex();
+            m_index->SetReady(true);
+
+            // TODO: Choose an extra searcher based on config
+            // Not Ready
+            if (m_pQuantizer)
+            {
+                m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
+            }
+            else
+            {
+                if (m_options.m_useKV) {
+                    if (m_options.m_inPlace) {
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                    }
+                    else {
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                    }
+                }
+                else if (m_options.m_useSPDK) {
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength));
+                } else {
+                    m_extraSearcher.reset(new ExtraStaticSearcher<T>());
+                }
+            }
+
+            if (!m_extraSearcher->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
+
+            if (m_options.m_excludehead) {
+                m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
+                IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
+            }
+
+            omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
+
+            if (m_options.m_useSPDK) {
+                LoadIndexDataToSPDKDevice();
+            } else {
+                m_versionMap.Load(m_options.m_deleteIDFile, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
+            }
+
+
+            if ((m_options.m_useSPDK || m_options.m_useKV) && m_options.m_preReassign) {
+                std::shared_ptr<Helper::ReaderOptions> vectorOptions(new Helper::ReaderOptions(m_options.m_valueType, m_options.m_dim, m_options.m_vectorType, m_options.m_vectorDelimiter, m_options.m_iSSDNumberOfThreads));
+                auto vectorReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
+                if (m_options.m_vectorPath.empty())
+                {
+                    LOG(Helper::LogLevel::LL_Info, "Vector file is empty. Skipping loading.\n");
+                }
+                else {
+                    if (ErrorCode::Success != vectorReader->LoadFile(m_options.m_vectorPath))
+                    {
+                        LOG(Helper::LogLevel::LL_Error, "Failed to read vector file.\n");
+                        return ErrorCode::Fail;
+                    }
+                    // m_options.m_vectorSize = vectorReader->GetVectorSet()->Count();
+                }
+                m_extraSearcher->RefineIndex(vectorReader, m_index);
+            }
+
             return ErrorCode::Success;
         }
 

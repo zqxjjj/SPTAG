@@ -175,7 +175,6 @@ namespace SPTAG
 
             std::vector<std::shared_ptr<IExtraSearcher>> m_extraSearchers;
             std::vector<std::shared_ptr<std::uint64_t>> m_vectorTranslateMaps;
-            std::vector<std::shared_ptr<short>> m_vectorHashMaps;
 
             Options m_options;
 
@@ -190,9 +189,7 @@ namespace SPTAG
 
             std::shared_ptr<NetworkThreadPool> m_clientThreadPool;
 
-            std::vector<std::shared_ptr<NetworkThreadPool>> m_clientThreadPoolDSPANN;
-
-            std::vector<SPTAG::COMMON::Dataset<int>> mappingData;
+            std::vector<std::shared_ptr<NetworkThreadPool>> m_commSocketPool;
 
             // Distributed KV Coordinator : maintain the map that where all vectors are stored
             // Given a key, Coordinator hash it, the hash value tells Coordinator where to read the value
@@ -252,7 +249,7 @@ namespace SPTAG
             std::shared_ptr<std::vector<std::string>> GetIndexFiles() const
             {
                 std::shared_ptr<std::vector<std::string>> files(new std::vector<std::string>);
-                if (!m_options.m_isLocal && (m_options.m_layers == 2||!m_options.m_isCoordinator)) {
+                if (!m_options.m_multiLayer) {
                     auto headfiles = m_index->GetIndexFiles();
                     for (auto file : *headfiles) {
                         files->push_back(m_options.m_headIndexFolder + FolderSep + file);
@@ -274,7 +271,7 @@ namespace SPTAG
             ErrorCode SearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const;
             ErrorCode SearchDiskIndex(QueryResult& p_query, SearchStats* p_stats = nullptr) const;
             ErrorCode DebugSearchDiskIndex(QueryResult& p_query, int p_subInternalResultNum, int p_internalResultNum,
-                SearchStats* p_stats = nullptr, std::set<int>* truth = nullptr, std::map<int, std::set<int>>* found = nullptr) const;
+                SearchStats* p_stats = nullptr, std::set<SizeType>* truth = nullptr, std::map<SizeType, std::set<SizeType>>* found = nullptr) const;
             ErrorCode UpdateIndex();
 
             ErrorCode SetParameter(const char* p_param, const char* p_value, const char* p_section = nullptr);
@@ -303,6 +300,11 @@ namespace SPTAG
 
             ErrorCode BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader);
 
+            ErrorCode LoadIndexHierarchyData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams);
+            ErrorCode LoadIndexHierarchyDataLocal(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams);
+            ErrorCode LoadIndexHierarchyDataDistKV(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams);
+            ErrorCode LoadIndexDataToSPDKDevice();
+
         public:
             uint64_t ReturnTrueId(uint64_t headID) {
                 return (m_vectorTranslateMaps[0].get())[headID];
@@ -312,6 +314,7 @@ namespace SPTAG
                 return m_extraSearchers[0]->GetPostingSize(headID);
             }
 
+            //only support single layer now
             void ReadPosting(SizeType headID, std::string& posting) {
                 m_extraSearchers[0]->GetWritePosting(headID, posting);
             }
@@ -337,154 +340,29 @@ namespace SPTAG
 
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
 
-            ErrorCode InitNodeHashMap(std::string indexDirectory, int layer) {
-                std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+            void InitDSPANNNetWork() {
+                m_commSocketPool.resize(m_options.m_dspannIndexFileNum * 2);
+                // m_commSocketPool.resize(m_options.m_dspannIndexFileNum);
 
-                std::string filename = indexDirectory + FolderSep + m_options.m_headLayerMap;
-
-                if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
-                    LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", filename.c_str());
-                    return ErrorCode::Fail;
-                }
-                LOG(Helper::LogLevel::LL_Info, "Loading Hash Map Layer: %d from :%s\n", layer, filename.c_str());
-                //read the first 2 int
-                SizeType rows;
-                DimensionType cols;
-                IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&rows);
-                IOBINARY(ptr, ReadBinary, sizeof(DimensionType), (char*)&cols);
-
-                m_vectorHashMaps[layer].reset(new short[rows], std::default_delete<short[]>());
-
-                if (m_options.m_hashPlan == 0) return ErrorCode::Success;
-                else if (m_options.m_hashPlan == 1) {
-                    LOG(Helper::LogLevel::LL_Info, "Hashing Plan 1, headSize: %d\n", rows);
-                    #pragma omp parallel for num_threads(20)
-                    for (int i = 0; i < rows; i++)
-                        (m_vectorHashMaps[layer].get())[i] = (short) COMMON::Utils::rand(m_options.m_dspannIndexFileNum, 0);
-                } else {
-                    IOBINARY(ptr, ReadBinary, sizeof(short) * rows, (char*)(m_vectorHashMaps[layer].get()));
-                }
-                return ErrorCode::Success;
-            }
-
-            void InitSPectrumNetWork() {
-                m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
-                // int node = 4;
-                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                //     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                //     addrPrefix += std::to_string(node);
-                //     addrPrefix += ":8002";
-                //     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                //     m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                //     m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
-                // }
-
-                // Debug version
-                int node = 0;
+                // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
+                // for shard i, m_commSocketPool[i*2] and m_commSocketPool[i*2+1] are all for processing
+                int node = 4;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
                     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                    addrPrefix += std::to_string(node*2);
+                    addrPrefix += std::to_string(node);
+                    addrPrefix += ":8000";
                     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                    m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                    m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
-                }
-            }
-            
-            ErrorCode SearchIndexSPectrumMulti(QueryResult &p_query, int dispatchedNode, SPANN::SearchStats* stats) {
-                COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-                std::string request;
-                request.resize(m_options.m_dim * sizeof(T));
-                std::string reply;
-                int in_flight = 0;                
-                memcpy(request.data(), (char*)p_query.GetTarget(), m_options.m_dim * sizeof(T));
-                in_flight = 1;
+                    m_commSocketPool[i*2] = std::make_shared<NetworkThreadPool>();
+                    m_commSocketPool[i*2]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
+                    // m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
+                    // m_commSocketPool[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
 
-                auto* curJob = new NetworkJob(&request, &reply, &in_flight);
-
-                m_clientThreadPoolDSPANN[dispatchedNode]->add(curJob);
-
-                while (in_flight != 0) {
-                    std::this_thread::sleep_for(std::chrono::microseconds(10));
-                }
-
-                auto ptr = static_cast<char*>(reply.data());
-                for (int j = 0; j < m_options.m_resultNum; j++) {
-                    int VID;
-                    float Dist;
-                    memcpy((char *)&VID, ptr, sizeof(int));
-                    memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
-                    ptr += sizeof(int);
-                    ptr += sizeof(float);
-
-                    if (VID == -1) break;
-                    p_queryResults->AddPoint(VID, Dist);
-                }
-                            
-                p_queryResults->SortResult();
-
-                //record stats
-
-                return ErrorCode::Success;
-                
-            }
-
-            void InitDSPANNNetWork() {
-                if (m_options.m_multinode) {
-                    mappingData.resize(m_options.m_dspannIndexFileNum);
-                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum * 2);
-                    // m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
-
-                    // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
-                    // for shard i, m_clientThreadPoolDSPANN[i*2] and m_clientThreadPoolDSPANN[i*2+1] are all for processing
-                    int node = 4;
-                    for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                        std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        addrPrefix += std::to_string(node);
-                        addrPrefix += ":8000";
-                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        m_clientThreadPoolDSPANN[i*2] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i*2]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
-                        // m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                        // m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
-
-                        addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        addrPrefix += std::to_string(node);
-                        addrPrefix += ":8002";
-                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        m_clientThreadPoolDSPANN[i*2+1] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i*2+1]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
-
-                        std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
-                        LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
-                        auto ptr = f_createIO();
-                        if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
-                            LOG(Helper::LogLevel::LL_Info, "Initialize Mapping Error: %d\n", i);
-                            exit(1);
-                        }
-                        mappingData[i].Load(ptr, m_options.m_datasetRowsInBlock, m_options.m_datasetCapacity);
-                    }
-
-                } else {
-                    mappingData.resize(m_options.m_dspannIndexFileNum);
-
-                    m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
-                    int port = 8000;
-                    for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, port += 2) {
-                        std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        addrPrefix += std::to_string(port);
-                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
-
-                        std::string filename = m_options.m_dspannIndexLabelPrefix + std::to_string(i);
-                        LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
-                        auto ptr = f_createIO();
-                        if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
-                            LOG(Helper::LogLevel::LL_Info, "Initialize Mapping Error: %d\n", i);
-                            exit(1);
-                        }
-                        mappingData[i].Load(ptr, m_options.m_datasetRowsInBlock, m_options.m_datasetCapacity);
-                    }
+                    addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                    addrPrefix += std::to_string(node);
+                    addrPrefix += ":8002";
+                    LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                    m_commSocketPool[i*2+1] = std::make_shared<NetworkThreadPool>();
+                    m_commSocketPool[i*2+1]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
                 }
             }
 
@@ -531,76 +409,11 @@ namespace SPTAG
                 return m_extraSearcher->AddIndex(vectorSet, m_index, begin);
             }
 
-            ErrorCode SearchIndexShard(QueryResult &p_query, std::vector<int>& needToTraverse, int top, std::vector<double>& latency)
-            {
-                COMMON::QueryResultSet<T>* p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
-                std::string* request[top];
-                std::string* reply[top];
-                std::vector<int> in_flight(top, 0);                    
-
-                for (int i = 0; i < top; ++i) {
-                    request[i] = new std::string();
-                    request[i]->resize(m_options.m_dim * sizeof(T));
-                    reply[i] = new std::string();
-
-                    memcpy(request[i]->data(), (char*)p_query.GetTarget(), m_options.m_dim * sizeof(T));
-
-                    in_flight[i] = 1;
-
-                    auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
-                    if (m_options.m_multinode) {
-                        if (m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->jobsize() > m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->runningJobs() + m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->jobsize()) {
-                            m_clientThreadPoolDSPANN[needToTraverse[i] * 2 + 1]->add(curJob);
-                        } else m_clientThreadPoolDSPANN[needToTraverse[i] * 2]->add(curJob);
-                    }
-                    else 
-                    m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
-                }
-
-                bool notReady = true;
-
-                std::vector<int> visit(top, 0);
-
-                std::set<int> visited;
-
-                while (notReady) {
-                    for (int i = 0; i < top; ++i) {
-                        if (in_flight[i] == 0 && visit[i] == 0) {
-                            visit[i] = 1;
-                            auto ptr = static_cast<char*>(reply[i]->data());
-                            for (int j = 0; j < m_options.m_resultNum; j++) {
-                                int VID;
-                                float Dist;
-                                memcpy((char *)&VID, ptr, sizeof(int));
-                                memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
-                                ptr += sizeof(int);
-                                ptr += sizeof(float);
-
-                                if (VID == -1) break;
-                                if (visited.find(*mappingData[needToTraverse[i]][VID]) != visited.end()) continue;
-                                visited.insert(*mappingData[needToTraverse[i]][VID]);
-                                p_queryResults->AddPoint(*mappingData[needToTraverse[i]][VID], Dist);
-                            }
-                            double processLatency;
-                            memcpy((char *)&processLatency, ptr, sizeof(double));
-                            latency[i] = processLatency;
-                        }
-                    }
-                    notReady = false;
-                    for (int i = 0; i < top; ++i) {
-                        if (visit[i] != 1) notReady = true;
-                    }
-                }
-                p_queryResults->SortResult();
-
-                return ErrorCode::Success;
-            }
-
             ErrorCode SearchIndexRemote(QueryResult &p_query, SearchStats* p_stats)
             {
-                if (!m_isCoordinator && !m_options.m_isLocal) {
-                    LOG(Helper::LogLevel::LL_Info, "not Coordinator, can't not search!\n");
-                    return ErrorCode::EmptyIndex;
+                if (!(m_options.m_distKV && m_options.m_isCoordinator)) {
+                    LOG(Helper::LogLevel::LL_Error, "Not the head index part process\n");
+                    exit(0);
                 }
 
                 p_stats->m_layerCounts.resize(m_options.m_layers);
@@ -613,6 +426,14 @@ namespace SPTAG
                 COMMON::QueryResultSet<T>* p_queryResults;
 
                 p_queryResults = (COMMON::QueryResultSet<T>*) & p_query;
+
+                //Convert to global vector id
+                for (int i = 0; i < p_queryResults->GetResultNum(); ++i)
+                {
+                    auto res = p_queryResults->GetResult(i);
+                    if (res->VID == -1) break;
+                    res->VID = static_cast<SizeType>((m_vectorTranslateMaps[0].get())[res->VID]);
+                }
 
                 p_stats->m_compLatencys.resize(m_options.m_layers-1);
                 p_stats->m_diskReadLatencys.resize(m_options.m_layers-1);
@@ -632,8 +453,6 @@ namespace SPTAG
                     m_workspace->m_deduper.clear();
                     m_workspace->m_postingIDs.clear();
 
-                    std::vector<int> m_readedHead;
-
                     for (int i = 0; i < p_queryResults->GetResultNum(); ++i)
                     {
                         auto res = p_queryResults->GetResult(i);
@@ -642,321 +461,108 @@ namespace SPTAG
                         auto postingID = res->VID;
                         m_workspace->m_postingIDs.emplace_back(postingID);
 
-                        if (m_vectorTranslateMaps[layer].get() != nullptr) {
-                            res->VID = static_cast<SizeType>((m_vectorTranslateMaps[layer].get())[res->VID]);
-                            if(!m_workspace->m_deduper.CheckAndSet(res->VID)) {
-                                p_tempResult->AddPoint(res->VID, res->Dist);
-                                m_readedHead.emplace_back(res->VID);
-                            } 
-                            res->VID = -1;
-                            res->Dist = MaxDist;
-                        }
-                        else {
-                            res->VID = -1;
-                            res->Dist = MaxDist;
+                        if(!m_workspace->m_deduper.CheckAndSet(res->VID)) {
+                            p_tempResult->AddPoint(res->VID, res->Dist);
+                        } 
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
+                    //sending request to the distKV
+                    //Process m_postingIDs
+
+                    std::vector<std::vector<SizeType>> keys_eachNode(GroupNum());
+
+                    for (auto key: m_workspace->m_postingIDs) {
+                        // LOG(Helper::LogLevel::LL_Info, "Debug: key %d\n", key);
+                        int node = NodeHash(key, layer);
+                        keys_eachNode[node].push_back(key);
+                    }
+
+                    std::string* request[GroupNum()];
+                    std::string* reply[GroupNum()];
+                    std::vector<int> in_flight(GroupNum(), 0); 
+                    std::vector<int> visit(GroupNum(), 0);
+
+                    //Send to all distKV
+                    for (int i = 0; i < GroupNum(); i++) {
+                        if (keys_eachNode[i].size() != 0) {
+                            request[i] = new std::string();
+                            request[i]->resize(sizeof(SizeType)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(SizeType) + sizeof(char));
+                            reply[i] = new std::string();
+                            in_flight[i] = 1;
+
+                            char* ptr = static_cast<char*>(request[i]->data());
+
+                            int keys_size = keys_eachNode[i].size();
+
+                            memcpy(ptr, (char*)&keys_size, sizeof(int));
+                            
+                            ptr += sizeof(int);
+
+                            memcpy(ptr, (char*)keys_eachNode[i].data(), sizeof(SizeType)*keys_eachNode[i].size());
+
+                            ptr += sizeof(SizeType)*keys_eachNode[i].size();
+
+                            memcpy(ptr, (char*)p_queryResults->GetQuantizedTarget(), m_options.m_dim * sizeof(T));
+
+                            ptr += m_options.m_dim * sizeof(T);
+
+                            memcpy(ptr, (char*)&layer, sizeof(int));
+
+                            ptr += sizeof(int);
+
+                            char code = 0;
+
+                            memcpy(ptr, (char*)&code, sizeof(char));
+
+                            auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
+
+                            m_commSocketPool[i]->add(curJob);
+                            
+                        } else {
+                            visit[i] = 1;
                         }
                     }
-                    if (m_options.m_multinode) {
-                        //sending request to the distKV
-                        
 
-                        //Process m_postingIDs
+                    bool notReady = true;
 
-                        std::vector<std::vector<int>> keys_eachNode(GroupNum());
-
-                        for (auto key: m_workspace->m_postingIDs) {
-                            // LOG(Helper::LogLevel::LL_Info, "Debug: key %d\n", key);
-                            int node = NodeHash(key, layer);
-                            keys_eachNode[node].push_back(key);
-                        }
-
-                        std::string* request[GroupNum()];
-                        std::string* reply[GroupNum()];
-                        std::vector<int> in_flight(GroupNum(), 0); 
-                        std::vector<int> visit(GroupNum(), 0);
-
-                        //Send to all distKV
-                        for (int i = 0; i < GroupNum(); i++) {
-                            if (keys_eachNode[i].size() != 0) {
-                                request[i] = new std::string();
-                                request[i]->resize(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
-                                reply[i] = new std::string();
-                                in_flight[i] = 1;
-
-                                char* ptr = static_cast<char*>(request[i]->data());
-
-                                int keys_size = keys_eachNode[i].size();
-
-                                memcpy(ptr, (char*)&keys_size, sizeof(int));
-                                
-                                ptr += sizeof(int);
-
-                                memcpy(ptr, (char*)keys_eachNode[i].data(), sizeof(int)*keys_eachNode[i].size());
-
-                                ptr += sizeof(int)*keys_eachNode[i].size();
-
-                                memcpy(ptr, (char*)p_queryResults->GetQuantizedTarget(), m_options.m_dim * sizeof(T));
-
-                                ptr += m_options.m_dim * sizeof(T);
-
-                                memcpy(ptr, (char*)&layer, sizeof(int));
-
-                                ptr += sizeof(int);
-
-                                char code = 0;
-
-                                memcpy(ptr, (char*)&code, sizeof(char));
-
-                                auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
-
-                                m_clientThreadPoolDSPANN[i]->add(curJob);
-                                
-                            } else {
+                    while (notReady) {
+                        for (int i = 0; i < GroupNum(); ++i) {
+                            if (visit[i] == 0 && in_flight[i] == 0) {
                                 visit[i] = 1;
-                            }
-                        }
-
-                        bool notReady = true;
-
-                        while (notReady) {
-                            for (int i = 0; i < GroupNum(); ++i) {
-                                if (visit[i] == 0 && in_flight[i] == 0) {
-                                    visit[i] = 1;
-                                    auto ptr = static_cast<char*>(reply[i]->data());
-                                    for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
-                                        int VID;
-                                        float Dist;
-                                        memcpy((char *)&VID, ptr, sizeof(int));
-                                        memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
-                                        ptr += sizeof(int);
-                                        ptr += sizeof(float);
-                                        if (VID == -1) break;
-                                        if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
-                                        p_queryResults->AddPoint(VID, Dist);
-                                    }
+                                auto ptr = static_cast<char*>(reply[i]->data());
+                                for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
+                                    SizeType VID;
+                                    float Dist;
+                                    memcpy((char *)&VID, ptr, sizeof(SizeType));
+                                    memcpy((char *)&Dist, ptr + sizeof(SizeType), sizeof(float));
+                                    ptr += sizeof(SizeType);
+                                    ptr += sizeof(float);
+                                    if (VID == -1) break;
+                                    if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
+                                    p_queryResults->AddPoint(VID, Dist);
                                 }
                             }
-                            notReady = false;
-                            for (int i = 0; i < GroupNum(); ++i) {
-                                if (visit[i] != 1) notReady = true;
-                            }
-                            if (notReady) std::this_thread::sleep_for(std::chrono::microseconds(5));
                         }
-                        
-                    } else if (!m_options.m_isLocal) {
-                        /***Remote Transefer And Process**/
-                        auto t3 = std::chrono::high_resolution_clock::now();
-                        // int socket_fd = ClientConnect();
-                        RemoteQueryProcess(*p_queryResults, m_workspace->m_postingIDs, m_readedHead, p_stats, layer);
-                        // CloseConnect(socket_fd);
-                        auto t4 = std::chrono::high_resolution_clock::now();
-
-                        double remoteProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
-
-                        p_stats->m_exLatencys[layer] = remoteProcessTime / 1000;
-
-                        if (m_options.m_remoteCalculation) {
-                            p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency - p_stats->m_compLatency;
-                        } else {
-                            p_stats->m_exLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_diskReadLatency;
+                        notReady = false;
+                        for (int i = 0; i < GroupNum(); ++i) {
+                            if (visit[i] != 1) notReady = true;
                         }
-
-                        p_stats->m_diskReadLatencys[layer] = p_stats->m_diskReadLatency;
-
-                        p_stats->m_compLatencys[layer] = p_stats->m_compLatency;
-                    } else {
-                        auto t3 = std::chrono::high_resolution_clock::now();
-                        m_extraSearchers[layer]->SearchIndex(m_workspace.get(), *p_queryResults, m_index, p_stats);
-                        auto t4 = std::chrono::high_resolution_clock::now();
-                        double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
-                        p_stats->m_exLatencys[layer] = localProcessTime / 1000;
-                        p_stats->m_compLatencys[layer] = p_stats->m_compLatency;
-                        p_stats->m_diskReadLatencys[layer] = p_stats->m_exLatencys[layer] - p_stats->m_compLatency;
-                        p_stats->m_layerCounts[layer+1] = p_stats->m_totalListElementsCount;
-                        p_stats->m_diskReadPages[layer] = p_stats->m_diskAccessCount;
+                        if (notReady) std::this_thread::sleep_for(std::chrono::microseconds(5));
                     }
-
                     p_tempResult->SortResult();
-                    if (m_vectorTranslateMaps[layer].get() != nullptr) {
-                        for (int i = 0; i < p_tempResult->GetResultNum(); ++i) {
-                            auto res = p_tempResult->GetResult(i);
-                            if (res->VID == -1) break;
-                            p_queryResults->AddPoint(res->VID, res->Dist);
-                        }
+                    for (int i = 0; i < p_tempResult->GetResultNum(); ++i) {
+                        auto res = p_tempResult->GetResult(i);
+                        if (res->VID == -1) break;
+                        p_queryResults->AddPoint(res->VID, res->Dist);
                     }
                     p_queryResults->SortResult();
                 }
                 return ErrorCode::Success;
             }
 
-            inline void Serialize(char* ptr, QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead, int layer) {
-                memcpy(ptr, p_queryResults.GetQuantizedTarget(), sizeof(T) * m_options.m_dim);
-                int postingNum = m_postingIDs.size();
-                memcpy(ptr + sizeof(T) * m_options.m_dim, &layer, sizeof(int));
-                memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int), &postingNum, sizeof(int));
-                memcpy(ptr + sizeof(T) * m_options.m_dim + 2*sizeof(int), m_postingIDs.data(), sizeof(int) * postingNum);
-                if (m_readedHead.size()!=0) {
-                    int headNum = m_readedHead.size();
-                    memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int) * (postingNum + 2), &headNum, sizeof(int));
-                    memcpy(ptr + sizeof(T) * m_options.m_dim + sizeof(int) * (postingNum + 3), m_readedHead.data(), sizeof(int) * headNum);
-                }
-            }
-
-            ErrorCode RemoteQueryProcess(QueryResult& p_queryResults, std::vector<int>& m_postingIDs, std::vector<int>& m_readedHead, SearchStats* p_stats, int layer) 
-            {
-                /** Serialize target vector, to be searched postings, allready readed VID**/
-                if (m_options.m_remoteCalculation) {
-                    int msgLength = sizeof(T) * m_options.m_dim + 2*sizeof(int) + sizeof(int) * m_postingIDs.size() + sizeof(int) + sizeof(int) * m_readedHead.size();
-
-                    std::string postingList(msgLength, '\0');
-                    char* ptr = (char*)(postingList.c_str());
-                    /** target vector(dim * valuetype) + searched postings(posting numbers + posting IDs) + searched head VIDs**/
-                    Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead, layer);
-
-                    std::string request;
-                    request.resize(msgLength);
-                    std::string reply;
-
-                    memcpy(request.data(), ptr, msgLength);
-
-                    int in_flight = 1;
-
-                    auto* curJob = new NetworkJob(&request, &reply, &in_flight);
-                    m_clientThreadPool->add(curJob);
-
-                    while (in_flight != 0) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(20));
-                    }
-                    // clientSocket->send(request);
-                    // clientSocket->recv(&reply);
-
-                    int resultLength = reply.size();
-                    int resultSize = (resultLength - 20) / 8;
-
-                    ptr = static_cast<char*>(reply.data());
-
-                    /** id & dist (ResultNum) **/
-
-                    COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
-
-                    for (int i = 0; i < resultSize; i++) {
-                        queryResults.AddPoint(*(int *)(ptr) , *(float *)(ptr+4));
-                        ptr += 8;
-                    }
-
-                    p_stats->m_diskReadLatency = (*(double *)(ptr));
-
-                    p_stats->m_compLatency = (*(double *)(ptr + 8));
-
-                    p_stats->m_layerCounts[layer+1] = (*(int *)(ptr + 16));
-
-                    p_stats->m_diskAccessCount = 0;
-
-                    // p_stats->m_diskReadLatency = 0;
-                    // p_stats->m_compLatency = 0;
-
-                } else {
-                    
-                    int msgLength = sizeof(T) * m_options.m_dim + 2*sizeof(int) + sizeof(int) * m_postingIDs.size();
-                    std::string postingList(1 * msgLength, '\0');
-                    char* ptr = (char*)(postingList.c_str());
-                    /** target vector(dim * valuetype) + searched postings(posting numbers + posting IDs) **/
-                    std::vector<int> m_readedHead_temp;
-                    Serialize(ptr , p_queryResults, m_postingIDs, m_readedHead_temp, layer);
-
-
-                    std::string request;
-                    request.resize(msgLength);
-                    std::string reply;
-
-                    memcpy(request.data(), ptr, msgLength);
-
-                    int in_flight = 1;
-
-                    auto* curJob = new NetworkJob(&request, &reply, &in_flight);
-                    m_clientThreadPool->add(curJob);
-
-                    while (in_flight != 0) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(20));
-                    }
-
-                    // clientSocket->send(request);
-                    // clientSocket->recv(&reply);
-
-                    ptr = static_cast<char*>(reply.data());
-                    char msg_int[4];
-                    memcpy(msg_int, ptr, 4);
-                    int totalMsg_size = (*(int *)msg_int);
-
-                    p_stats->m_diskAccessCount = totalMsg_size / 1024;
-
-                    postingList.resize(totalMsg_size);
-                    char* ptr_postingList = (char*)(postingList.c_str());
-                    memcpy(ptr_postingList, ptr+4, totalMsg_size);
-                    char msg_double[8];
-                    memcpy(msg_double, ptr+4+totalMsg_size, sizeof(double));
-
-                    p_stats->m_diskReadLatency = (*(double *)msg_double);
-
-                    // p_stats->m_diskReadLatency = 0;
-
-                    auto t1 = std::chrono::high_resolution_clock::now();
-
-                    /**Process Vectors**/
-                    ProcessPostingDSPANN(p_queryResults, postingList, m_readedHead);
-
-                    auto t2 = std::chrono::high_resolution_clock::now();
-
-                    double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-
-                    p_stats->m_compLatency = localProcessTime / 1000;
-
-                }
-                return ErrorCode::Success;
-            }
-
-            void ProcessPostingDSPANN(QueryResult& p_queryResults, 
-                std::string& postingList, std::vector<int>& m_readedHead)
-            {
-                // int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t);
-                int m_vectorInfoSize = sizeof(T) * m_options.m_dim + sizeof(int);
-
-                // int m_metaDataSize = sizeof(int) + sizeof(uint8_t);
-                int m_metaDataSize = sizeof(int);
-
-                int vectorNum = (int)(postingList.size() / m_vectorInfoSize);
-
-                COMMON::QueryResultSet<T>& queryResults = *((COMMON::QueryResultSet<T>*) & p_queryResults);
-
-
-                for (int i = 0; i < vectorNum; i++) {
-                    char* vectorInfo = postingList.data() + i * m_vectorInfoSize;
-                    int vectorID = *(reinterpret_cast<int*>(vectorInfo));
-
-                    if(m_workspace->m_deduper.CheckAndSet(vectorID)) {
-                        continue;
-                    }
-                    auto distance2leaf = m_index->ComputeDistance(queryResults.GetQuantizedTarget(), vectorInfo + m_metaDataSize);
-                    queryResults.AddPoint(vectorID, distance2leaf);
-                }
-            }
-
-            // int ClientConnect() {
-            //     clientSocket.reset(new zmq::socket_t(context, ZMQ_REQ)); 
-
-            //     clientSocket->connect(m_options.m_ipAddrFrontend.c_str());
-            //     return 0;
-            // }
-
-            // int ClientClose() {
-            //     clientSocket->close();
-            //     context.shutdown();
-            //     context.close();
-            //     return 0;
-            // }
-
-            ErrorCode WorkerDSPANN() {
-                LOG(Helper::LogLevel::LL_Info, "Start Worker DSPANN\n");
+            ErrorCode WorkerTopLayerNode() {
+                LOG(Helper::LogLevel::LL_Info, "Start Worker HeadIndex\n");
                 zmq::context_t context(1);
 
                 // zmq::socket_t responder(context, ZMQ_REP);
@@ -975,7 +581,7 @@ namespace SPTAG
                     responder.recv(&identity);
                     responder.recv(&reply);
 
-                    char* iptr = static_cast<char*>(identity.data());
+                    // char* iptr = static_cast<char*>(identity.data());
 
                     // LOG(Helper::LogLevel::LL_Info,"Recv, identity: %d\n", *((int*)(iptr+1)));
 
@@ -999,12 +605,11 @@ namespace SPTAG
 
                     SearchStats stats;
 
-                    m_options.m_isLocal = true;
                     SearchIndexRemote(result, &stats);
 
                     int K = m_options.m_resultNum;
                         
-                    zmq::message_t request(K * (sizeof(int) + sizeof(float))+ sizeof(double)+ sizeof(int));
+                    zmq::message_t request(K * (sizeof(SizeType) + sizeof(float))+ sizeof(double)+ sizeof(int));
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & result;
 
                     ptr = static_cast<char*>(request.data());
@@ -1012,9 +617,10 @@ namespace SPTAG
                     ptr += sizeof(int);
                     for (int i = 0; i < K; i++) {
                         auto res = queryResults->GetResult(i);
-                        memcpy(ptr, (char *)&res->VID, sizeof(int));
-                        memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
-                        ptr+=8;
+                        memcpy(ptr, (char *)&res->VID, sizeof(SizeType));
+                        memcpy(ptr+sizeof(SizeType), (char *)&res->Dist, sizeof(float));
+                        ptr+=sizeof(SizeType);
+                        ptr+sizeof(float);
                     }
 
                     auto t2 = std::chrono::high_resolution_clock::now();
@@ -1035,38 +641,29 @@ namespace SPTAG
             }
 
             void initDistKVNetWork() {
-                m_clientThreadPoolDSPANN.resize(m_options.m_dspannIndexFileNum);
+                m_commSocketPool.resize(m_options.m_dspannIndexFileNum);
                 // int node = 0;
                 // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                //     if (node != MyNodeId()) {
-                //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                //         addrPrefix += std::to_string(node + 4);
-                //         addrPrefix += ":8000";
-                //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                //         m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                //         m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
-                //     }
+                    // std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                    // addrPrefix += std::to_string(node + 4);
+                    // addrPrefix += ":8000";
+                    // LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                    // m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
+                    // m_commSocketPool[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
                 // }
                 // Debug version
                 int node = 0;
                 for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                    if (node != MyNodeId()) {
-                        std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                        addrPrefix += std::to_string(node * 2);
-                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                        m_clientThreadPoolDSPANN[i] = std::make_shared<NetworkThreadPool>();
-                        m_clientThreadPoolDSPANN[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
-                    }
+                    std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                    addrPrefix += std::to_string(node * 2);
+                    LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                    m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
+                    m_commSocketPool[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
                 }
             }
 
-            int NodeHash(int key, int layer) {
-                if (m_options.m_hashPlan != 0) {
-                    // LOG(Helper::LogLevel::LL_Info, "Debug\n");
-                    // LOG(Helper::LogLevel::LL_Info, "key: %d, node: %d\n", key, (m_vectorHashMaps[layer].get())[key]);
-                    return(m_vectorHashMaps[layer].get())[key];
-                } else
-                    return key % m_options.m_dspannIndexFileNum;
+            int NodeHash(SizeType key, int layer) {
+                return key % m_options.m_dspannIndexFileNum;
             }
 
             int MyNodeId() {
@@ -1108,9 +705,9 @@ namespace SPTAG
                     ptr+=sizeof(int);
                     memcpy((char *)&size, ptr, sizeof(int));
                     ptr += sizeof(int);
-                    std::vector<int> keys(size);
-                    memcpy((char *)keys.data(), ptr, sizeof(int)*size);
-                    ptr += sizeof(int)*size;
+                    std::vector<SizeType> keys(size);
+                    memcpy((char *)keys.data(), ptr, sizeof(SizeType)*size);
+                    ptr += sizeof(SizeType)*size;
                         
                     char* vectorBuffer = new char[m_options.m_dim * sizeof(T)];
 
@@ -1122,178 +719,7 @@ namespace SPTAG
 
                     memcpy((char *)&layer, ptr, sizeof(int));
 
-                    if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + sizeof(int)) == reply.size()) {
-                        // client request, a list of 
-                        std::vector<std::vector<int>> keys_eachNode(GroupNum());
-
-                        for (auto key: keys) {
-                            // LOG(Helper::LogLevel::LL_Info, "Debug: key %d\n", key);
-                            int node = NodeHash(key, layer);
-                            keys_eachNode[node].push_back(key);
-                        }
-
-                        std::string* request[GroupNum()];
-                        std::string* reply[GroupNum()];
-                        std::vector<int> in_flight(GroupNum(), 0); 
-                        std::vector<int> visit(GroupNum(), 0);
-                        std::vector<double> realLatency(GroupNum());
-
-                        if (m_workspace.get() == nullptr) {
-                            m_workspace.reset(new ExtraWorkSpace());
-                            m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
-                        }
-
-                        // LOG(Helper::LogLevel::LL_Info, "Sending\n");
-                        int count = 0;
-                        for (int i = 0; i < GroupNum(); i++) {
-                            if (i == MyNodeId()) {
-                                continue;
-                            } else {
-                                if (keys_eachNode[i].size() != 0) {
-                                    count++;
-                                    request[i] = new std::string();
-                                    request[i]->resize(sizeof(int)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(int) + sizeof(char));
-                                    reply[i] = new std::string();
-                                    in_flight[i] = 1;
-
-                                    ptr = static_cast<char*>(request[i]->data());
-
-                                    int keys_size = keys_eachNode[i].size();
-
-                                    memcpy(ptr, (char*)&keys_size, sizeof(int));
-                                    
-                                    ptr += sizeof(int);
-
-                                    memcpy(ptr, (char*)keys_eachNode[i].data(), sizeof(int)*keys_eachNode[i].size());
-
-                                    ptr += sizeof(int)*keys_eachNode[i].size();
-
-                                    memcpy(ptr, (char*)vectorBuffer, m_options.m_dim * sizeof(T));
-
-                                    ptr += m_options.m_dim * sizeof(T);
-
-                                    memcpy(ptr, (char*)&layer, sizeof(int));
-
-                                    ptr += sizeof(int);
-
-                                    char code = 0;
-
-                                    memcpy(ptr, (char*)&code, sizeof(char));
-
-                                    auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i], &realLatency[i]);
-
-                                    m_clientThreadPoolDSPANN[i]->add(curJob);
-                                    
-                                } else {
-                                    visit[i] = 1;
-                                }
-                                //Send request
-                            }
-                        }
-                        // LOG(Helper::LogLevel::LL_Info, "Searching\n");
-
-                        // Search local
-                        auto t3 = std::chrono::high_resolution_clock::now();
-
-                        m_workspace->m_deduper.clear();
-                        m_workspace->m_postingIDs.clear();
-                        // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
-                        if (keys_eachNode[MyNodeId()].size() != 0) {
-                            for (int j = 0; j < keys_eachNode[MyNodeId()].size(); j++) {
-                                m_workspace->m_postingIDs.push_back(keys_eachNode[MyNodeId()][j]);
-                            }
-                            p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
-                            double compLatency = 0;
-                            int scannedNum = 0;
-                            m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
-                        }
-                        visit[MyNodeId()] = 1;
-
-                        auto t4 = std::chrono::high_resolution_clock::now();
-
-                        double localProcessTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count()));
-
-                        // wait for return and merge result
-
-                        auto t5 = std::chrono::high_resolution_clock::now();
-
-                        double avgProcessTime = 0;
-
-                        bool notReady = true;
-
-                        // LOG(Helper::LogLevel::LL_Info, "Waiting\n");
-
-                        while (notReady) {
-                            for (int i = 0; i < GroupNum(); ++i) {
-                                if (visit[i] == 0 && in_flight[i] == 0) {
-                                    visit[i] = 1;
-                                    auto ptr = static_cast<char*>(reply[i]->data());
-                                    for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
-                                        int VID;
-                                        float Dist;
-                                        memcpy((char *)&VID, ptr, sizeof(int));
-                                        memcpy((char *)&Dist, ptr + sizeof(int), sizeof(float));
-                                        ptr += sizeof(int);
-                                        ptr += sizeof(float);
-                                        if (VID == -1) break;
-                                        if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
-                                        queryResults->AddPoint(VID, Dist);
-                                    }
-                                    // auto t7 = std::chrono::high_resolution_clock::now();
-                                    // double thisQueryTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t7 - t3).count()));
-                                    double thisTime;
-                                    memcpy((char *)&thisTime, ptr, sizeof(double));
-                                    avgProcessTime += thisTime;
-                                    // LOG(Helper::LogLevel::LL_Info, "Remote Process Time: %lf, Remote Wait Time: %lf, localProcessTime: %lf, realTransferTime: %lf\n", thisTime, thisQueryTime, localProcessTime, realLatency[i]);
-                                }
-                            }
-                            notReady = false;
-                            for (int i = 0; i < GroupNum(); ++i) {
-                                if (visit[i] != 1) notReady = true;
-                            }
-                            if (notReady) std::this_thread::sleep_for(std::chrono::microseconds(5));
-                        }
-                        queryResults->SortResult();
-
-                        auto t6 = std::chrono::high_resolution_clock::now();
-
-                        double waitProcessTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count()));
-
-                        // return
-                        int K = m_options.m_searchInternalResultNum;
-                        zmq::message_t replyClient(K * (sizeof(int) + sizeof(float)) + 3*sizeof(double) + sizeof(int));
-
-                        ptr = static_cast<char*>(replyClient.data());
-                        memcpy(ptr, (char *)&currentKey, sizeof(int));
-                        ptr += sizeof(int);
-                        for (int i = 0; i < K; i++) {
-                            auto res = queryResults->GetResult(i);
-                            memcpy(ptr, (char *)&res->VID, sizeof(int));
-                            memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
-                            ptr+=8;
-                        }
-
-                        auto t2 = std::chrono::high_resolution_clock::now();
-
-                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-
-                        memcpy(ptr, (char *)&processTime, sizeof(double));
-
-                        ptr += 8;
-
-                        memcpy(ptr, &localProcessTime, sizeof(double));
-
-                        ptr += 8;
-
-                        memcpy(ptr, &waitProcessTime, sizeof(double));
-
-                        // LOG(Helper::LogLevel::LL_Info, "Returning\n");
-
-                        // responder.send(replyClient);
-                        responder.send(identity, ZMQ_SNDMORE);
-                        responder.send(replyClient);
-
-                    } else if (((size+2) * sizeof(int) + m_options.m_dim * sizeof(T) + 1 + sizeof(int)) == reply.size()) {
+                    if ((((size+2) * sizeof(SizeType)) + m_options.m_dim * sizeof(T) + 1 + sizeof(int)) == reply.size()) {
                         // worker request
                         auto t1 = std::chrono::high_resolution_clock::now();
                         if (m_workspace.get() == nullptr) {
@@ -1316,7 +742,7 @@ namespace SPTAG
 
                         int K = m_options.m_searchInternalResultNum;
                         
-                        zmq::message_t request(K * (sizeof(int) + sizeof(float)) + sizeof(double) + sizeof(int));
+                        zmq::message_t request(K * (sizeof(SizeType) + sizeof(float)) + sizeof(double) + sizeof(int));
 
                         ptr = static_cast<char*>(request.data());
 
@@ -1326,9 +752,10 @@ namespace SPTAG
 
                         for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
                             auto res = queryResults->GetResult(i);
-                            memcpy(ptr, (char *)&res->VID, sizeof(int));
+                            memcpy(ptr, (char *)&res->VID, sizeof(SizeType));
                             memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
-                            ptr+=8;
+                            ptr+=sizeof(SizeType);
+                            ptr+=sizeof(float);
                         }
 
                         auto t2 = std::chrono::high_resolution_clock::now();
@@ -1348,186 +775,6 @@ namespace SPTAG
                         exit(1);
                     }
                 }
-            }
-
-            ErrorCode Worker() {
-                LOG(Helper::LogLevel::LL_Info, "Start Worker\n");
-                zmq::context_t context(1);
-
-                zmq::socket_t responder(context, ZMQ_REP);
-                responder.connect(m_options.m_ipAddrBackend.c_str());
-
-                while(1) {
-                    int msg_size = m_options.m_dim * sizeof(T);
-                        
-                    char* vectorBuffer = new char[msg_size];
-
-                    zmq::message_t reply;
-                    responder.recv(&reply);
-
-                    char* ptr = static_cast<char*>(reply.data());
-
-                    memcpy(vectorBuffer, ptr, msg_size);
-
-                    if (m_options.m_remoteCalculation) {
-                        QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
-                        COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
-
-                        p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
-
-                        int layer;
-                        memcpy((char*)&layer, ptr + msg_size, sizeof(int));
-
-                        int postingNum;
-                        memcpy((char*)&postingNum, ptr + msg_size + sizeof(int), sizeof(int));
-
-                        if (m_workspace.get() == nullptr) {
-                            m_workspace.reset(new ExtraWorkSpace());
-                            m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
-                        }
-                        m_workspace->m_postingIDs.resize(postingNum);
-
-                        memcpy((char*)m_workspace->m_postingIDs.data(), ptr + msg_size + 2*sizeof(int), sizeof(int) * postingNum);
-
-                        // std::vector<std::string> postingLists;
-
-                        int headNum;
-                        memcpy((char*)&headNum, ptr + msg_size + 2*sizeof(int) + sizeof(int) * postingNum, sizeof(int));
-
-                        std::vector<int> m_readedHead(headNum);
-                        memcpy((char*)m_readedHead.data(), ptr + msg_size + 2*sizeof(int) + sizeof(int) * (postingNum + 1), sizeof(int) * headNum);
-
-                        m_workspace->m_deduper.clear();
-
-                        for (int i = 0; i < headNum; i++) {
-                            m_workspace->m_deduper.CheckAndSet(m_readedHead[i]);
-                        }
-
-                        double compLatency = 0;
-                        int scannedNum = 0;
-
-                        auto t1 = std::chrono::high_resolution_clock::now();
-                        // m_extraSearchers[layer]->GetMultiPosting(m_workspace.get(), postingIDs, &postingLists);
-                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
-                        auto t2 = std::chrono::high_resolution_clock::now();
-
-                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-                        processTime /= 1000;
-
-                        double diskReadTime = processTime - compLatency;
-                        double computeTime = compLatency;
-
-                        queryResults->SortResult();
-
-                        int resultSize = queryResults->GetResultNum();
-                        
-                        zmq::message_t request(resultSize * (sizeof(int) + sizeof(float)) + 2 * sizeof(double) + sizeof(int));
-
-                        ptr = static_cast<char*>(request.data());
-
-                        for (int i = 0; i < queryResults->GetResultNum(); ++i) {
-                            auto res = queryResults->GetResult(i);
-                            memcpy(ptr, (char *)&res->VID, sizeof(int));
-                            memcpy(ptr+4, (char *)&res->Dist, sizeof(float));
-                            ptr+=8;
-                        }
-                        memcpy(ptr, (char*)&diskReadTime, sizeof(double));
-
-                        memcpy(ptr+8, ((char*)&computeTime), sizeof(double));
-
-                        memcpy(ptr+16, ((char*)&scannedNum), sizeof(int));
-
-                        responder.send(request);
-
-                    } else {
-
-                        int layer;
-                        memcpy((char*)&layer, ptr + msg_size, sizeof(int));
-
-                        int postingNum;
-                        memcpy((char*)&postingNum, ptr + msg_size + sizeof(int), sizeof(int));
-
-                        std::vector<int> postingIDs(postingNum);
-                        memcpy((char*)postingIDs.data(), ptr + msg_size + 2*sizeof(int), sizeof(int) * postingNum);
-
-                        std::vector<std::string> postingLists;
-
-                        if (m_workspace.get() == nullptr) {
-                            m_workspace.reset(new ExtraWorkSpace());
-                            m_workspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, min(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
-                        }
-
-                        auto t1 = std::chrono::high_resolution_clock::now();
-                        m_extraSearchers[layer]->GetMultiPosting(m_workspace.get(), postingIDs, &postingLists);
-                        auto t2 = std::chrono::high_resolution_clock::now();
-                        double diskReadTime = (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()) / 1000;
-
-                        int totalSize = 0;
-                        for (int i = 0; i < postingLists.size(); i++) {
-                            totalSize += postingLists[i].size();
-                        }
-
-                        zmq::message_t request(totalSize+sizeof(double)+sizeof(int));
-
-                        ptr = static_cast<char*>(request.data());
-                        memcpy(ptr, (char*)&totalSize, sizeof(int));
-
-
-                        int first = 0;
-                        for (int i = 0; i < postingLists.size(); i++) {
-                            // write(accept_socket, postingLists[i].data(), postingLists[i].size());
-                            memcpy(ptr+sizeof(int)+first, postingLists[i].data(), postingLists[i].size());
-                            first += postingLists[i].size();
-                        }
-                        memcpy(ptr+sizeof(int)+first, ((char*)&diskReadTime), sizeof(double));
-
-                        responder.send(request);
-                    }
-                }
-                return ErrorCode::Success;
-            }
-
-            ErrorCode BrokerOn() {
-                LOG(Helper::LogLevel::LL_Info, "Start Broker\n");
-
-                zmq::context_t context(1);
-                zmq::socket_t frontend (context, ZMQ_ROUTER);
-                zmq::socket_t backend (context, ZMQ_DEALER);
-
-                LOG(Helper::LogLevel::LL_Info, "Connecting Frontend: %s\n", m_options.m_ipAddrFrontend.c_str());
-                LOG(Helper::LogLevel::LL_Info, "Connecting Backend: %s\n", m_options.m_ipAddrBackend.c_str());
-                frontend.bind(m_options.m_ipAddrFrontend.c_str());
-                backend.bind(m_options.m_ipAddrBackend.c_str());
-
-                //  Initialize poll set
-                zmq::pollitem_t items [] = {
-                    { frontend, 0, ZMQ_POLLIN, 0 },
-                    { backend, 0, ZMQ_POLLIN, 0 }
-                };
-
-                if (m_options.m_multinode) initDistKVNetWork();
-
-                std::vector<std::thread> m_threads;
-                for (int i = 0; i < m_options.m_searchThreadNum; i++)
-                {
-                    m_threads.emplace_back([this] {
-                        if (m_options.m_dspann) 
-                            if (m_options.m_distKV)
-                                WorkerDistKV();
-                            else {
-                                WorkerDSPANN();
-                            }
-                        else Worker();
-                    });
-                }
-
-                try {
-                    zmq::proxy(static_cast<void*>(frontend),
-                            static_cast<void*>(backend),
-                            nullptr);
-                }
-                catch (std::exception &e) {}          
-                return ErrorCode::Success;
             }
         };
     } // namespace SPANN

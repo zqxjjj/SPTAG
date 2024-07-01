@@ -134,7 +134,7 @@ namespace SPTAG
             }
 
             virtual bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap) {
-                m_partKV = p_opt.m_partKV;
+                m_distKV = p_opt.m_distKV;
                 m_extraFullGraphFile = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdIndex;
                 std::string curFile = m_extraFullGraphFile;
                 do {
@@ -843,7 +843,7 @@ namespace SPTAG
                         LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
                         throw std::runtime_error("Failed read file in LoadingHeadInfo");
                     }
-                    if (m_partKV) {
+                    if (m_distKV) {
                         std::uint64_t globalVectorID;
                         if (ptr->ReadBinary(sizeof(globalVectorID), reinterpret_cast<char*>(&(globalVectorID))) != sizeof(globalVectorID)) {
                             LOG(Helper::LogLevel::LL_Error, "Failed to read head info file!\n");
@@ -1333,6 +1333,7 @@ namespace SPTAG
                 scannedNum = 0;
                 for (int i = 0; i < postingListCount; i++) {
                     SizeType pid = p_exWorkSpace->m_postingIDs[i];
+                    if (m_distKV) pid = m_globalVectorIDToHeadMap[pid];
                     // std::string posting;
                     ListInfo* listInfo = &(m_listInfos[pid]);
                     size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
@@ -1442,7 +1443,7 @@ namespace SPTAG
 
             int m_listPerFile = 0;
 
-            bool m_partKV;
+            bool m_distKV;
             std::unordered_map<SizeType, SizeType> m_globalVectorIDToHeadMap;
         };
     } // namespace SPANN

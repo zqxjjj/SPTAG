@@ -248,7 +248,7 @@ namespace SPTAG {
 
             static void Reset() { g_spaceCount = 0; }
 
-            std::vector<int> m_postingIDs;
+            std::vector<SizeType> m_postingIDs;
 
             COMMON::OptHashPosVector m_deduper;
 
