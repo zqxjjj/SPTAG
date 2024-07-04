@@ -31,7 +31,7 @@ public:
     virtual ErrorCode BuildIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, bool p_normalized = false, bool p_shareOwnership = false) = 0;
     
     virtual ErrorCode AddIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex = false, bool p_normalized = false) = 0;
-    virtual ErrorCode AddIndexId(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, int& beginHead, int& endHead) { return ErrorCode::Undefined; }
+    virtual ErrorCode AddIndexId(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType& beginHead, SizeType& endHead) { return ErrorCode::Undefined; }
     virtual ErrorCode AddIndexIdx(SizeType begin, SizeType end) { return ErrorCode::Undefined; }
 
 

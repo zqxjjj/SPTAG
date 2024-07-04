@@ -175,7 +175,7 @@ int Process(std::shared_ptr<SearcherOptions> options, VectorIndex& index)
     std::vector<float> totalAvg(maxCheck.size(), 0.0), total99(maxCheck.size(), 0.0), total95(maxCheck.size(), 0.0), totalRecall(maxCheck.size(), 0.0), totalLatency(maxCheck.size(), 0.0);
     for (int startQuery = 0; startQuery < queryVectors->Count(); startQuery += options->m_batch)
     {
-        int numQuerys = min(options->m_batch, queryVectors->Count() - startQuery);
+        SizeType numQuerys = min((SizeType)options->m_batch, queryVectors->Count() - startQuery);
         for (SizeType i = 0; i < numQuerys; i++) results[i].SetTarget(queryVectors->GetVector(startQuery + i));
         if (ftruth != nullptr) COMMON::TruthSet::LoadTruth(ftruth, truth, numQuerys, truthDim, options->m_truthK, (options->m_truthFile.find("bin") != std::string::npos)? TruthFileType::DEFAULT : TruthFileType::TXT);
 

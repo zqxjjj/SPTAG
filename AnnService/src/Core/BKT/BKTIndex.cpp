@@ -725,7 +725,7 @@ namespace SPTAG
         }
 
          template <typename T>
-        ErrorCode Index<T>::AddIndexId(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, int& beginHead, int& endHead)
+        ErrorCode Index<T>::AddIndexId(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType& beginHead, SizeType& endHead)
         {
             if (p_data == nullptr || p_vectorNum == 0 || p_dimension == 0) return ErrorCode::EmptyData;
 

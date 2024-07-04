@@ -43,9 +43,13 @@ DefaultVectorReader::GetVectorSet(SizeType start, SizeType end) const
         throw std::runtime_error("Failed read file");
     }
 
+    #ifndef LARGE_VID
     SizeType row;
+    #else
+    int row;
+    #endif
     DimensionType col;
-    if (ptr->ReadBinary(sizeof(SizeType), (char*)&row) != sizeof(SizeType)) {
+    if (ptr->ReadBinary(sizeof(row), (char*)&row) != sizeof(row)) {
         LOG(Helper::LogLevel::LL_Error, "Failed to read VectorSet!\n");
         throw std::runtime_error("Failed read file");
     }
@@ -60,7 +64,7 @@ DefaultVectorReader::GetVectorSet(SizeType start, SizeType end) const
     if (totalRecordVectorBytes > 0) {
         vectorSet = ByteArray::Alloc(totalRecordVectorBytes);
         char* vecBuf = reinterpret_cast<char*>(vectorSet.Data());
-        std::uint64_t offset = ((std::uint64_t)GetValueTypeSize(m_options->m_inputValueType)) * start * col + sizeof(SizeType) + sizeof(DimensionType);
+        std::uint64_t offset = ((std::uint64_t)GetValueTypeSize(m_options->m_inputValueType)) * start * col + sizeof(row) + sizeof(DimensionType);
         if (ptr->ReadBinary(totalRecordVectorBytes, vecBuf, offset) != totalRecordVectorBytes) {
             LOG(Helper::LogLevel::LL_Error, "Failed to read VectorSet!\n");
             throw std::runtime_error("Failed read file");

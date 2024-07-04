@@ -163,14 +163,14 @@ namespace SPTAG::SPANN {
         ExtraDynamicSearcher(const char* dbPath, int dim, int postingBlockLimit, bool useDirectIO, float searchLatencyHardLimit, int mergeThreshold, bool useSPDK = false, int batchSize = 64, int bufferLength = 3) {
             if (useSPDK) {
                 db.reset(new SPDKIO(dbPath, 1024 * 1024, MaxSize, postingBlockLimit + bufferLength, 1024, batchSize));
-                m_postingSizeLimit = postingBlockLimit * PageSize / (sizeof(ValueType) * dim + sizeof(int) + sizeof(uint8_t));
+                m_postingSizeLimit = postingBlockLimit * PageSize / (sizeof(ValueType) * dim + sizeof(SizeType) + sizeof(uint8_t));
             } else {
 #ifdef ROCKSDB
                 db.reset(new RocksDBIO(dbPath, useDirectIO));
                 m_postingSizeLimit = postingBlockLimit;
 #endif
             }
-            m_metaDataSize = sizeof(int) + sizeof(uint8_t);
+            m_metaDataSize = sizeof(SizeType) + sizeof(uint8_t);
             m_vectorInfoSize = dim * sizeof(ValueType) + m_metaDataSize;
             m_hardLatencyLimit = std::chrono::microseconds((int)searchLatencyHardLimit * 1000);
             m_mergeThreshold = mergeThreshold;
@@ -226,8 +226,8 @@ namespace SPTAG::SPANN {
             //#pragma omp parallel for num_threads(32)
             for (int j = 0; j < postVectorNum; j++) {
                 uint8_t* vectorId = postingP + j * m_vectorInfoSize;
-                SizeType vid = *(reinterpret_cast<int*>(vectorId));
-                uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(int)));
+                SizeType vid = *(reinterpret_cast<SizeType*>(vectorId));
+                uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(SizeType)));
                 float_t dist = p_index->ComputeDistance(reinterpret_cast<ValueType*>(vectorId + m_metaDataSize), p_index->GetSample(headID));
                 // if (dist < Epsilon) LOG(Helper::LogLevel::LL_Info, "head found: vid: %d, head: %d\n", vid, headID);
                 avgDist += dist;
@@ -273,7 +273,7 @@ namespace SPTAG::SPANN {
             return assumptionBrokenNum;
         }
 
-        int QuantifySplitCaseA(std::vector<SizeType>& newHeads, std::vector<std::string>& postingLists, SizeType SplitHead, int split_order, std::set<int>& brokenID)
+        int QuantifySplitCaseA(std::vector<SizeType>& newHeads, std::vector<std::string>& postingLists, SizeType SplitHead, int split_order, std::set<SizeType>& brokenID)
         {
             int assumptionBrokenNum = 0;
             assumptionBrokenNum += QuantifyAssumptionBroken(newHeads[0], postingLists[0], SplitHead, newHeads, brokenID);
@@ -285,7 +285,7 @@ namespace SPTAG::SPANN {
 
         //Measure that around "headID", how many vectors break their assumption
         //"headID" is the head vector before split
-        void QuantifySplitCaseB(VectorIndex* p_index, SizeType headID, std::vector<SizeType>& newHeads, SizeType SplitHead, int split_order, int assumptionBrokenNum_top0, std::set<int>& brokenID)
+        void QuantifySplitCaseB(VectorIndex* p_index, SizeType headID, std::vector<SizeType>& newHeads, SizeType SplitHead, int split_order, int assumptionBrokenNum_top0, std::set<SizeType>& brokenID)
         {
             COMMON::QueryResultSet<ValueType> nearbyHeads(reinterpret_cast<const ValueType*>(p_index->GetSample(headID)), 64);
             std::vector<std::string> postingLists;
@@ -321,7 +321,7 @@ namespace SPTAG::SPANN {
 
         void QuantifySplit(SizeType headID, std::vector<std::string>& postingLists, std::vector<SizeType>& newHeads, SizeType SplitHead, int split_order)
         {
-            std::set<int> brokenID;
+            std::set<SizeType> brokenID;
             brokenID.clear();
             // LOG(Helper::LogLevel::LL_Info, "Split Quantify: %d, head1:%d, head2:%d\n", split_order, newHeads[0], newHeads[1]);
             int assumptionBrokenNum = QuantifySplitCaseA(newHeads, postingLists, SplitHead, split_order, brokenID);
@@ -484,14 +484,14 @@ namespace SPTAG::SPANN {
                 //COMMON::Dataset<ValueType> smallSample(0, m_opt->m_dim, p_index->m_iDataBlockSize, p_index->m_iDataCapacity);  // smallSample[i] -> VID
                 //std::vector<int> localIndicesInsert(postVectorNum);  // smallSample[i] = j <-> localindices[j] = i
                 //std::vector<uint8_t> localIndicesInsertVersion(postVectorNum);
-                std::vector<int> localIndices(postVectorNum);
+                std::vector<SizeType> localIndices(postVectorNum);
                 int index = 0;
                 uint8_t* vectorId = postingP;
                 for (int j = 0; j < postVectorNum; j++, vectorId += m_vectorInfoSize)
                 {
                     //LOG(Helper::LogLevel::LL_Info, "vector index/total:id: %d/%d:%d\n", j, m_postingSizes[headID].load(), *(reinterpret_cast<int*>(vectorId)));
-                    uint8_t version = *(vectorId + sizeof(int));
-                    int VID = *((int*)(vectorId));
+                    uint8_t version = *(vectorId + sizeof(SizeType));
+                    SizeType VID = *((SizeType*)(vectorId));
                     if (m_versionMap->Deleted(VID) || m_versionMap->GetVersion(VID) != version) continue;
 
                     //localIndicesInsert[index] = VID;
@@ -595,7 +595,7 @@ namespace SPTAG::SPANN {
                         m_stat.m_theSameHeadNum++;
                     }
                     else {
-                        int begin, end = 0;
+                        SizeType begin, end = 0;
                         p_index->AddIndexId(args.centers + k * args._D, 1, m_opt->m_dim, begin, end);
                         newHeadVID = begin;
                         newHeadsID.push_back(begin);
@@ -680,8 +680,8 @@ namespace SPTAG::SPANN {
                 uint8_t* vectorId = postingP;
                 for (int j = 0; j < postVectorNum; j++, vectorId += m_vectorInfoSize)
                 {
-                    int VID = *((int*)(vectorId));
-                    uint8_t version = *(vectorId + sizeof(int));
+                    SizeType VID = *((SizeType*)(vectorId));
+                    uint8_t version = *(vectorId + sizeof(SizeType));
                     if (m_versionMap->Deleted(VID) || m_versionMap->GetVersion(VID) != version) continue;
                     vectorIdSet.insert(VID);
                     mergedPostingList += currentPostingList.substr(j * m_vectorInfoSize, m_vectorInfoSize);
@@ -729,8 +729,8 @@ namespace SPTAG::SPANN {
                             vectorId = postingP;
                             for (int j = 0; j < postVectorNum; j++, vectorId += m_vectorInfoSize)
                             {
-                                int VID = *((int*)(vectorId));
-                                uint8_t version = *(vectorId + sizeof(int));
+                                SizeType VID = *((SizeType*)(vectorId));
+                                uint8_t version = *(vectorId + sizeof(SizeType));
                                 if (m_versionMap->Deleted(VID) || m_versionMap->GetVersion(VID) != version) continue;
                                 if (vectorIdSet.find(VID) == vectorIdSet.end()) {
                                     mergedPostingList += nextPostingList.substr(j * m_vectorInfoSize, m_vectorInfoSize);
@@ -870,7 +870,7 @@ namespace SPTAG::SPANN {
                     uint8_t* vectorId = postingP + j * m_vectorInfoSize;
                     SizeType vid = *(reinterpret_cast<SizeType*>(vectorId));
                     // LOG(Helper::LogLevel::LL_Info, "VID: %d, Head: %d\n", vid, newHeadsID[i]);
-                    uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(int)));
+                    uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(SizeType)));
                     ValueType* vector = reinterpret_cast<ValueType*>(vectorId + m_metaDataSize);
                     if (reAssignVectorsTopK.find(vid) == reAssignVectorsTopK.end() && !m_versionMap->Deleted(vid) && m_versionMap->GetVersion(vid) == version) {
                         m_stat.m_reAssignScanNum++;
@@ -918,7 +918,7 @@ namespace SPTAG::SPANN {
                         uint8_t* vectorId = postingP + j * m_vectorInfoSize;
                         SizeType vid = *(reinterpret_cast<SizeType*>(vectorId));
                         // LOG(Helper::LogLevel::LL_Info, "%d: VID: %d, Head: %d, size:%d/%d\n", i, vid, HeadPrevTopK[i], postingLists.size(), HeadPrevTopK.size());
-                        uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(int)));
+                        uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(SizeType)));
                         ValueType* vector = reinterpret_cast<ValueType*>(vectorId + m_metaDataSize);
                         if (reAssignVectorsTopK.find(vid) == reAssignVectorsTopK.end() && !m_versionMap->Deleted(vid) && m_versionMap->GetVersion(vid) == version) {
                             m_stat.m_reAssignScanNum++;
@@ -935,7 +935,7 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
 
-        bool RNGSelection(std::vector<Edge>& selections, ValueType* queryVector, VectorIndex* p_index, SizeType p_fullID, int& replicaCount, int checkHeadID = -1)
+        bool RNGSelection(std::vector<Edge>& selections, ValueType* queryVector, VectorIndex* p_index, SizeType p_fullID, int& replicaCount, SizeType checkHeadID = -1)
         {
             QueryResult queryResults(queryVector, m_opt->m_internalResultNum, false);
             p_index->SearchIndex(queryResults);
@@ -987,8 +987,8 @@ namespace SPTAG::SPANN {
                 for (int i = 0; i < appendNum; i++)
                 {
                     uint32_t idx = i * m_vectorInfoSize;
-                    SizeType VID = *(int*)(&appendPosting[idx]);
-                    uint8_t version = *(uint8_t*)(&appendPosting[idx + sizeof(int)]);
+                    SizeType VID = *(SizeType*)(&appendPosting[idx]);
+                    uint8_t version = *(uint8_t*)(&appendPosting[idx + sizeof(SizeType)]);
                     auto vectorInfo = std::make_shared<std::string>(appendPosting.c_str() + idx, m_vectorInfoSize);
                     if (m_versionMap->GetVersion(VID) == version) {
                         // LOG(Helper::LogLevel::LL_Info, "Head Miss To ReAssign: VID: %d, current version: %d\n", *(int*)(&appendPosting[idx]), version);
@@ -1113,7 +1113,7 @@ namespace SPTAG::SPANN {
         virtual void SearchIndex(ExtraWorkSpace* p_exWorkSpace,
             QueryResult& p_queryResults,
             std::shared_ptr<VectorIndex> p_index,
-            SearchStats* p_stats, std::set<int>* truth, std::map<int, std::set<int>>* found) override
+            SearchStats* p_stats, std::set<SizeType>* truth, std::map<int, std::set<SizeType>>* found) override
         {
             auto exStart = std::chrono::high_resolution_clock::now();
 
@@ -1162,7 +1162,7 @@ namespace SPTAG::SPANN {
                 auto compStart = std::chrono::high_resolution_clock::now();
                 for (int i = 0; i < vectorNum; i++) {
                     char* vectorInfo = postingList.data() + i * m_vectorInfoSize;
-                    int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+                    SizeType vectorID = *(reinterpret_cast<SizeType*>(vectorInfo));
                     if (m_versionMap->Deleted(vectorID)) {
                         realNum--;
                         listElements--;
@@ -1183,7 +1183,7 @@ namespace SPTAG::SPANN {
                 if (truth) {
                     for (int i = 0; i < vectorNum; ++i) {
                         char* vectorInfo = postingList.data() + i * m_vectorInfoSize;
-                        int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+                        SizeType vectorID = *(reinterpret_cast<SizeType*>(vectorInfo));
                         if (truth->count(vectorID) != 0)
                             (*found)[curPostingID].insert(vectorID);
                     }
@@ -1237,7 +1237,7 @@ namespace SPTAG::SPANN {
             if (upperBound > 0) fullCount = upperBound;
 
             // m_metaDataSize = sizeof(int) + sizeof(uint8_t) + sizeof(float);
-            m_metaDataSize = sizeof(int) + sizeof(uint8_t);
+            m_metaDataSize = sizeof(SizeType) + sizeof(uint8_t);
 
             LOG(Helper::LogLevel::LL_Info, "Build SSD Index.\n");
 
@@ -1528,7 +1528,7 @@ namespace SPTAG::SPANN {
 
                 for (int j = 0; j < vectorNum; j++) {
                     char* vectorInfo = postingList.data() + j * m_vectorInfoSize;
-                    int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+                    SizeType vectorID = *(reinterpret_cast<SizeType*>(vectorInfo));
                     if(checked.find(vectorID) != checked.end() || m_versionMap->Deleted(vectorID)) {
                         continue;
                     }

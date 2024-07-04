@@ -118,7 +118,9 @@ option(GPU "GPU" ON)
 option(LIBRARYONLY "LIBRARYONLY" OFF)
 option(ROCKSDB "ROCKSDB" ON)
 
-if (ROCKSDB)
+# add_definitions(-DLARGE_VID)
+
+if (ROCKSDB)    
     add_definitions(-DROCKSDB)
 endif()
 

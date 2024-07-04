@@ -126,7 +126,7 @@ private:
 
     std::shared_ptr<void> m_pOffsets;
 
-    SizeType m_count;
+    int m_count;
 
     ByteArray m_metadataHolder;
 

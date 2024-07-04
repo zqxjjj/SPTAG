@@ -37,7 +37,6 @@ namespace SPTAG {
                 AddRequiredOption(m_localMergeBufferSize, "-l", "--localmergebuffersize", "Merge l postings in memory for a batch");
                 AddRequiredOption(outputNewFile, "-on", "--outputnewfile", "the prefix of output final file");
                 AddRequiredOption(m_fileDir, "-fd", "--filedir", "the prefix of to-merge index dir");
-
                 
             }
 
@@ -261,7 +260,6 @@ namespace SPTAG {
             size_t localTotalHeadNum = p_index->GetMemoryIndex()->GetNumSamples();
             LOG(Helper::LogLevel::LL_Info, "Total Posting Num: %d\n", localTotalHeadNum);
             for (size_t localHeadID = 0; localHeadID < localTotalHeadNum; localHeadID++) {
-
                 ByteArray globalVectorID_byteArray = p_index->GetMetadata(p_index->ReturnTrueId(localHeadID));
 
                 std::string globalVectorID_string;
@@ -1205,6 +1203,11 @@ namespace SPTAG {
                 // listInfo->listEleCount = min(listInfo->listEleCount, (min(static_cast<int>(listInfo->listPageCount), p_postingPageLimit) << PageSizeEx) / m_vectorInfoSize);
                 listInfo->listPageCount = static_cast<std::uint16_t>(ceil((m_vectorInfoSize * listInfo->listEleCount + listInfo->pageOffset) * 1.0 / (1 << PageSizeEx)));
             }
+
+            LOG(Helper::LogLevel::LL_Info,
+                    "Finish reading header info, list count %lu, list page offset %lu.\n",
+                    m_listCount,
+                    m_listPageOffset);
 
             LOG(Helper::LogLevel::LL_Info, "Verifying postings randomly for ten times\n");
             for (int i = 0; i < 10; i++) {

@@ -120,6 +120,8 @@ file(GLOB_RECURSE SPFRESH_FILES ${AnnService}/src/SPFresh/*.cpp)
 
 file(GLOB_RECURSE USEFULTOOL_FILES ${AnnService}/src/UsefulTool/*.cpp)
 
+file(GLOB_RECURSE MERGEHEAD_FILES ${AnnService}/src/MergeHead/*.cpp)
+
 file(GLOB_RECURSE REMOTESERVING_HDR_FILES ${AnnService}/inc/RemoteServing/*.h)
 file(GLOB_RECURSE REMOTESERVING_FILES ${AnnService}/src/RemoteServing/*.cpp)
 
@@ -129,16 +131,19 @@ file(GLOB_RECURSE MERGEPOSTING_FILES ${AnnService}/src/MergePosting/*.cpp)
 add_executable(ssdserving ${SSD_SERVING_HDR_FILES} ${SSD_SERVING_FILES})
 add_executable(spfresh ${SPFRESH_HDR_FILES} ${SPFRESH_FILES})
 add_executable(usefultool ${USEFULTOOL_FILES})
+add_executable(mergehead ${MERGEHEAD_FILES})
 add_executable(remoteserving ${REMOTESERVING_HDR_FILES} ${REMOTESERVING_FILES})
 add_executable(mergeposting ${MERGEPOSTING_HDR_FILES} ${MERGEPOSTING_FILES})
 target_link_libraries(ssdserving SPTAGLibStatic ${Boost_LIBRARIES} ${RocksDB_LIBRARIES})
 target_link_libraries(spfresh SPTAGLibStatic ${Boost_LIBRARIES} ${RocksDB_LIBRARIES})
 target_link_libraries(usefultool SPTAGLibStatic ${Boost_LIBRARIES} ${RocksDB_LIBRARIES})
+target_link_libraries(mergehead SPTAGLibStatic ${Boost_LIBRARIES} ${RocksDB_LIBRARIES})
 target_link_libraries(remoteserving SPTAGLibStatic ${Boost_LIBRARIES} ${RocksDB_LIBRARIES})
 target_link_libraries(mergeposting SPTAGLibStatic ${Boost_LIBRARIES} ${RocksDB_LIBRARIES})
 target_compile_definitions(ssdserving PRIVATE _exe)
 target_compile_definitions(spfresh PRIVATE _exe)
 target_compile_definitions(usefultool PRIVATE _exe)
+target_compile_definitions(mergehead PRIVATE _exe)
 target_compile_definitions(remoteserving PRIVATE _exe)
 target_compile_definitions(mergeposting PRIVATE _exe)
 

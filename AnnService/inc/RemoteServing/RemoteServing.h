@@ -6,6 +6,7 @@
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/VectorSetReader.h"
 #include "inc/SSDServing/Utils.h"
+#include <cstring>
 #include <future>
 
 #include <iomanip>
@@ -119,13 +120,26 @@ namespace SPTAG {
                 ptr += sizeof(SizeType);
                 ptr += sizeof(float);
 
+                // LOG(Helper::LogLevel::LL_Info, "VID : %lu, Dist : %f\n", VID, Dist);
                 if (VID == -1) break;
                 p_queryResults->AddPoint(VID, Dist);
             }
+            // exit(0);
                         
             p_queryResults->SortResult();
 
             //record stats
+
+            memcpy((char*)&stats->m_totalLatency, ptr, sizeof(double));
+            ptr += sizeof(double);
+
+            memcpy((char*)&stats->m_headLatency, ptr, sizeof(double));
+            ptr += sizeof(double);
+
+            for (int layer = 0; layer < p_opts.m_layers - 1; layer++) {
+                memcpy((char*)&stats->m_diskReadLatencys[layer], ptr, sizeof(double));
+                ptr += sizeof(double);
+            }
 
             return ErrorCode::Success;
             
@@ -143,7 +157,7 @@ namespace SPTAG {
             int internalResultNum = p_opts.m_searchInternalResultNum;
             auto querySet = LoadQuerySet(p_opts);
 
-            int numQueries = querySet->Count();
+            SizeType numQueries = querySet->Count();
 
             std::string truthFile = p_opts.m_truthPath;
 
@@ -180,6 +194,7 @@ namespace SPTAG {
                             {
                                 LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
                             }
+                            traverseLatency[index].m_diskReadLatencys.resize(p_opts.m_layers-1);
                             auto t1 = std::chrono::high_resolution_clock::now();
                             SearchSPectrumRemote<ValueType>(p_opts, results[index], m_clientThreadPool[index % p_opts.m_dspannIndexFileNum], &traverseLatency[index]);
                             auto t2 = std::chrono::high_resolution_clock::now();
@@ -232,6 +247,35 @@ namespace SPTAG {
                     return ss;
                 },
                 "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nTopLayerNode Total Latency Distirbution:\n");
+            PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
+                [](const SPANN::SearchStats& ss) -> double
+                {
+                    return ss.m_totalLatency;
+                },
+                "%.3lf");
+
+            LOG(Helper::LogLevel::LL_Info, "\nTopLayerNode Head Latency Distirbution:\n");
+            PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
+                [](const SPANN::SearchStats& ss) -> double
+                {
+                    return ss.m_headLatency;
+                },
+                "%.3lf");
+
+            for (int layer = 0; layer < p_opts.m_layers -1 ; layer++) {
+                for (int qID = 0; qID < numQueries; qID++) {
+                    traverseLatency[qID].m_diskReadLatency = traverseLatency[qID].m_diskReadLatencys[layer];
+                }
+                LOG(Helper::LogLevel::LL_Info, "\nDisk Read Layer %d Latency Distirbution:\n", layer+1);
+                PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
+                    [](const SPANN::SearchStats& ss) -> double
+                    {
+                        return ss.m_diskReadLatency;
+                    },
+                    "%.3lf");
+            }
         }
 
         template <typename ValueType>

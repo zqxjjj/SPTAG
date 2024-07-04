@@ -69,10 +69,8 @@ namespace SPTAG
         {
             IndexAlgoType algoType = p_reader.GetParameter("Base", "IndexAlgoType", IndexAlgoType::Undefined);
             VectorValueType valueType = p_reader.GetParameter("Base", "ValueType", VectorValueType::Undefined);
-            int layers = p_reader.GetParameter("BuildSSDIndex", "Layers", 2);
-            bool isCoordinator = p_reader.GetParameter("BuildSSDIndex", "IsCoordinator", false);
-            bool isLocal = p_reader.GetParameter("BuildSSDIndex", "IsLocal", true);
-            if (!isLocal && (layers == 2 || !isCoordinator)) {
+            bool multiLayer = p_reader.GetParameter("BuildSSDIndex", "MultiLayer", false);
+            if (!multiLayer) {
                 if ((m_index = CreateInstance(algoType, valueType)) == nullptr) return ErrorCode::FailedParseValue;
             }
 
@@ -465,6 +463,7 @@ namespace SPTAG
             };
             for (int j = 0; j < m_options.m_iSSDNumberOfThreads; j++) { threads.emplace_back(func); }
             for (auto& thread : threads) { thread.join(); }
+            return ErrorCode::Success;
         }
 
         template <typename T>
@@ -708,7 +707,7 @@ namespace SPTAG
 
         template <typename T>
         ErrorCode Index<T>::DebugSearchDiskIndex(QueryResult& p_query, int p_subInternalResultNum, int p_internalResultNum,
-            SearchStats* p_stats, std::set<int>* truth, std::map<int, std::set<int>>* found) const
+            SearchStats* p_stats, std::set<SizeType>* truth, std::map<int, std::set<SizeType>>* found) const
         {
             if (nullptr == m_extraSearcher) return ErrorCode::EmptyIndex;
 
@@ -739,7 +738,7 @@ namespace SPTAG
             int partitions = (p_internalResultNum + p_subInternalResultNum - 1) / p_subInternalResultNum;
             float limitDist = p_query.GetResult(0)->Dist * m_options.m_maxDistRatio;
             for (SizeType p = 0; p < partitions; p++) {
-                int subInternalResultNum = min(p_subInternalResultNum, p_internalResultNum - p_subInternalResultNum * p);
+                int subInternalResultNum = min((SizeType)p_subInternalResultNum, p_internalResultNum - p_subInternalResultNum * p);
 
                 m_workspace->m_postingIDs.clear();
 

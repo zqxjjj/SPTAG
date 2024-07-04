@@ -123,11 +123,15 @@ namespace SPTAG
 #ifndef LARGE_VID
 typedef std::int32_t SizeType;
 #else
-typedef std::uint64_t SizeType;
+typedef std::int64_t SizeType;
 #endif 
 typedef std::int32_t DimensionType;
 
+#ifndef LARGE_VID
 const SizeType MaxSize = (std::numeric_limits<SizeType>::max)();
+#else
+const SizeType MaxSize = (std::numeric_limits<int>::max)();
+#endif
 const float MinDist = (std::numeric_limits<float>::min)();
 const float MaxDist = (std::numeric_limits<float>::max)() / 10;
 const float Epsilon = 0.000001f;

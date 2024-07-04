@@ -39,6 +39,11 @@ public:
         AddOptionalOption(m_truthType, "-truthType", "--truthType", "1");
         AddOptionalOption(m_queryPath, "-queryPath", "--queryPath", "1");
         AddOptionalOption(m_searchResult, "-searchResult", "--searchResult", "1");
+        AddOptionalOption(genMeta, "-GenMeta", "--Meta", "1");
+        AddOptionalOption(m_metaDataFileName, "-MetaDataFileName", "--MetaDataFileName", "1");
+        AddOptionalOption(m_metaIndexFileName, "-MetaIndexFileName", "--MetaIndexFileName", "1");
+        AddOptionalOption(m_indexLabelPrefix, "-IndexLabelPrefix", "--IndexLabelPrefix", "1");
+        AddOptionalOption(m_partition, "-Partition", "--Partition", "1");
     }
 
     ~ToolOptions() {}
@@ -66,6 +71,11 @@ public:
     std::string m_searchResult;
     std::string m_headVectorFile;
     std::string m_headIDFile;
+    bool genMeta;
+    int m_partition;
+    std::string m_metaDataFileName;
+    std::string m_metaIndexFileName;
+    std::string m_indexLabelPrefix;
     
 } options;
 
@@ -115,7 +125,7 @@ void PrintPercentiles(const std::vector<V>& p_values, std::function<T(const V&)>
         collects[static_cast<size_t>(collects.size() - 1)]);
 }
 
-void LoadTruth(ToolOptions& p_opts, std::vector<std::set<SizeType>>& truth, int numQueries, std::string truthfilename, int truthK)
+void LoadTruth(ToolOptions& p_opts, std::vector<std::set<SizeType>>& truth, SizeType numQueries, std::string truthfilename, int truthK)
 {
     auto ptr = f_createIO();
     LOG(Helper::LogLevel::LL_Info, "Start loading TruthFile...: %s\n", truthfilename.c_str());
@@ -254,7 +264,7 @@ void SaveUpdateMapping(std::string fileName, std::vector<SizeType>& reverseIndic
     }
 }
 
-void SaveUpdateTrace(std::string fileName, SizeType& updateSize, std::vector<SizeType>& insertSet, std::vector<SizeType>& deleteSet)
+void SaveUpdateTrace(std::string fileName, int& updateSize, std::vector<SizeType>& insertSet, std::vector<SizeType>& deleteSet)
 {
     LOG(Helper::LogLevel::LL_Info, "Saving %s\n", fileName.c_str());
 
@@ -399,6 +409,62 @@ void GenerateStressTest(ToolOptions& p_opts)
 }
 
 template <typename ValueType>
+void GenerateMeta(ToolOptions& p_opts)
+{
+    for (int i = 0; i < p_opts.m_partition; i++) {
+        std::string filename = p_opts.m_indexLabelPrefix + std::to_string(i);
+        SPTAG::COMMON::Dataset<int> mappingData;
+        LOG(Helper::LogLevel::LL_Info, "Load From %s\n", filename.c_str());
+        auto ptr = f_createIO();
+        if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+            LOG(Helper::LogLevel::LL_Info, "Initialize Mapping Error: %d\n", i);
+            exit(1);
+        }
+        mappingData.Load(ptr, 1024 * 1024, MaxSize);
+
+        LOG(Helper::LogLevel::LL_Info, "Begin Generating MetaData\n");
+        std::string metaDataFileName = p_opts.m_metaDataFileName + std::to_string(i);
+        std::string metaIndexFileName = p_opts.m_metaIndexFileName + std::to_string(i);
+        auto mptr = f_createIO();
+        if (mptr == nullptr || !mptr->Initialize(metaDataFileName.c_str(), std::ios::out | std::ios::binary)) {
+            LOG(Helper::LogLevel::LL_Error, "Failed open meta file: %s\n", metaDataFileName.c_str());
+            exit(1);
+        }
+        auto index_ptr = f_createIO();
+        if (index_ptr == nullptr || !index_ptr->Initialize(metaIndexFileName.c_str(), std::ios::out | std::ios::binary)) {
+            LOG(Helper::LogLevel::LL_Error, "Failed open metaIndex file: %s\n", metaIndexFileName.c_str());
+            exit(1);
+        }
+        uint64_t begin = 0;
+        int vec_num = mappingData.R();
+
+        if (index_ptr->WriteBinary(4, reinterpret_cast<char*>(&vec_num)) != 4) {
+            LOG(Helper::LogLevel::LL_Error, "vector Size Error!\n");
+            exit(1);
+        }
+        if (index_ptr->WriteBinary(sizeof(uint64_t), reinterpret_cast<char*>(&begin)) != sizeof(uint64_t)) {
+            LOG(Helper::LogLevel::LL_Error, "vector Size Error!\n");
+            exit(1);
+        }
+
+        LOG(Helper::LogLevel::LL_Info, "Begin Input: vector size: %d\n", vec_num);
+        for (int j = 0; j < mappingData.R(); j++) {
+            // LOG(Helper::LogLevel::LL_Info, "Origin ID: %d Real ID: %d\n",j *mappingData[j]);
+            std::string a = std::to_string(*mappingData[j]);
+            if (mptr->WriteBinary(a.size(), a.data()) != a.size()) {
+                LOG(Helper::LogLevel::LL_Error, "vector Size Error!\n");
+                exit(1);
+            }
+            begin += a.size();
+            if (index_ptr->WriteBinary(sizeof(uint64_t), reinterpret_cast<char*>(&begin)) != sizeof(uint64_t)) {
+                LOG(Helper::LogLevel::LL_Error, "vector Size Error!\n");
+                exit(1);
+            }
+        }
+    }
+}
+
+template <typename ValueType>
 void ConvertTruth(ToolOptions& p_opts)
 {
     std::vector<SizeType> current_list;
@@ -524,6 +590,27 @@ int main(int argc, char* argv[]) {
     {
         exit(1);
     }
+
+    if (options.genMeta) {
+        switch (options.m_inputValueType) {
+        case SPTAG::VectorValueType::Float:
+            GenerateMeta<float>(options);
+            break;
+        case SPTAG::VectorValueType::Int16:
+            GenerateMeta<std::int16_t>(options);
+            break;
+        case SPTAG::VectorValueType::Int8:
+            GenerateMeta<std::int8_t>(options);
+            break;
+        case SPTAG::VectorValueType::UInt8:
+            GenerateMeta<std::uint8_t>(options);
+            break;
+        default:
+            LOG(Helper::LogLevel::LL_Error, "Error data type!\n");
+        }
+    }
+
+
     if (options.genTrace) {
         switch (options.m_inputValueType) {
         case SPTAG::VectorValueType::Float:

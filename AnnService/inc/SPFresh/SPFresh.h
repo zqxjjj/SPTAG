@@ -545,7 +545,7 @@ namespace SPTAG {
                 return queryReader->GetVectorSet();
             }
 
-            void LoadTruth(SPANN::Options& p_opts, std::vector<std::set<SizeType>>& truth, int numQueries, std::string truthfilename, int truthK)
+            void LoadTruth(SPANN::Options& p_opts, std::vector<std::set<SizeType>>& truth, SizeType numQueries, std::string truthfilename, int truthK)
             {
                 auto ptr = f_createIO();
                 if (p_opts.m_update) {
@@ -649,7 +649,7 @@ namespace SPTAG {
                 }
             }
 
-            void LoadUpdateTrace(std::string fileName, SizeType& updateSize, std::vector<SizeType>& insertSet, std::vector<SizeType>& deleteSet)
+            void LoadUpdateTrace(std::string fileName, int& updateSize, std::vector<SizeType>& insertSet, std::vector<SizeType>& deleteSet)
             {
                 LOG(Helper::LogLevel::LL_Info, "Loading %s\n", fileName.c_str());
 
@@ -690,7 +690,7 @@ namespace SPTAG {
                 }
             }
 
-            void LoadUpdateTraceStressTest(std::string fileName, SizeType& updateSize, std::vector<SizeType>& insertSet)
+            void LoadUpdateTraceStressTest(std::string fileName, int& updateSize, std::vector<SizeType>& insertSet)
             {
                 LOG(Helper::LogLevel::LL_Info, "Loading %s\n", fileName.c_str());
 

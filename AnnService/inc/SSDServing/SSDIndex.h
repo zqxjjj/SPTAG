@@ -218,7 +218,7 @@ namespace SPTAG {
                     exit(1);
                 }
                 auto querySet = queryReader->GetVectorSet();
-                int numQueries = querySet->Count();
+                SizeType numQueries = querySet->Count();
 
                 std::vector<QueryResult> results(numQueries, QueryResult(NULL, max(K, internalResultNum), false));
                 std::vector<SPANN::SearchStats> stats(numQueries);
@@ -385,11 +385,11 @@ namespace SPTAG {
 #pragma omp parallel for schedule(dynamic)
                     for (int i = 0; i < sampleSize; i++)
                     {
-                        COMMON::QueryResultSet<ValueType> queryANNHeads((const ValueType*)(querySet->GetVector(samples[i])), max(K, internalResultNum));
+                        COMMON::QueryResultSet<ValueType> queryANNHeads((const ValueType*)(querySet->GetVector(samples[i])), max((SizeType)K, (SizeType)internalResultNum));
                         headIndex->SearchIndex(queryANNHeads);
                         float queryANNHeadsLongestDist = queryANNHeads.GetResult(internalResultNum - 1)->Dist;
 
-                        COMMON::QueryResultSet<ValueType> queryBFHeads((const ValueType*)(querySet->GetVector(samples[i])), max(sampleK, internalResultNum));
+                        COMMON::QueryResultSet<ValueType> queryBFHeads((const ValueType*)(querySet->GetVector(samples[i])), max((SizeType)sampleK, (SizeType)internalResultNum));
                         for (SizeType y = 0; y < headIndex->GetNumSamples(); y++)
                         {
                             float dist = headIndex->ComputeDistance(queryBFHeads.GetQuantizedTarget(), headIndex->GetSample(y));
@@ -415,7 +415,7 @@ namespace SPTAG {
                             }
                         }
 
-                        std::map<int, std::set<int>> tmpFound; // headID->truths
+                        std::map<int, std::set<SizeType>> tmpFound; // headID->truths
                         p_index->DebugSearchDiskIndex(queryBFHeads, internalResultNum, sampleK, nullptr, &truth[samples[i]], &tmpFound);
 
                         for (SizeType z = 0; z < K; z++) {
@@ -426,7 +426,7 @@ namespace SPTAG {
                             truth[samples[i]].erase(results[samples[i]].GetResult(z)->VID);
                         }
 
-                        for (std::map<int, std::set<int>>::iterator it = tmpFound.begin(); it != tmpFound.end(); it++) {
+                        for (std::map<int, std::set<SizeType>>::iterator it = tmpFound.begin(); it != tmpFound.end(); it++) {
                             float q2truthposting = headIndex->ComputeDistance(querySet->GetVector(samples[i]), headIndex->GetSample(it->first));
                             for (auto vid : it->second) {
                                 if (!truth[samples[i]].count(vid)) continue;
