@@ -308,7 +308,7 @@ namespace SPTAG {
 
             virtual void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) { return; }
 
-            virtual void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, double& compLatency, int& scannedNum, Options& p_options) { return; }
+            virtual void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, std::shared_ptr<VectorIndex> p_index, double& compLatency, int& scannedNum, Options& p_options) { return; }
 
             virtual int GetPostingSize(SizeType headID) { return -1;}
 

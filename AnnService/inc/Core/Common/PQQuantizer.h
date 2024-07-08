@@ -244,7 +244,13 @@ namespace SPTAG
             LOG(Helper::LogLevel::LL_Info, "Loading Quantizer.\n");
             IOBINARY(p_in, ReadBinary, sizeof(DimensionType), (char*)&m_NumSubvectors);
             LOG(Helper::LogLevel::LL_Info, "After read subvecs: %s.\n", std::to_string(m_NumSubvectors).c_str());
+            #ifdef LARGE_VID
+            int m_KsPerSubvector_int;
+            IOBINARY(p_in, ReadBinary, sizeof(int), (char*)&m_KsPerSubvector_int);
+            m_KsPerSubvector = m_KsPerSubvector_int;
+            #else
             IOBINARY(p_in, ReadBinary, sizeof(SizeType), (char*)&m_KsPerSubvector);
+            #endif
             LOG(Helper::LogLevel::LL_Info, "After read ks: %s.\n", std::to_string(m_KsPerSubvector).c_str());
             IOBINARY(p_in, ReadBinary, sizeof(DimensionType), (char*)&m_DimPerSubvector);
             LOG(Helper::LogLevel::LL_Info, "After read dim: %s.\n", std::to_string(m_DimPerSubvector).c_str());

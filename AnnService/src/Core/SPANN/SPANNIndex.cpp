@@ -70,7 +70,12 @@ namespace SPTAG
             IndexAlgoType algoType = p_reader.GetParameter("Base", "IndexAlgoType", IndexAlgoType::Undefined);
             VectorValueType valueType = p_reader.GetParameter("Base", "ValueType", VectorValueType::Undefined);
             bool multiLayer = p_reader.GetParameter("BuildSSDIndex", "MultiLayer", false);
-            if (!multiLayer) {
+            bool isLocal = p_reader.GetParameter("BuildSSDIndex", "IsLocal", true);
+            bool isCoordinator = p_reader.GetParameter("BuildSSDIndex", "IsCoordinator", false);
+            if (!multiLayer || (!isLocal && !isCoordinator)) {
+                // to make a index instance to pass compute function
+                if ((m_index = CreateInstance(algoType, VectorValueType::UInt8)) == nullptr) return ErrorCode::FailedParseValue;
+            } else if (!multiLayer) {
                 if ((m_index = CreateInstance(algoType, valueType)) == nullptr) return ErrorCode::FailedParseValue;
             }
 

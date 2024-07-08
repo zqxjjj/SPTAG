@@ -1278,7 +1278,7 @@ namespace SPTAG {
             }
 
             // Here is some commented code for verify whether the written file is in right form
-            // LoadingNewFiles<ValueType>(options, 0);
+            LoadingNewFiles<ValueType>(options, 0);
 
         }
 

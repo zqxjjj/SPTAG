@@ -1326,7 +1326,7 @@ namespace SPTAG
                 posting.resize(realBytes);
             }
 
-            void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, double& compLatency, int& scannedNum, Options& p_options) override {
+            void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, std::shared_ptr<VectorIndex> p_index, double& compLatency, int& scannedNum, Options& p_options) override {
                 COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*)&p_queryResults);
                 int postingListCount = p_exWorkSpace->m_postingIDs.size();
                 compLatency = 0;
@@ -1349,7 +1349,7 @@ namespace SPTAG
                     request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
                     request.m_payload = (void*)listInfo; 
                     request.m_success = false;
-                    request.m_callback = [&p_exWorkSpace, &request, &queryResults, &compLatency, &p_options, this](bool success)
+                    request.m_callback = [&p_exWorkSpace, &request, &queryResults, &p_index, &compLatency, &p_options, this](bool success)
                     {
                         char* buffer = request.m_buffer;
                         ListInfo* listInfo = (ListInfo*)(request.m_payload);
@@ -1363,7 +1363,8 @@ namespace SPTAG
                             (this->*m_parsePosting)(offsetVectorID, offsetVector, i, listInfo->listEleCount);
                             SizeType vectorID = *(reinterpret_cast<SizeType*>(p_postingListFullData + offsetVectorID));
                             if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
-                            auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((ValueType *)queryResults.GetQuantizedTarget(), (ValueType *)p_postingListFullData + offsetVector, p_options.m_dim , p_options.m_distCalcMethod);
+                            auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), p_postingListFullData + offsetVector);
+                            // auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((ValueType *)queryResults.GetQuantizedTarget(), (ValueType *)p_postingListFullData + offsetVector, p_options.m_dim , p_options.m_distCalcMethod);
                             queryResults.AddPoint(vectorID, distance2leaf);
                         }
                         auto t2 = std::chrono::high_resolution_clock::now();

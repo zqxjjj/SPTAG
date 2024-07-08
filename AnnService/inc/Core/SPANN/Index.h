@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <ratio>
 #include <shared_mutex>
 
@@ -524,7 +525,8 @@ namespace SPTAG
 
                             ptr += sizeof(SizeType)*keys_eachNode[i].size();
 
-                            memcpy(ptr, (char*)p_queryResults->GetQuantizedTarget(), m_options.m_dim * sizeof(T));
+                            //here we just transfer the full query vector instead of quantized query vector
+                            memcpy(ptr, (char*)p_queryResults->GetTarget(), m_options.m_dim * sizeof(T));
 
                             ptr += m_options.m_dim * sizeof(T);
 
@@ -771,10 +773,10 @@ namespace SPTAG
                         for (auto key: keys) {
                             m_workspace->m_postingIDs.push_back(key);
                         }
-                        p_Result.SetTarget(reinterpret_cast<T*>(vectorBuffer));
+                        (*((COMMON::QueryResultSet<T>*)&p_Result)).SetTarget(reinterpret_cast<T*>(vectorBuffer), m_pQuantizer);
                         double compLatency = 0;
                         int scannedNum = 0;
-                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, compLatency, scannedNum, m_options);
+                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, m_index, compLatency, scannedNum, m_options);
 
                         // Return result
                         queryResults->SortResult();
