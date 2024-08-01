@@ -651,6 +651,7 @@ namespace SPTAG
                         ptr+=sizeof(SizeType);
                         ptr+=sizeof(float);
                     }
+                    // exit(0);
 
                     auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -776,7 +777,8 @@ namespace SPTAG
                         (*((COMMON::QueryResultSet<T>*)&p_Result)).SetTarget(reinterpret_cast<T*>(vectorBuffer), m_pQuantizer);
                         double compLatency = 0;
                         int scannedNum = 0;
-                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, m_index, compLatency, scannedNum, m_options);
+                        VectorIndex* tempIndex = this;
+                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, tempIndex, compLatency, scannedNum, m_options);
 
                         // Return result
                         queryResults->SortResult();

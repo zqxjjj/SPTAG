@@ -1326,7 +1326,7 @@ namespace SPTAG
                 posting.resize(realBytes);
             }
 
-            void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, std::shared_ptr<VectorIndex> p_index, double& compLatency, int& scannedNum, Options& p_options) override {
+            void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, VectorIndex* p_index, double& compLatency, int& scannedNum, Options& p_options) override {
                 COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*)&p_queryResults);
                 int postingListCount = p_exWorkSpace->m_postingIDs.size();
                 compLatency = 0;
@@ -1364,7 +1364,8 @@ namespace SPTAG
                             SizeType vectorID = *(reinterpret_cast<SizeType*>(p_postingListFullData + offsetVectorID));
                             if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
                             auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), p_postingListFullData + offsetVector);
-                            // auto distance2leaf = COMMON::DistanceUtils::ComputeDistance((ValueType *)queryResults.GetQuantizedTarget(), (ValueType *)p_postingListFullData + offsetVector, p_options.m_dim , p_options.m_distCalcMethod);
+                            // auto distance2leafReal = COMMON::DistanceUtils::ComputeDistance((ValueType *)queryResults.GetQuantizedTarget(), (ValueType *)p_postingListFullData + offsetVector, p_options.m_dim , p_options.m_distCalcMethod);
+                            // LOG(Helper::LogLevel::LL_Info, "VID: %lu, Dist: %f, Real Dist: %f\n", vectorID, distance2leaf, distance2leafReal);
                             queryResults.AddPoint(vectorID, distance2leaf);
                         }
                         auto t2 = std::chrono::high_resolution_clock::now();

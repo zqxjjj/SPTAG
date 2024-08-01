@@ -72,9 +72,18 @@ namespace SPTAG
             bool multiLayer = p_reader.GetParameter("BuildSSDIndex", "MultiLayer", false);
             bool isLocal = p_reader.GetParameter("BuildSSDIndex", "IsLocal", true);
             bool isCoordinator = p_reader.GetParameter("BuildSSDIndex", "IsCoordinator", false);
+            std::string tempString;
+            std::string quantizerPath = p_reader.GetParameter("Base", "QuantizerFilePath", tempString);
             if (!multiLayer || (!isLocal && !isCoordinator)) {
+                LOG(Helper::LogLevel::LL_Info, "Need to set m_index for DistCalcMethod in depart KV\n");
                 // to make a index instance to pass compute function
-                if ((m_index = CreateInstance(algoType, VectorValueType::UInt8)) == nullptr) return ErrorCode::FailedParseValue;
+                if (quantizerPath.size() != 0) {
+                    LOG(Helper::LogLevel::LL_Info, "It is quantized\n");
+                    if ((m_index = CreateInstance(algoType, VectorValueType::UInt8)) == nullptr) return ErrorCode::FailedParseValue;
+                } else {
+                    LOG(Helper::LogLevel::LL_Info, "No quantized\n");
+                    if ((m_index = CreateInstance(algoType, valueType)) == nullptr) return ErrorCode::FailedParseValue;
+                }
             } else if (!multiLayer) {
                 if ((m_index = CreateInstance(algoType, valueType)) == nullptr) return ErrorCode::FailedParseValue;
             }
@@ -279,6 +288,9 @@ namespace SPTAG
                     }
 
                 } else {
+                    /* Set ComputeDistance */
+                    LOG(Helper::LogLevel::LL_Info, "Set DistCalcMethod for depart DistKV\n");
+                    m_index->SetParameter("DistCalcMethod", SPTAG::Helper::Convert::ConvertToString(m_options.m_distCalcMethod));
                     m_extraSearchers.resize(toLoadLayers);
                     for (int i = toLoadLayers; i > 0; i--) {
                         std::string folderPath = m_options.m_indexDirectory;
@@ -294,7 +306,6 @@ namespace SPTAG
                         if (!m_extraSearchers[toLoadLayers-i]->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
 
                         m_options.m_indexDirectory = temp;
-
                     }
                 }
             }
@@ -375,6 +386,9 @@ namespace SPTAG
                         LOG(Helper::LogLevel::LL_Info, "Loading L-%d headmap finished\n", toLoadLayers-i+1);
                     }
                 } else {
+                    /* Set ComputeDistance */
+                    LOG(Helper::LogLevel::LL_Info, "Set DistCalcMethod for depart KV\n");
+                    m_index->SetParameter("DistCalcMethod", SPTAG::Helper::Convert::ConvertToString(m_options.m_distCalcMethod));
                     m_extraSearchers.resize(toLoadLayers);
                     for (int i = toLoadLayers; i > 0; i--) {
                         std::string folderPath = m_options.m_indexDirectory;
