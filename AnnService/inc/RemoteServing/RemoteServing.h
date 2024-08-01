@@ -71,6 +71,7 @@ namespace SPTAG {
         }
 
         void InitSPectrumNetWork(SPANN::Options& p_opts, std::vector<std::shared_ptr<SPANN::NetworkThreadPool>>& m_clientThreadPool) {
+            // Here also contains Production Search Network Setting
             m_clientThreadPool.resize(p_opts.m_dspannIndexFileNum);
             // int node = 4;
             // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
@@ -146,6 +147,69 @@ namespace SPTAG {
         }
 
         template <typename ValueType>
+        void SearchIndexShard(SPANN::Options& p_opts, QueryResult &p_query, std::vector<int>& needToTraverse, std::vector<std::shared_ptr<SPANN::NetworkThreadPool>>& m_clientThreadPoolDSPANN, int top, std::vector<double>& latency)
+        {
+            COMMON::QueryResultSet<ValueType>* p_queryResults = (COMMON::QueryResultSet<ValueType>*) & p_query;
+            std::string* request[top];
+            std::string* reply[top];
+            std::vector<int> in_flight(top, 0);                    
+
+            // LOG(Helper::LogLevel::LL_Info, "Sending to worker\n");
+            for (int i = 0; i < top; ++i) {
+                request[i] = new std::string();
+                request[i]->resize(p_opts.m_dim * sizeof(ValueType));
+                reply[i] = new std::string();
+
+                memcpy(request[i]->data(), (char*)p_query.GetTarget(), p_opts.m_dim * sizeof(ValueType));
+
+                in_flight[i] = 1;
+
+                auto* curJob = new SPANN::NetworkJob(request[i], reply[i], &in_flight[i]);
+                m_clientThreadPoolDSPANN[needToTraverse[i]]->add(curJob);
+            }
+
+            // LOG(Helper::LogLevel::LL_Info, "Waiting for result\n");
+            bool notReady = true;
+            std::vector<int> visit(top, 0);
+
+            std::set<SizeType> visited;
+
+            while (notReady) {
+                for (int i = 0; i < top; ++i) {
+                    if (in_flight[i] == 0 && visit[i] == 0) {
+                        visit[i] = 1;
+                        auto ptr = static_cast<char*>(reply[i]->data());
+                        for (int j = 0; j < p_opts.m_resultNum; j++) {
+                            SizeType VID;
+                            float Dist;
+                            memcpy((char *)&VID, ptr, sizeof(SizeType));
+                            memcpy((char *)&Dist, ptr + sizeof(SizeType), sizeof(float));
+                            ptr += sizeof(SizeType);
+                            ptr += sizeof(float);
+
+                            if (VID == -1) break;
+                            if (visited.find(VID) != visited.end()) continue;
+                            visited.insert(VID);
+                            p_queryResults->AddPoint(VID, Dist);
+                            // LOG(Helper::LogLevel::LL_Info, "VID: %lu, Dist: %f\n", VID, Dist);
+                        }
+                        double processLatency;
+                        memcpy((char *)&processLatency, ptr, sizeof(double));
+                        latency[i] = processLatency;
+                    }
+                }
+                notReady = false;
+                for (int i = 0; i < top; ++i) {
+                    if (visit[i] != 1) notReady = true;
+                }
+            }
+            // exit(0);
+            // LOG(Helper::LogLevel::LL_Info, "Sorting Result\n");
+            p_queryResults->SortResult();
+            return;
+        }
+
+        template <typename ValueType>
         void SPectrumSearchClient(SPANN::Index<ValueType>* p_index)
         {
             SPANN::Options& p_opts = *(p_index->GetOptions());
@@ -182,33 +246,153 @@ namespace SPTAG {
 
             SSDServing::Utils::StopW sw;
 
-            for (int i = 0; i < p_opts.m_searchThreadNum; i++) { threads.emplace_back([&, i]()
+            if (p_opts.m_dspann) {
+                ValueType* centers = (ValueType*)ALIGN_ALLOC(sizeof(ValueType) * p_opts.m_dspannIndexFileNum * p_opts.m_dim);
                 {
-                    size_t index = 0;
-                    while (true)
-                    {
-                        index = queriesSent.fetch_add(1);
-                        if (index < numQueries)
-                        {
-                            if ((index & ((1 << 14) - 1)) == 0)
-                            {
-                                LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
-                            }
-                            traverseLatency[index].m_diskReadLatencys.resize(p_opts.m_layers-1);
-                            auto t1 = std::chrono::high_resolution_clock::now();
-                            SearchSPectrumRemote<ValueType>(p_opts, results[index], m_clientThreadPool[index % p_opts.m_dspannIndexFileNum], &traverseLatency[index]);
-                            auto t2 = std::chrono::high_resolution_clock::now();
-                            double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-                            latency[index] = totalTime / 1000;
-                        }
-                        else
-                        {
-                            return;
-                        }
+                    auto ptr = f_createIO();
+                    if (ptr == nullptr || !ptr->Initialize(p_opts.m_dspannCenters.c_str(), std::ios::binary | std::ios::in)) {
+                        LOG(Helper::LogLevel::LL_Error, "Failed to read center file %s.\n", p_opts.m_dspannCenters.c_str());
                     }
-                });
+
+                    int r;
+                    DimensionType c;
+                    DimensionType col = p_opts.m_dim;
+                    int row = p_opts.m_dspannIndexFileNum;
+                    ptr->ReadBinary(sizeof(int), (char*)&r) != sizeof(SizeType);
+                    ptr->ReadBinary(sizeof(DimensionType), (char*)&c) != sizeof(DimensionType);
+
+                    if (r != row || c != col) {
+                        LOG(Helper::LogLevel::LL_Error, "Row(%d,%d) or Col(%d,%d) cannot match.\n", r, row, c, col);
+                    }
+
+                    ptr->ReadBinary(sizeof(ValueType) * row * col, (char*)centers);
+                }
+                LOG(Helper::LogLevel::LL_Info, "Load Center Finished\n");
+                // Calculating query to shard
+
+                int top = p_opts.m_dspannTopK;
+
+                std::vector<std::vector<int>> needToTraverse(numQueries, std::vector<int>(top));
+
+                std::vector<std::vector<double>> traverseLatencyDist(numQueries, std::vector<double>(top));
+
+                struct ShardWithDist
+                {
+                    int id;
+
+                    float dist;
+                };
+
+                for (int index = 0; index < numQueries; index++) {
+                    std::vector<ShardWithDist> shardDist(p_opts.m_dspannIndexFileNum);
+                    for (int j = 0; j < p_opts.m_dspannIndexFileNum; j++) {
+                        float dist = COMMON::DistanceUtils::ComputeDistance((const ValueType*)querySet->GetVector(index), (const ValueType*)centers + j* p_opts.m_dim, querySet->Dimension(), p_index->GetDistCalcMethod());
+                        shardDist[j].id = j;
+                        shardDist[j].dist = dist;
+                    }
+
+                    std::sort(shardDist.begin(), shardDist.end(), [&](ShardWithDist& a, const ShardWithDist& b){
+                        return a.dist == b.dist ? a.id < b.id : a.dist < b.dist;
+                    });
+
+                    for (int j = 0; j < top; j++) {
+                        needToTraverse[index][j] = shardDist[j].id;
+                    }
+                }
+                // Dispatching query to shard
+
+                std::atomic_size_t queriesSent(0);
+
+                std::vector<std::thread> threads;
+
+                for (int i = 0; i < p_opts.m_searchThreadNum; i++) { threads.emplace_back([&, i]()
+                    {
+                        // Helper::SetThreadAffinity( ((i+1) * 4), threads[i], 0, 0);
+                        // p_index->ClientConnect();
+                        size_t index = 0;
+                        while (true)
+                        {
+                            index = queriesSent.fetch_add(1);
+                            if (index < numQueries)
+                            {
+                                if ((index & ((1 << 14) - 1)) == 0)
+                                {
+                                    LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
+                                }
+                                auto t1 = std::chrono::high_resolution_clock::now();
+                                SearchIndexShard<ValueType>(p_opts, results[index], needToTraverse[index], m_clientThreadPool, top, traverseLatencyDist[index]);
+                                auto t2 = std::chrono::high_resolution_clock::now();
+                                double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                                latency[index] = totalTime / 1000;
+                            }
+                            else
+                            {
+                                // p_index->ClientClose();
+                                return;
+                            }
+                        }
+                    });
+                }
+                for (auto& thread : threads) { thread.join(); }
+
+                // Print Stats
+                std::vector<double> minLatency(numQueries);
+                std::vector<double> maxLatency(numQueries);
+
+                for (int i = 0; i < numQueries; i++) {
+                    minLatency[i] = traverseLatencyDist[i][0];
+                    maxLatency[i] = traverseLatencyDist[i][0];
+                    for (int j = 1; j < top; j++) {
+                        if (traverseLatencyDist[i][j] > maxLatency[i]) maxLatency[i] = traverseLatencyDist[i][j];
+                        if (traverseLatencyDist[i][j] < minLatency[i]) minLatency[i] = traverseLatencyDist[i][j];
+                    }
+                }
+
+                LOG(Helper::LogLevel::LL_Info, "\nMin Latency Distirbution:\n");
+                PrintPercentiles<double, double>(minLatency,
+                    [](const double& ss) -> double
+                    {
+                        return ss;
+                    },
+                    "%.3lf");
+
+                LOG(Helper::LogLevel::LL_Info, "\nMax Latency Distirbution:\n");
+                PrintPercentiles<double, double>(maxLatency,
+                    [](const double& ss) -> double
+                    {
+                        return ss;
+                    },
+                    "%.3lf");
+
+            } else {
+                for (int i = 0; i < p_opts.m_searchThreadNum; i++) { threads.emplace_back([&, i]()
+                    {
+                        size_t index = 0;
+                        while (true)
+                        {
+                            index = queriesSent.fetch_add(1);
+                            if (index < numQueries)
+                            {
+                                if ((index & ((1 << 14) - 1)) == 0)
+                                {
+                                    LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
+                                }
+                                traverseLatency[index].m_diskReadLatencys.resize(p_opts.m_layers-1);
+                                auto t1 = std::chrono::high_resolution_clock::now();
+                                SearchSPectrumRemote<ValueType>(p_opts, results[index], m_clientThreadPool[index % p_opts.m_dspannIndexFileNum], &traverseLatency[index]);
+                                auto t2 = std::chrono::high_resolution_clock::now();
+                                double totalTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                                latency[index] = totalTime / 1000;
+                            }
+                            else
+                            {
+                                return;
+                            }
+                        }
+                    });
+                }
+                for (auto& thread : threads) { thread.join(); }
             }
-            for (auto& thread : threads) { thread.join(); }
 
             double sendingCost = sw.getElapsedSec();
 
@@ -248,33 +432,35 @@ namespace SPTAG {
                 },
                 "%.3lf");
 
-            LOG(Helper::LogLevel::LL_Info, "\nTopLayerNode Total Latency Distirbution:\n");
-            PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
-                [](const SPANN::SearchStats& ss) -> double
-                {
-                    return ss.m_totalLatency;
-                },
-                "%.3lf");
-
-            LOG(Helper::LogLevel::LL_Info, "\nTopLayerNode Head Latency Distirbution:\n");
-            PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
-                [](const SPANN::SearchStats& ss) -> double
-                {
-                    return ss.m_headLatency;
-                },
-                "%.3lf");
-
-            for (int layer = 0; layer < p_opts.m_layers -1 ; layer++) {
-                for (int qID = 0; qID < numQueries; qID++) {
-                    traverseLatency[qID].m_diskReadLatency = traverseLatency[qID].m_diskReadLatencys[layer];
-                }
-                LOG(Helper::LogLevel::LL_Info, "\nDisk Read Layer %d Latency Distirbution:\n", layer+1);
+            if (!p_opts.m_dspann) {
+                LOG(Helper::LogLevel::LL_Info, "\nTopLayerNode Total Latency Distirbution:\n");
                 PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
                     [](const SPANN::SearchStats& ss) -> double
                     {
-                        return ss.m_diskReadLatency;
+                        return ss.m_totalLatency;
                     },
                     "%.3lf");
+
+                LOG(Helper::LogLevel::LL_Info, "\nTopLayerNode Head Latency Distirbution:\n");
+                PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
+                    [](const SPANN::SearchStats& ss) -> double
+                    {
+                        return ss.m_headLatency;
+                    },
+                    "%.3lf");
+
+                for (int layer = 0; layer < p_opts.m_layers -1 ; layer++) {
+                    for (int qID = 0; qID < numQueries; qID++) {
+                        traverseLatency[qID].m_diskReadLatency = traverseLatency[qID].m_diskReadLatencys[layer];
+                    }
+                    LOG(Helper::LogLevel::LL_Info, "\nDisk Read Layer %d Latency Distirbution:\n", layer+1);
+                    PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
+                        [](const SPANN::SearchStats& ss) -> double
+                        {
+                            return ss.m_diskReadLatency;
+                        },
+                        "%.3lf");
+                }
             }
         }
 
@@ -306,7 +492,9 @@ namespace SPTAG {
             for (int i = 0; i < p_opts.m_searchThreadNum; i++)
             {
                 m_threads.emplace_back([&] {
-                    if (p_opts.m_distKV && !p_opts.m_isCoordinator)
+                    if (p_opts.m_dspann) // Warning: this code must be run under 4-Byte SizeType
+                        p_index->WorkerSingleIndex();
+                    else if (p_opts.m_distKV && !p_opts.m_isCoordinator)
                         p_index->WorkerDistKV();
                     else if (p_opts.m_distKV && p_opts.m_isCoordinator){
                         p_index->WorkerTopLayerNode();

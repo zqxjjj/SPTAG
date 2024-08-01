@@ -716,6 +716,92 @@ namespace SPTAG
                 return m_options.m_dspannIndexFileNum;
             }
 
+            ErrorCode WorkerSingleIndex() {
+                // Warning: this code must be run under 4-Byte SizeType
+                LOG(Helper::LogLevel::LL_Info, "Start Worker SingleIndex For Production Baseline\n");
+                zmq::context_t context(1);
+
+                // zmq::socket_t responder(context, ZMQ_REP);
+                zmq::socket_t responder(context, ZMQ_DEALER);
+                responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                while(1) {
+                    int msg_size = m_options.m_dim * sizeof(T);
+                        
+                    char* vectorBuffer = new char[msg_size];
+
+                    zmq::message_t identity;
+                    zmq::message_t reply;
+                    responder.recv(&identity);
+                    responder.recv(&reply);
+
+                    // char* iptr = static_cast<char*>(identity.data());
+
+                    // LOG(Helper::LogLevel::LL_Info,"Recv, identity: %d\n", *((int*)(iptr+1)));
+
+                    auto t1 = std::chrono::high_resolution_clock::now();
+
+                    char* ptr = static_cast<char*>(reply.data());
+
+                    int currentKey;
+
+                    memcpy((char*)&currentKey, ptr, sizeof(int));
+
+                    ptr+=sizeof(int);
+
+                    memcpy(vectorBuffer, ptr, msg_size);
+                    // copy vector
+
+                    QueryResult result(NULL, m_options.m_searchInternalResultNum, false);
+
+                    (*((COMMON::QueryResultSet<T>*)&result)).SetTarget(reinterpret_cast<T*>(vectorBuffer), m_pQuantizer);
+                    result.Reset();
+
+                    SearchStats stats;
+
+                    SearchIndex(result, &stats);
+
+                    int K = m_options.m_resultNum;
+                        
+                    zmq::message_t request(K * (sizeof(std::uint64_t) + sizeof(float)) + sizeof(double) + sizeof(int));
+                    COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & result;
+
+                    ptr = static_cast<char*>(request.data());
+                    memcpy(ptr, (char *)&currentKey, sizeof(int));
+                    ptr += sizeof(int);
+                    for (int i = 0; i < K; i++) {
+                        auto res = queryResults->GetResult(i);
+                        // LOG(Helper::LogLevel::LL_Info, "Final VID : %lu, Dist : %f\n", res->VID, res->Dist);
+                        ByteArray globalVectorID_byteArray = GetMetadata(res->VID);
+                        std::string globalVectorID_string;
+                        globalVectorID_string.resize(globalVectorID_byteArray.Length());
+                        memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
+                        std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
+                        memcpy(ptr, (char *)&globalVectorID, sizeof(std::uint64_t));
+                        memcpy(ptr+sizeof(std::uint64_t), (char *)&res->Dist, sizeof(float));
+                        ptr+=sizeof(std::uint64_t);
+                        ptr+=sizeof(float);
+                    }
+                    // exit(0);
+
+                    auto t2 = std::chrono::high_resolution_clock::now();
+
+                    double localProcessTime = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    
+                    localProcessTime /= 1000;
+
+                    memcpy(ptr, (char *)&localProcessTime, sizeof(double));
+
+                    ptr += sizeof(double);
+
+                    // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d, current key: %d\n", request.size(), currentKey);
+
+                    // responder.send(request);
+                    responder.send(identity, ZMQ_SNDMORE);
+                    responder.send(request);
+                }
+            }
+
             ErrorCode WorkerDistKV() {
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DistKV\n");
                 zmq::context_t context(1);
