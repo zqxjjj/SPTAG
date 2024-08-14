@@ -72,19 +72,51 @@ int BootProgramClient(const char* configurationPath) {
 #ifdef _exe
 
 int main(int argc, char* argv[]) {
-	if (argc < 2)
+	if (argc < 3)
 	{
 		LOG(Helper::LogLevel::LL_Error,
-			"spfresh storePath\n");
+			"SPectrum & Distributed SPANN Requires 3 parameters\n");
 		exit(-1);
 	}
 
-	if (argc == 3) {
+	std::string loadMode(argv[2]);
+	int ret;
+	if (loadMode.find("client") != std::string::npos) {
 		LOG(Helper::LogLevel::LL_Info,
 			"Distributed Search Client\n");
-		auto ret = BootProgramClient(argv[1]);
+		ret = BootProgramClient(argv[1]);
+	} else {
+		std::string basePath(argv[1]);
+		if (loadMode.find("distKV") != std::string::npos) {
+			int status = system(("cp "+ basePath + "/indexloader.ini.distkv " + basePath + "/indexloader.ini").c_str());
+			if (status == 0) {
+				LOG(Helper::LogLevel::LL_Info, "Distributed Search DistKV Config File Copied\n");
+			} else {
+				LOG(Helper::LogLevel::LL_Info, "Error in Config File Copy, Exit\n");
+				exit(0);
+			}
+		} else if (loadMode.find("topLayer") != std::string::npos) {
+			int status = system(("cp "+ basePath + "/indexloader.ini.toplayernode " + basePath + "/indexloader.ini").c_str());
+			if (status == 0) {
+				LOG(Helper::LogLevel::LL_Info, "Distributed Search TopLayerNode Config File Copied\n");
+			} else {
+				LOG(Helper::LogLevel::LL_Info, "Error in Config File Copy, Exit\n");
+				exit(0);
+			}
+		} else if (loadMode.find("singleIndex") != std::string::npos) {
+			int status = system(("cp "+ basePath + "/indexloader.ini.singleindex " + basePath + "/indexloader.ini").c_str());
+			if (status == 0) {
+				LOG(Helper::LogLevel::LL_Info, "Distributed Search SingleIndex Config File Copied\n");
+			} else {
+				LOG(Helper::LogLevel::LL_Info, "Error in Config File Copy, Exit\n");
+				exit(0);
+			}
+		} else {
+			LOG(Helper::LogLevel::LL_Info, "Can not identify mode, Exit\n");
+			exit(0);
+		}
+		ret = RemoteServing::BootProgram(argv[1]);
 	}
-	auto ret = RemoteServing::BootProgram(argv[1]);
 	return ret;
 }
 
