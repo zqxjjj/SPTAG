@@ -36,6 +36,9 @@
 #include <zmq.h>
 #include <zmq.hpp>
 
+#include <iostream>
+#include <fstream>
+
 namespace SPTAG
 {
 
@@ -694,13 +697,32 @@ namespace SPTAG
                     // m_commSocketPool[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
                 // }
                 // Debug version
-                int node = 0;
-                for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                    std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                    addrPrefix += std::to_string(node * 2);
-                    LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                    m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
-                    m_commSocketPool[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
+                // int node = 0;
+                // for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+                //     std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+                //     addrPrefix += std::to_string(node * 2);
+                //     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+                //     m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
+                //     m_commSocketPool[i]->initNetwork(m_options.m_socketThreadNum, addrPrefix);
+                // }
+                std::ifstream file(m_options.m_diskKVNetConfigPath); 
+                std::string ipAddr;
+                int count = 0;
+
+                if (file.is_open()) {
+                    while (std::getline(file, ipAddr)) {
+                        LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", ipAddr.c_str());
+                        m_commSocketPool[count] = std::make_shared<NetworkThreadPool>();
+                        m_commSocketPool[count]->initNetwork(m_options.m_socketThreadNum, ipAddr);
+                        count++;
+                    }
+                    file.close();
+                } else {
+                    LOG(Helper::LogLevel::LL_Info, "Can not open diskKV Network Config FIle: %s\n", m_options.m_diskKVNetConfigPath.c_str());
+                }
+                if (count < m_options.m_dspannIndexFileNum) {
+                    LOG(Helper::LogLevel::LL_Info, "Can not get enough ip address, exit\n");
+                    exit(0);
                 }
             }
 

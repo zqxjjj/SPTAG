@@ -203,6 +203,8 @@ namespace SPTAG {
             std::string m_dspannCenters;
             int m_dspannTopK;
             std::string m_ipAddrFrontendDSPANN;
+            std::string m_diskKVNetConfigPath;
+            std::string m_topLayerNetConfigPath;
 
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \

@@ -84,13 +84,32 @@ namespace SPTAG {
             // }
 
             // Debug version
-            int node = 0;
-            for (int i = 0; i < p_opts.m_dspannIndexFileNum; i++, node += 1) {
-                std::string addrPrefix = p_opts.m_ipAddrFrontendDSPANN;
-                addrPrefix += std::to_string(node*2);
-                LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                m_clientThreadPool[i] = std::make_shared<SPANN::NetworkThreadPool>();
-                m_clientThreadPool[i]->initNetwork(p_opts.m_socketThreadNum, addrPrefix);
+            // int node = 0;
+            // for (int i = 0; i < p_opts.m_dspannIndexFileNum; i++, node += 1) {
+            //     std::string addrPrefix = p_opts.m_ipAddrFrontendDSPANN;
+            //     addrPrefix += std::to_string(node*2);
+            //     LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+            //     m_clientThreadPool[i] = std::make_shared<SPANN::NetworkThreadPool>();
+            //     m_clientThreadPool[i]->initNetwork(p_opts.m_socketThreadNum, addrPrefix);
+            // }
+            std::ifstream file(p_opts.m_topLayerNetConfigPath); 
+            std::string ipAddr;
+            int count = 0;
+
+            if (file.is_open()) {
+                while (std::getline(file, ipAddr)) {
+                    LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", ipAddr.c_str());
+                    m_clientThreadPool[count] = std::make_shared<SPANN::NetworkThreadPool>();
+                    m_clientThreadPool[count]->initNetwork(p_opts.m_socketThreadNum, ipAddr);
+                    count++;
+                }
+                file.close();
+            } else {
+                LOG(Helper::LogLevel::LL_Info, "Can not open topLayer Network Config FIle: %s\n", p_opts.m_topLayerNetConfigPath.c_str());
+            }
+            if (count < p_opts.m_dspannIndexFileNum) {
+                LOG(Helper::LogLevel::LL_Info, "Can not get enough ip address, exit\n");
+                exit(0);
             }
         }
 

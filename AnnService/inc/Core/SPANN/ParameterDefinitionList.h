@@ -210,6 +210,8 @@ DefineSSDParameter(m_dspannIndexLabelPrefix, std::string, "", "DSPANNIndexLabelP
 DefineSSDParameter(m_dspannCenters, std::string, "", "DSPANNCenters")
 DefineSSDParameter(m_dspannTopK, int, 5, "DSPANNTopK")
 DefineSSDParameter(m_ipAddrFrontendDSPANN, std::string, std::string(""), "IPAddrFrontendDSPANN")
+DefineSSDParameter(m_diskKVNetConfigPath, std::string, std::string(""), "DiskKVNetConfigPath")
+DefineSSDParameter(m_topLayerNetConfigPath, std::string, std::string(""), "TopLayerNetConfigPath")
 
 DefineSSDParameter(m_distKV, bool, false, "DistKV")
 DefineSSDParameter(m_myNodeId, int, -1, "MyNodeId")
