@@ -118,7 +118,11 @@ option(GPU "GPU" ON)
 option(LIBRARYONLY "LIBRARYONLY" OFF)
 option(ROCKSDB "ROCKSDB" ON)
 
-add_definitions(-DLARGE_VID)
+
+if(LARGE_VID)
+    message (STATUS "Complie 8-Byte SPTAG")
+    add_definitions(-DLARGE_VID)
+endif()
 
 if (ROCKSDB)    
     add_definitions(-DROCKSDB)
