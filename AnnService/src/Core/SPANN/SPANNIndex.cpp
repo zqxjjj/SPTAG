@@ -4,7 +4,7 @@
 #include "inc/Core/SPANN/Index.h"
 #include "inc/Helper/VectorSetReaders/MemoryReader.h"
 #include "inc/Core/SPANN/ExtraStaticSearcher.h"
-#include "inc/Core/SPANN/ExtraDynamicSearcher.h"
+// #include "inc/Core/SPANN/ExtraDynamicSearcher.h"
 #include <cstddef>
 #include <shared_mutex>
 #include <chrono>
@@ -122,17 +122,17 @@ namespace SPTAG
             }
             else
             {
-                if (m_options.m_useKV) {
-                    if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                }
-                else {
+                // if (m_options.m_useKV) {
+                //     if (m_options.m_inPlace) {
+                //         m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                //     }
+                //     else {
+                //         m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                //     }
+                // }
+                // else {
                     m_extraSearcher.reset(new ExtraStaticSearcher<T>());
-                }
+                // }
             }
 
             if (!m_extraSearcher->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
@@ -509,19 +509,19 @@ namespace SPTAG
             }
             else
             {
-                if (m_options.m_useKV) {
-                    if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                }
-                else if (m_options.m_useSPDK) {
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength));
-                } else {
+                // if (m_options.m_useKV) {
+                //     if (m_options.m_inPlace) {
+                //         m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                //     }
+                //     else {
+                //         m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                //     }
+                // }
+                // else if (m_options.m_useSPDK) {
+                //     m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength));
+                // } else {
                     m_extraSearcher.reset(new ExtraStaticSearcher<T>());
-                }
+                // }
             }
 
             if (!m_extraSearcher->LoadIndex(m_options, m_versionMap)) return ErrorCode::Fail;
@@ -1147,32 +1147,32 @@ namespace SPTAG
                 m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
                 m_index->UpdateIndex();
 
-                if (m_options.m_useKV)
-                {
-                    if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T)*m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                } else if (m_options.m_useSPDK)
-                {
-                    if (m_options.m_inPlace) {
-                        LOG(Helper::LogLevel::LL_Info, "Currently unsupport SPDK with inplace!\n");
-                        exit(1);
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize));
-                    }  
-                }
-                else {
+                // if (m_options.m_useKV)
+                // {
+                //     if (m_options.m_inPlace) {
+                //         m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                //     }
+                //     else {
+                //         m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T)*m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                //     }
+                // } else if (m_options.m_useSPDK)
+                // {
+                //     if (m_options.m_inPlace) {
+                //         LOG(Helper::LogLevel::LL_Info, "Currently unsupport SPDK with inplace!\n");
+                //         exit(1);
+                //     }
+                //     else {
+                //         m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize));
+                //     }  
+                // }
+                // else {
                     if (m_pQuantizer) {
                         m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
                     }
                     else {
                         m_extraSearcher.reset(new ExtraStaticSearcher<T>());
                     }
-                }
+                // }
 
                 if (m_options.m_buildSsdIndex) {
                     if (!m_options.m_excludehead) {
