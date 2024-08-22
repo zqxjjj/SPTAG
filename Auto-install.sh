@@ -8,7 +8,6 @@ dependencies=(
   cmake
   swig
   libboost-all-dev
-  libtbb-dev
 )
 # dependency
 for dependency in "${dependencies[@]}"

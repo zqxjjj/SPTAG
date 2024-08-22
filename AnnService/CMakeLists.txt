@@ -44,14 +44,7 @@ if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     target_compile_options(DistanceUtils PRIVATE -mavx2 -mavx -msse -msse2 -mavx512f -mavx512bw -mavx512dq -fPIC)
 endif()
 
-find_package(RocksDB CONFIG)
-
 find_package(cppzmq)
-
-find_package(TBB REQUIRED)
-if (TBB_FOUND)
-    message (STATUS "Found TBB")
-endif()
 
 add_library (SPTAGLib SHARED ${SRC_FILES} ${HDR_FILES})
 target_link_libraries (SPTAGLib DistanceUtils libzstd_shared ${NUMA_LIBRARY} tbb cppzmq)
