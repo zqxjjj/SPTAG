@@ -5,9 +5,8 @@ CDTDIR=$(pwd)
 
 # Run the code in the SPFresh folder
 dependencies=(
-  cmake
   swig
-  libboost-all-dev
+  libssl-dev
 )
 # dependency
 for dependency in "${dependencies[@]}"
@@ -23,6 +22,29 @@ do
     exit 1
   fi
 done
+
+cd $CDTDIR
+
+# install cmake
+wget https://github.com/Kitware/CMake/releases/download/v3.22.0/cmake-3.22.0.tar.gz
+tar -zxvf cmake-3.22.0.tar.gz 
+cd cmake-3.22.0
+./bootstrap 
+make -j32
+make install
+
+cd $CDTDIR
+mv /usr/bin/cmake /usr/bin/cmake_old
+ln -s cmake-3.22.0/bin/cmake /usr/bin/
+
+# install boost
+wget https://archives.boost.io/release/1.71.0/source/boost_1_71_0.tar.gz
+tar -zxvf boost_1_71_0.tar.gz 
+cd boost_1_71_0
+/bootstrap.sh --prefix=/usr/
+./b2
+./b2 install
+
 # install libzmq & cppzmq
 echo "Install libzmq"
 cd ThirdParty/libzmq
