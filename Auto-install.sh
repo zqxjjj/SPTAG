@@ -7,6 +7,7 @@ CDTDIR=$(pwd)
 dependencies=(
   swig
   libssl-dev
+  wget
 )
 # dependency
 for dependency in "${dependencies[@]}"
@@ -44,6 +45,8 @@ cd boost_1_71_0
 /bootstrap.sh --prefix=/usr/
 ./b2
 ./b2 install
+
+cd $CDTDIR
 
 # install libzmq & cppzmq
 echo "Install libzmq"
