@@ -1324,6 +1324,7 @@ namespace SPTAG
                 }
                 char* ptr = (char*)(posting.c_str());
                 memcpy(ptr, buffer + listInfo->pageOffset, realBytes);
+                PAGE_FREE(buffer);
             }
 
             void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, VectorIndex* p_index, double& compLatency, int& scannedNum, Options& p_options) override {
