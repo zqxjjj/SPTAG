@@ -1313,17 +1313,17 @@ namespace SPTAG
                 ListInfo* listInfo = &(m_listInfos[pid]);
                 size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
                 size_t realBytes = listInfo->listEleCount * m_vectorInfoSize;
-                posting.resize(totalBytes);
+                posting.resize(realBytes);
                 int fileid = m_oneContext? 0: pid / m_listPerFile;
                 Helper::DiskIO* indexFile = m_indexFiles[fileid].get();
-                auto numRead = indexFile->ReadBinary(totalBytes, posting.data(), listInfo->listOffset);
+                char* buffer = static_cast<char*>(PAGE_ALLOC(totalBytes));
+                auto numRead = indexFile->ReadBinary(totalBytes, buffer, listInfo->listOffset);
                 if (numRead != totalBytes) {
                     LOG(Helper::LogLevel::LL_Error, "File %s read bytes, expected: %zu, acutal: %llu.\n", m_extraFullGraphFile.c_str(), totalBytes, numRead);
                     throw std::runtime_error("File read mismatch");
                 }
                 char* ptr = (char*)(posting.c_str());
-                memcpy(ptr, posting.c_str() + listInfo->pageOffset, realBytes);
-                posting.resize(realBytes);
+                memcpy(ptr, buffer + listInfo->pageOffset, realBytes);
             }
 
             void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, VectorIndex* p_index, double& compLatency, int& scannedNum, Options& p_options) override {
