@@ -54,10 +54,12 @@ namespace SPTAG
 
             KmeansArgs(int k, DimensionType dim, SizeType datasize, int threadnum, DistCalcMethod distMethod, const std::shared_ptr<IQuantizer>& quantizer = nullptr) : _K(k), _DK(k), _D(dim), _RD(dim), _T(threadnum), _M(distMethod), m_pQuantizer(quantizer){
                 if (m_pQuantizer) {
+		    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "KmeansArgs: Using quantizer!\n");
                     _RD = m_pQuantizer->ReconstructDim();
                     fComputeDistance = m_pQuantizer->DistanceCalcSelector<T>(distMethod);
                 }
                 else {
+		    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "KmeansArgs: Using none quantizer!\n");
                     fComputeDistance = COMMON::DistanceCalcSelector<T>(distMethod);
                 }
 

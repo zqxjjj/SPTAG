@@ -73,21 +73,19 @@ std::unique_ptr<T[]> TrainPQQuantizer(std::shared_ptr<QuantizerOptions> options,
 #pragma omp parallel for
     for (int codebookIdx = 0; codebookIdx < options->m_quantizedDim; codebookIdx++) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Training Codebook %d.\n", codebookIdx);
-        auto kargs = COMMON::KmeansArgs<T>(numCentroids, subdim, raw_vectors->Count(), options->m_threadNum, DistCalcMethod::L2, nullptr);
-        auto dset = COMMON::Dataset<T>(raw_vectors->Count(), subdim, blockRows, raw_vectors->Count());
+        COMMON::Dataset<T> dset(raw_vectors->Count(), subdim, blockRows, raw_vectors->Count());
 
         for (int vectorIdx = 0; vectorIdx < raw_vectors->Count(); vectorIdx++) {
-            auto raw_addr = reinterpret_cast<T*>(raw_vectors->GetVector(vectorIdx)) + (codebookIdx * subdim);
-            auto dset_addr = dset[vectorIdx];
-            for (int k = 0; k < subdim; k++) {
-                dset_addr[k] = raw_addr[k];
-            }
+            T* raw_addr = reinterpret_cast<T*>(raw_vectors->GetVector(vectorIdx)) + (codebookIdx * subdim);
+            T* dset_addr = dset[vectorIdx];
+            std::memcpy(dset_addr, raw_addr, sizeof(T)*subdim);
         }
 
         std::vector<SizeType> localindices;
         localindices.resize(dset.R());
         for (SizeType il = 0; il < localindices.size(); il++) localindices[il] = il;
 
+        auto kargs = COMMON::KmeansArgs<T>(numCentroids, subdim, raw_vectors->Count(), options->m_threadNum, DistCalcMethod::L2, nullptr);
         auto nclusters = COMMON::KmeansClustering<T>(dset, localindices, 0, dset.R(), kargs, options->m_trainingSamples, options->m_KmeansLambda, options->m_debug, nullptr);
 
         std::vector<SizeType> reverselocalindex;

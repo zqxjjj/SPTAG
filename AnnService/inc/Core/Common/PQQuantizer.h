@@ -140,7 +140,7 @@ namespace SPTAG
         {
             if (ADC && GetEnableADC())
             {
-                auto distCalc = DistanceCalcSelector<T>(DistCalcMethod::L2);
+                auto distCalc = COMMON::DistanceCalcSelector<T>(DistCalcMethod::L2);
                 float* ADCtable = (float*) vecout;
                 T* subcodebooks = m_codebooks.get();
                 T* subvec = (T*)vec;
@@ -157,7 +157,7 @@ namespace SPTAG
             }
             else 
             {
-                auto distCalc = DistanceCalcSelector<T>(DistCalcMethod::L2);
+                auto distCalc = COMMON::DistanceCalcSelector<T>(DistCalcMethod::L2);
                 T* subvec = (T*)vec;
                 T* subcodebooks = m_codebooks.get();
                 for (int i = 0; i < m_NumSubvectors; i++) {
@@ -334,7 +334,7 @@ namespace SPTAG
         void PQQuantizer<T>::InitializeDistanceTables()
         {
             auto temp_m_L2DistanceTables = std::make_unique<float[]>(m_BlockSize * m_NumSubvectors);
-            auto L2Dist = DistanceCalcSelector<T>(DistCalcMethod::L2);
+            auto L2Dist = COMMON::DistanceCalcSelector<T>(DistCalcMethod::L2);
 
             for (int i = 0; i < m_NumSubvectors; i++) {
                 SizeType baseIdx = i * m_KsPerSubvector * m_DimPerSubvector;
