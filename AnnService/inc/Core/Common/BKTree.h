@@ -379,7 +379,7 @@ namespace SPTAG
                 */
 
                 currDiff = RefineCenters<T, R>(data, args);
-                //if (debug) LOG(Helper::LogLevel::LL_Info, "iter %d dist:%f diff:%f\n", iter, currDist, currDiff);
+                if (debug) LOG(Helper::LogLevel::LL_Info, "iter %d dist:%f diff:%f\n", iter, currDist, currDiff);
 
                 if (abort && abort->ShouldAbort()) return 0;
                 if (currDiff < 1e-3 || noImprovement >= 5) break;
@@ -408,8 +408,7 @@ namespace SPTAG
                 if (args.counts[i] > 0) availableClusters++;
             }
             CountStd = sqrt(CountStd / args._DK) / CountAvg;
-            // if (debug) LOG(Helper::LogLevel::LL_Info, "Lambda:min(%g,%g) Max:%d Min:%d Avg:%f Std/Avg:%f Dist:%f NonZero/Total:%d/%d\n", originalLambda, adjustedLambda, maxCount, minCount, CountAvg, CountStd, currDist, availableClusters, args._DK);
-
+            if (debug) LOG(Helper::LogLevel::LL_Info, "Lambda:min(%g,%g) Max:%d Min:%d Avg:%f Std/Avg:%f Dist:%f NonZero/Total:%d/%d\n", originalLambda, adjustedLambda, maxCount, minCount, CountAvg, CountStd, currDist, availableClusters, args._DK);
             return CountStd;
         }
 
