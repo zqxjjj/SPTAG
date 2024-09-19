@@ -25,6 +25,8 @@
 #include "IExtraSearcher.h"
 #include "Options.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <functional>
@@ -67,6 +69,55 @@ namespace SPTAG
         class NetworkThreadPool : public Helper::ThreadPool
         {
         public:
+            std::string m_address;
+            bool checkRemoteAvaliable()
+            {
+                LOG(Helper::LogLevel::LL_Info,"Test to connect: %s\n", m_address.c_str());
+                zmq::context_t context(1);
+                zmq::socket_t * checkSocket = new zmq::socket_t (context, ZMQ_DEALER);
+                checkSocket->connect(m_address.c_str());
+                int linger = 0;
+                checkSocket->setsockopt(ZMQ_LINGER, &linger, sizeof(linger));
+                int retries_left = 3;
+                while (retries_left) {
+                    std::string tempData = "HeartBeat";
+                    zmq::message_t pingpong(tempData.data(), tempData.size());
+                    checkSocket->send(pingpong);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                    bool expect_reply = true;
+                    while (expect_reply) {
+                        //  Poll socket for a reply, with timeout
+                        zmq::pollitem_t items[] = {
+                            { *checkSocket, 0, ZMQ_POLLIN, 0 } };
+                        zmq::poll (&items[0], 1, 2500);
+                        //  If we got a reply, process it
+                        if (items[0].revents & ZMQ_POLLIN) {
+                            //  We got a reply from the server, must match sequence
+                            zmq::message_t pingpong_reply;
+                            checkSocket->recv(pingpong_reply);
+                            LOG(Helper::LogLevel::LL_Info,"Successfully recv from %s\n", m_address.c_str());
+                            delete checkSocket;
+                            return true;
+                        }
+                        else if (--retries_left == 0) {
+                            LOG(Helper::LogLevel::LL_Info,"No response from server, Failed\n");
+                            delete checkSocket;
+                            return false;
+                        }
+                        else {
+                            LOG(Helper::LogLevel::LL_Info,"No response from server, retrying...\n");
+                            //  Old socket will be confused; close it and open a new one
+                            delete checkSocket;
+                            checkSocket = new zmq::socket_t (context, ZMQ_REQ);
+                            //  Send request again, on new socket
+                            checkSocket->connect(m_address.c_str());
+                        }
+                    }
+                }
+                delete checkSocket;
+                return true;
+            }
+
             bool getNoBlock(Job*& j)
             {
                 std::unique_lock<std::mutex> lock(m_lock);
@@ -80,6 +131,7 @@ namespace SPTAG
 
             void initNetwork(int numberOfThreads, std::string& m_ipAddrFrontend) 
             {
+                m_address = m_ipAddrFrontend;
                 m_abort.SetAbort(false);
                 for (int i = 0; i < numberOfThreads; i++)
                 {
@@ -353,31 +405,31 @@ namespace SPTAG
 
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
 
-            void InitDSPANNNetWork() {
-                m_commSocketPool.resize(m_options.m_dspannIndexFileNum * 2);
-                // m_commSocketPool.resize(m_options.m_dspannIndexFileNum);
+            // void InitDSPANNNetWork() {
+            //     m_commSocketPool.resize(m_options.m_dspannIndexFileNum * 2);
+            //     // m_commSocketPool.resize(m_options.m_dspannIndexFileNum);
 
-                // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
-                // for shard i, m_commSocketPool[i*2] and m_commSocketPool[i*2+1] are all for processing
-                int node = 4;
-                for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-                    std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                    addrPrefix += std::to_string(node);
-                    addrPrefix += ":8000";
-                    LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                    m_commSocketPool[i*2] = std::make_shared<NetworkThreadPool>();
-                    m_commSocketPool[i*2]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
-                    // m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
-                    // m_commSocketPool[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
+            //     // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
+            //     // for shard i, m_commSocketPool[i*2] and m_commSocketPool[i*2+1] are all for processing
+            //     int node = 4;
+            //     for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
+            //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+            //         addrPrefix += std::to_string(node);
+            //         addrPrefix += ":8000";
+            //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+            //         m_commSocketPool[i*2] = std::make_shared<NetworkThreadPool>();
+            //         m_commSocketPool[i*2]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
+            //         // m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
+            //         // m_commSocketPool[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
 
-                    addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-                    addrPrefix += std::to_string(node);
-                    addrPrefix += ":8002";
-                    LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-                    m_commSocketPool[i*2+1] = std::make_shared<NetworkThreadPool>();
-                    m_commSocketPool[i*2+1]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
-                }
-            }
+            //         addrPrefix = m_options.m_ipAddrFrontendDSPANN;
+            //         addrPrefix += std::to_string(node);
+            //         addrPrefix += ":8002";
+            //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
+            //         m_commSocketPool[i*2+1] = std::make_shared<NetworkThreadPool>();
+            //         m_commSocketPool[i*2+1]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
+            //     }
+            // }
 
             ErrorCode AddIndexSPFresh(const void *p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType* VID) {
                 if ((!m_options.m_useKV &&!m_options.m_useSPDK) || m_extraSearcher == nullptr) {
@@ -593,6 +645,7 @@ namespace SPTAG
             }
 
             ErrorCode WorkerTopLayerNode() {
+                std::string tempData = "HeartBeat";
                 LOG(Helper::LogLevel::LL_Info, "Start Worker HeadIndex\n");
                 zmq::context_t context(1);
 
@@ -611,6 +664,15 @@ namespace SPTAG
                     zmq::message_t reply;
                     responder.recv(&identity);
                     responder.recv(&reply);
+
+                    // LOG(Helper::LogLevel::LL_Info,"R: size: %d\n", reply.size());
+                    if (reply.size() == tempData.size()) {
+                        //pingpong
+                        zmq::message_t request(1);
+                        responder.send(identity, ZMQ_SNDMORE);
+                        responder.send(request);
+                        continue;
+                    } 
 
                     // char* iptr = static_cast<char*>(identity.data());
 
@@ -726,6 +788,16 @@ namespace SPTAG
                 }
             }
 
+            void testDistKV() {
+                LOG(Helper::LogLevel::LL_Info, "Begin with test distKV avaliable\n");
+                if (m_options.m_isCoordinator)
+                    for (int i = 0; i < m_options.m_dspannIndexFileNum; i++) {
+                        if(!m_commSocketPool[i]->checkRemoteAvaliable()) {
+                            exit(0);
+                        }
+                    }
+            }
+
             int NodeHash(SizeType key, int layer) {
                 return key % m_options.m_dspannIndexFileNum;
             }
@@ -739,6 +811,7 @@ namespace SPTAG
             }
 
             ErrorCode WorkerSingleIndex() {
+                std::string tempData = "HeartBeat";
                 // Warning: this code must be run under 4-Byte SizeType
                 LOG(Helper::LogLevel::LL_Info, "Start Worker SingleIndex For Production Baseline\n");
                 zmq::context_t context(1);
@@ -746,6 +819,8 @@ namespace SPTAG
                 // zmq::socket_t responder(context, ZMQ_REP);
                 zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                LOG(Helper::LogLevel::LL_Info,"Ready For Recv\n");
 
                 while(1) {
                     int msg_size = m_options.m_dim * sizeof(T);
@@ -756,6 +831,14 @@ namespace SPTAG
                     zmq::message_t reply;
                     responder.recv(&identity);
                     responder.recv(&reply);
+
+                    if(reply.size() == tempData.size()) {
+                        //it is pingpong
+                        zmq::message_t request(1);
+                        responder.send(identity, ZMQ_SNDMORE);
+                        responder.send(request);
+                        continue;
+                    }
 
                     // char* iptr = static_cast<char*>(identity.data());
 
@@ -825,12 +908,15 @@ namespace SPTAG
             }
 
             ErrorCode WorkerDistKV() {
+                std::string tempData = "HeartBeat";
                 LOG(Helper::LogLevel::LL_Info, "Start Worker DistKV\n");
                 zmq::context_t context(1);
 
                 // zmq::socket_t responder(context, ZMQ_REP);
                 zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
+
+                LOG(Helper::LogLevel::LL_Info,"Ready For Recv\n");
 
                 while(1) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
@@ -839,6 +925,15 @@ namespace SPTAG
                     zmq::message_t identity;
                     responder.recv(&identity);
                     responder.recv(&reply);
+
+                    if (reply.size() == tempData.size()) {
+                        //pingpong
+                        zmq::message_t request(1);
+                        responder.send(identity, ZMQ_SNDMORE);
+                        responder.send(request);
+                        continue;
+                    } 
+
                     auto t1 = std::chrono::high_resolution_clock::now();
                     // client request, a list of key and vector and layer
                     // worker request, a list of key and vector and and char "0"

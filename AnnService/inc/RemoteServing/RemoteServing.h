@@ -257,6 +257,13 @@ namespace SPTAG {
             }
             LOG(Helper::LogLevel::LL_Info, "Load Query Finished\n");
 
+            LOG(Helper::LogLevel::LL_Info, "Verifying connection\n");
+            for (int i = 0; i < p_opts.m_dspannIndexFileNum; i++) {
+                if (!m_clientThreadPool[i]->checkRemoteAvaliable()) {
+                    exit(0);
+                }
+            }
+
             std::atomic_size_t queriesSent(0);
 
             std::vector<std::thread> threads;
@@ -506,6 +513,8 @@ namespace SPTAG {
 
             // TopLayer connect to all nodes
             if (p_opts.m_isCoordinator) p_index->initDistKVNetWork();
+
+            if (p_opts.m_distKV) p_index->testDistKV();
 
             std::vector<std::thread> m_threads;
             for (int i = 0; i < p_opts.m_searchThreadNum; i++)
