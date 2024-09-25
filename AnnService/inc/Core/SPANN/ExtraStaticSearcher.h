@@ -1379,7 +1379,9 @@ namespace SPTAG
             }
 
             int GetPostingSize(SizeType headID) override {
-                return m_listInfos[headID].listEleCount;
+                SizeType pid = headID;
+                if (m_distKV) pid = m_globalVectorIDToHeadMap[pid];
+                return m_listInfos[pid].listEleCount;
             }
 
             void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) override {

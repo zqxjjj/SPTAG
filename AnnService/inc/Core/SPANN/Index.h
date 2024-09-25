@@ -975,7 +975,7 @@ namespace SPTAG
                         m_workspace->m_postingIDs.clear();
                         // currently we exclude head from extraSearcher, so we do not need to add head information into m_deduper
                         for (auto key: keys) {
-                            m_workspace->m_postingIDs.push_back(key);
+                            if (m_extraSearchers[layer]->GetPostingSize(key) != 0) m_workspace->m_postingIDs.push_back(key);
                         }
                         (*((COMMON::QueryResultSet<T>*)&p_Result)).SetTarget(reinterpret_cast<T*>(vectorBuffer), m_pQuantizer);
                         double compLatency = 0;

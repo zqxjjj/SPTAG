@@ -187,11 +187,16 @@ namespace SPTAG {
             p_postingOrderInIndex.clear();
             p_postingOrderInIndex.reserve(selectNum);
 
+            int currPageNum = lastPageNum + 1;
+            std::uint16_t currOffset = 0;
+
             PageModWithID listInfo;
             for (size_t i = 0; i < selectNum; ++i)
             {
                 if (p_postingListBytes[i + indexBeg] == 0)
                 {
+                    p_postPageNum[i + indexBeg] = currPageNum;
+                    p_postPageOffset[i + indexBeg] = currOffset;
                     continue;
                 }
 
@@ -202,9 +207,6 @@ namespace SPTAG {
             }
 
             listInfo.id = -1;
-
-            int currPageNum = lastPageNum + 1;
-            std::uint16_t currOffset = 0;
 
             while (!listRestSize.empty())
             {
