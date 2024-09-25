@@ -1363,6 +1363,7 @@ namespace SPTAG
                             uint64_t offsetVectorID, offsetVector;
                             (this->*m_parsePosting)(offsetVectorID, offsetVector, i, listInfo->listEleCount);
                             SizeType vectorID = *(reinterpret_cast<SizeType*>(p_postingListFullData + offsetVectorID));
+                            if (vectorID < 0) LOG(Helper::LogLevel::LL_Error, "DistKV: Find one vector ID gets minus: %lld, its listInfo status: offset: %lld, listCount: %d, PageCount: %d\n", vectorID, listInfo->pageOffset, listInfo->listEleCount, listInfo->listPageCount);
                             if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
                             auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), p_postingListFullData + offsetVector);
                             // auto distance2leafReal = COMMON::DistanceUtils::ComputeDistance((ValueType *)queryResults.GetQuantizedTarget(), (ValueType *)p_postingListFullData + offsetVector, p_options.m_dim , p_options.m_distCalcMethod);

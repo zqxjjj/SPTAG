@@ -550,6 +550,10 @@ namespace SPTAG
 
                     for (auto key: m_workspace->m_postingIDs) {
                         // LOG(Helper::LogLevel::LL_Info, "Debug Layer %d: key %d\n", layer+1, key);
+                        if (key < 0) {
+                            LOG(Helper::LogLevel::LL_Info, "Toplayer: temporarily find a key < 0(%d), in layer %d, drop it, but it is a bug\n", key, layer+1);
+                            continue;
+                        }
                         int node = NodeHash(key, layer);
                         keys_eachNode[node].push_back(key);
                     }
@@ -998,7 +1002,12 @@ namespace SPTAG
 
                         for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
                             auto res = queryResults->GetResult(i);
+                            if (res->VID == -1) break;
                             // LOG(Helper::LogLevel::LL_Info, "Send Back, VID: %lu, Dist: %f\n", res->VID, res->Dist);
+                            if (res->VID < -1) {
+                                LOG(Helper::LogLevel::LL_Info, "DistKV, temporarily find a wrong VID: %d when searching layer: %d, drop it but it is a bug\n", res->VID, layer+1);
+                                continue;
+                            }
                             memcpy(ptr, (char *)&res->VID, sizeof(SizeType));
                             memcpy(ptr+sizeof(SizeType), (char *)&res->Dist, sizeof(float));
                             ptr+=sizeof(SizeType);
