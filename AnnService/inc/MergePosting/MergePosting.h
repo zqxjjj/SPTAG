@@ -37,7 +37,10 @@ namespace SPTAG {
                 AddRequiredOption(m_localMergeBufferSize, "-l", "--localmergebuffersize", "Merge l postings in memory for a batch");
                 AddRequiredOption(outputNewFile, "-on", "--outputnewfile", "the prefix of output final file");
                 AddRequiredOption(m_fileDir, "-fd", "--filedir", "the prefix of to-merge index dir");
-                
+                AddOptionalOption(m_decouple, "-dp", "--decouple", "decouple the divide file stage and merge file stage");
+                AddOptionalOption(m_divide, "-dvt", "--devidestage", "decouple: divide file stage(true), merge file stage(false)");
+                AddOptionalOption(m_processFiles, "-pfs", "--processfiles", "ProcessFileSet, Example: 1-2-3-5-8");
+                AddOptionalOption(m_processNodes, "-pn", "--processNode", "ProcessNode, Example: 1-2-4");
             }
 
             ~MergeOptions() {}
@@ -50,6 +53,10 @@ namespace SPTAG {
             int m_localMergeBufferSize;
             std::string outputNewFile;
             std::string m_fileDir;
+            bool m_decouple = false;
+            bool m_divide = true;
+            std::string m_processFiles;
+            std::string m_processNodes;
             
 
         } options;
@@ -1215,9 +1222,9 @@ namespace SPTAG {
             for (int i = 0; i < 10; i++) {
                 size_t randID = COMMON::Utils::rand(m_listCount, 0);
                 ListInfoSubFile listInfo = m_listInfo[randID];
-                LOG(Helper::LogLevel::LL_Info, "%lu posting, its global vector id is %lu\n", randID, listInfo.globalVectorID);
-                LOG(Helper::LogLevel::LL_Info, "Its size: %d\n", listInfo.listEleCount);
-                LOG(Helper::LogLevel::LL_Info, "Its target offset: %lu\n", listInfo.listOffset);
+                // LOG(Helper::LogLevel::LL_Info, "%lu posting, its global vector id is %lu\n", randID, listInfo.globalVectorID);
+                // LOG(Helper::LogLevel::LL_Info, "Its size: %d\n", listInfo.listEleCount);
+                // LOG(Helper::LogLevel::LL_Info, "Its target offset: %lu\n", listInfo.listOffset);
 
                 std::string verifyPosting;
 
@@ -1227,7 +1234,12 @@ namespace SPTAG {
                 for (int vectorNum = (verifyPosting.size()/m_vectorInfoSize), i = 0; i < vectorNum; i++) {
                     char* vectorInfo = pptr + i * (m_vectorInfoSize);
                     size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
-                    LOG(Helper::LogLevel::LL_Info,"VectorID : %lu\n", VID);
+                    if (VID < 0) {
+                        LOG(Helper::LogLevel::LL_Info, "%lu posting, its global vector id is %lu\n", randID, listInfo.globalVectorID);
+                        LOG(Helper::LogLevel::LL_Info, "Its size: %d\n", listInfo.listEleCount);
+                        LOG(Helper::LogLevel::LL_Info, "Its target offset: %lu\n", listInfo.listOffset);
+                        LOG(Helper::LogLevel::LL_Info,"VectorID : %lu\n", VID);
+                    }
                 }
             }
 
@@ -1235,53 +1247,96 @@ namespace SPTAG {
 
         template <typename ValueType>
         void MergeSPectrumSingleNode() {
-            for (int FileNo = 0; FileNo < options.m_numFiles; FileNo++) {
+            if (!options.m_decouple || options.m_divide) {
+                std::vector<int> FileNoSet;
+                if (options.m_processFiles.size() == 0) {
+                    LOG(Helper::LogLevel::LL_Info, "Didn't decide files, set to all %d Files\n", options.m_numFiles);
+                    for (int FileNo = 0; FileNo < options.m_numFiles; FileNo++) {
+                        FileNoSet.push_back(FileNo);
+                    }
+                } else {
+                    std::stringstream ss(options.m_processFiles);
+                    std::string token;
+                    
+                    while (std::getline(ss, token, '-')) {
+                        FileNoSet.push_back(std::stoi(token));
+                    }
 
-                LOG(Helper::LogLevel::LL_Info, "Loading File No: %d\n", FileNo);
-                /* Loading Index */
+                    LOG(Helper::LogLevel::LL_Info, "This node is going to process files:");
+                    for (int FileNo : FileNoSet) {
+                        LOG(Helper::LogLevel::LL_Info, " %d ", FileNo);
+                    }
+                    LOG(Helper::LogLevel::LL_Info, "\n");
+                }
+                for (int FileNo : FileNoSet) {
+                    LOG(Helper::LogLevel::LL_Info, "Loading File No: %d\n", FileNo);
+                    /* Loading Index */
 
-                std::shared_ptr<VectorIndex> m_toLoadIndex;
+                    std::shared_ptr<VectorIndex> m_toLoadIndex;
 
-                std::string filename = options.m_fileDir + std::to_string(FileNo);
+                    std::string filename = options.m_fileDir + std::to_string(FileNo);
 
-                m_toLoadIndex = LoadingIndex(filename);
+                    m_toLoadIndex = LoadingIndex(filename);
 
-                auto m_toMergeIndex = (SPANN::Index<ValueType>*)m_toLoadIndex.get();
+                    auto m_toMergeIndex = (SPANN::Index<ValueType>*)m_toLoadIndex.get();
 
-                /* Decide which node that each postin should be dispatched */
+                    /* Decide which node that each postin should be dispatched */
 
-                std::vector<std::map<size_t, size_t>> sortHeadByNodeAndGlobalVectorID(options.m_numNodes);
+                    std::vector<std::map<size_t, size_t>> sortHeadByNodeAndGlobalVectorID(options.m_numNodes);
 
-                DispatchPostingToNode<ValueType>(m_toMergeIndex, sortHeadByNodeAndGlobalVectorID, options);
+                    DispatchPostingToNode<ValueType>(m_toMergeIndex, sortHeadByNodeAndGlobalVectorID, options);
 
-                /* Divide Files into options.m_numNodes files*/
+                    /* Divide Files into options.m_numNodes files*/
 
-                DivideAndWriteSubFiles<ValueType>(m_toMergeIndex, sortHeadByNodeAndGlobalVectorID, options, FileNo);
+                    DivideAndWriteSubFiles<ValueType>(m_toMergeIndex, sortHeadByNodeAndGlobalVectorID, options, FileNo);
 
-                LOG(Helper::LogLevel::LL_Info, "Processing File No: %d Completed\n", FileNo);
+                    LOG(Helper::LogLevel::LL_Info, "Processing File No: %d Completed\n", FileNo);
+                }
             }
 
-            for (int NodeNo = 0; NodeNo < options.m_numNodes; NodeNo++) {
-                LOG(Helper::LogLevel::LL_Info, "Processing Node No: %d\n", NodeNo);
-                
-                /* Loading all subFiles of there metadata & global vector id*/
-                std::vector<size_t> m_listCounts(options.m_numFiles);
-                std::vector<size_t> m_listPageOffsets(options.m_numFiles);
-                std::vector<std::shared_ptr<Helper::DiskIO>> ptrs(options.m_numFiles);
-                std::vector<std::vector<ListInfoSubFile>> m_listInfos(options.m_numFiles);
-                
-                LoadingAllSubFiles<ValueType>(options, m_listCounts, m_listPageOffsets, ptrs, m_listInfos, NodeNo);
+            if (!options.m_decouple || !options.m_divide) {
+                std::vector<int> NodeNoSet;
+                if (options.m_processNodes.size() == 0) {
+                    LOG(Helper::LogLevel::LL_Info, "Didn't decide nodes, set to all %d nodes\n", options.m_numNodes);
+                    for (int NodeNo = 0; NodeNo < options.m_numNodes; NodeNo++) {
+                        NodeNoSet.push_back(NodeNo);
+                    }
+                } else {
+                    std::stringstream ss(options.m_processNodes);
+                    std::string token;
+                    
+                    while (std::getline(ss, token, '-')) {
+                        NodeNoSet.push_back(std::stoi(token));
+                    }
 
-                /* Merge and write the merged postings into files */
+                    LOG(Helper::LogLevel::LL_Info, "This node is going to process nodes:");
+                    for (int NodeNo : NodeNoSet) {
+                        LOG(Helper::LogLevel::LL_Info, " %d ", NodeNo);
+                    }
+                    LOG(Helper::LogLevel::LL_Info, "\n");
+                }
+                for (int NodeNo : NodeNoSet) {
+                    LOG(Helper::LogLevel::LL_Info, "Processing Node No: %d\n", NodeNo);
+                    
+                    /* Loading all subFiles of there metadata & global vector id*/
+                    std::vector<size_t> m_listCounts(options.m_numFiles);
+                    std::vector<size_t> m_listPageOffsets(options.m_numFiles);
+                    std::vector<std::shared_ptr<Helper::DiskIO>> ptrs(options.m_numFiles);
+                    std::vector<std::vector<ListInfoSubFile>> m_listInfos(options.m_numFiles);
+                    
+                    LoadingAllSubFiles<ValueType>(options, m_listCounts, m_listPageOffsets, ptrs, m_listInfos, NodeNo);
 
-                MergeAndWriteFiles<ValueType>(options, m_listCounts, m_listPageOffsets, ptrs, m_listInfos, NodeNo);
+                    /* Merge and write the merged postings into files */
 
-                LOG(Helper::LogLevel::LL_Info, "Processing Node No: %d Completed\n", NodeNo);
+                    MergeAndWriteFiles<ValueType>(options, m_listCounts, m_listPageOffsets, ptrs, m_listInfos, NodeNo);
+
+                    LOG(Helper::LogLevel::LL_Info, "Processing Node No: %d Completed\n", NodeNo);
+                }
+                // Here is some commented code for verify whether the written file is in right form
+                for (int NodeNo : NodeNoSet) {
+                    LoadingNewFiles<ValueType>(options, NodeNo);
+                }
             }
-
-            // Here is some commented code for verify whether the written file is in right form
-            LoadingNewFiles<ValueType>(options, 0);
-
         }
 
         int BootProgram(int p_restArgc, char** (p_args)) {
