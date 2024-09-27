@@ -41,6 +41,7 @@ namespace SPTAG {
                 AddOptionalOption(m_divide, "-dvt", "--devidestage", "decouple: divide file stage(true), merge file stage(false)");
                 AddOptionalOption(m_processFiles, "-pfs", "--processfiles", "ProcessFileSet, Example: 1-2-3-5-8");
                 AddOptionalOption(m_processNodes, "-pn", "--processNode", "ProcessNode, Example: 1-2-4");
+                AddOptionalOption(m_vidThresHold, "-vt", "--vidThreshold", "VID, Threshold, error when greater than this value");
             }
 
             ~MergeOptions() {}
@@ -57,7 +58,7 @@ namespace SPTAG {
             bool m_divide = true;
             std::string m_processFiles;
             std::string m_processNodes;
-            
+            std::int64_t m_vidThresHold = -1;
 
         } options;
 
@@ -280,6 +281,11 @@ namespace SPTAG {
 
                 std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
 
+                if (p_opts.m_vidThresHold!= -1 && globalVectorID >= p_opts.m_vidThresHold) {
+                    LOG(Helper::LogLevel::LL_Error, "Error when transfer headID metadata to integer: Loacal HeadID: %d, Local Vector ID: %d, Global vector id in uint64_tL %llu, Global Vector ID in string: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID, globalVectorID_string.c_str());
+                    exit(0);
+                }
+
                 sortHeadByNodeAndGlobalVectorID[globalVectorID % p_opts.m_numNodes].emplace(globalVectorID, localHeadID);
             }
             
@@ -500,6 +506,11 @@ namespace SPTAG {
 
                     std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
                     // if (id == 288) LOG(Helper::LogLevel::LL_Error, "Global ID : %lu\n", globalVectorID);
+
+                    if (p_opts.m_vidThresHold!= -1 && globalVectorID >= p_opts.m_vidThresHold) {
+                        LOG(Helper::LogLevel::LL_Error, "Error when change VectorID to globalVectorID: Local Vector ID: %d, Global vector id in uint64_t: %llu, Global Vector ID in string: %s\n", localVectorID, globalVectorID, globalVectorID_string.c_str());
+                        exit(0);
+                    }
                     
                     memcpy(postingPtr, (char*)&globalVectorID, sizeof(size_t));
                     postingPtr += sizeof(size_t);
@@ -888,6 +899,10 @@ namespace SPTAG {
                         for (int vectorNum = (currentPosting.size()/m_vectorInfoSize), i = 0; i < vectorNum; i++) {
                             char* vectorInfo = pptr + i * (m_vectorInfoSize);
                             size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
+                            if (p_opts.m_vidThresHold!= -1 && VID >= p_opts.m_vidThresHold) {
+                                LOG(Helper::LogLevel::LL_Error, "Error when read Posting to dedup: Global Vector ID: %lld\n", VID);
+                                exit(0);
+                            }
                             // if (tempNode.listIndex == 288) LOG(Helper::LogLevel::LL_Info, "VID: %lu\n", VID);
                             if (VIDset.find(VID) == VIDset.end()) {
                                 VIDset.insert(VID);
