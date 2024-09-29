@@ -306,7 +306,7 @@ namespace SPTAG {
                 /* Vector Size */
                 postingTotalBytes_subFile[totalSize] = listEleCount_subFile[totalSize] * (sizeof(size_t) + p_opts.m_dim * sizeof(ValueType));
                 /* Record global HeadID in the begining by 8B */
-                postingTotalBytes_subFile[totalSize] += sizeof(size_t);
+                // postingTotalBytes_subFile[totalSize] += sizeof(size_t);
                 indexToGlobalvectorIDMap[totalSize] = iter.first;
                 totalSize++;
             }
