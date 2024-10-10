@@ -661,15 +661,16 @@ namespace SPTAG {
         void FetchPosting(std::shared_ptr<Helper::DiskIO>& ptr, ListInfoSubFile& listInfo, std::string& posting, size_t m_vectorInfoSize) {
             size_t totalBytes = (static_cast<size_t>(listInfo.listPageCount) << PageSizeEx);
             size_t realBytes = listInfo.listEleCount * m_vectorInfoSize;
-            posting.resize(totalBytes);
-            auto numRead = ptr->ReadBinary(totalBytes, posting.data(), listInfo.listOffset);
+            std::string tempPosting;
+            tempPosting.resize(totalBytes);
+            auto numRead = ptr->ReadBinary(totalBytes, tempPosting.data(), listInfo.listOffset);
             if (numRead != totalBytes) {
                 LOG(Helper::LogLevel::LL_Error, "File read bytes, expected: %zu, acutal: %llu.\n", totalBytes, numRead);
                 throw std::runtime_error("File read mismatch");
             }
-            char* pptr = (char*)(posting.c_str());
-            memcpy(pptr, posting.c_str() + listInfo.pageOffset, realBytes);
             posting.resize(realBytes);
+            char* pptr = (char*)(posting.c_str());
+            memcpy(pptr, tempPosting.c_str() + listInfo.pageOffset, realBytes);
         }
 
         template <typename ValueType>   
@@ -912,7 +913,7 @@ namespace SPTAG {
                             if (p_opts.m_vidThresHold!= -1 && VID >= p_opts.m_vidThresHold) {
                                 LOG(Helper::LogLevel::LL_Error, "Error when read Posting to dedup: Global Vector ID: %lld\n", VID);
                                 //first check whether it is written in the wrong offset in temp file
-                                LOG(Helper::LogLevel::LL_Error, "it is %d posting in merging, posting's global vector id is %lld, it is in No %d file, the No %d in Metadata, vectorInfoSize: %d, its metadata info:\n", i, tempNode.globalVectorID, tempNode.fileNo, tempNode.listIndex, m_vectorInfoSize);
+                                LOG(Helper::LogLevel::LL_Error, "it is %d posting in merging, posting's global vector id is %lld, it is in No %d file, the No %d in Metadata, this posting's vectorNum: %d, vectorInfoSize: %d, its metadata info:\n", i, tempNode.globalVectorID, tempNode.fileNo, tempNode.listIndex, vectorNum, m_vectorInfoSize);
                                 LOG(Helper::LogLevel::LL_Error, "PageCount: %d, EleCount: %d, ListOffset: %llu, pageOffset: %d\n", m_listInfos[tempNode.fileNo][tempNode.listIndex].listPageCount, m_listInfos[tempNode.fileNo][tempNode.listIndex].listEleCount, m_listInfos[tempNode.fileNo][tempNode.listIndex].listOffset, m_listInfos[tempNode.fileNo][tempNode.listIndex].pageOffset);
                                 //begin to print the detailed error info
                                 for (int j = 0; j < vectorNum; j++) {
