@@ -352,6 +352,8 @@ namespace SPTAG {
                 listOffset += paddingSize;
             }
 
+            std::uint64_t listMetaOffset = listOffset;
+
             // Number of posting lists
             size_t u64Val = static_cast<size_t>(totalSize);
             if (ptr->WriteBinary(sizeof(u64Val), reinterpret_cast<char*>(&u64Val)) != sizeof(u64Val)) {
@@ -444,6 +446,12 @@ namespace SPTAG {
             // iterate over all the posting lists
             for (auto id : postingOrderInIndex)
             {
+
+                if (static_cast<uint64_t>(ptr->TellP()) != listOffset + listMetaOffset)
+                {
+                    LOG(Helper::LogLevel::LL_Info, "List offset not match!\n");
+                    throw std::runtime_error("List offset mismatch");
+                }
                 /* id is the index in sortHeadByNodeAndGlobalVectorID map, we can get it by find the local headID and global vector id in the sortHeadByNodeAndGlobalVectorID map */
                 /* To quickly locate in sortHeadByNodeAndGlobalVectorID, we additionally maintain an index-to-globalVectorID map */
                 std::uint64_t targetOffset = static_cast<uint64_t>(postPageNum[id]) * PageSize + postPageOffset[id];
@@ -722,6 +730,8 @@ namespace SPTAG {
                 prevGlobalID = merge_result[i].globalVectorID;
             }
 
+            LOG(Helper::LogLevel::LL_Info, "Before Merge, Posting Total Size: %lld\n", merge_result.size());
+            LOG(Helper::LogLevel::LL_Info, "After Merge, Posting Total Size: %lld\n", totalSize);
             LOG(Helper::LogLevel::LL_Info, "Sorting Completed\n");
 
             /* now we get total Size, begin online merge */
@@ -901,6 +911,17 @@ namespace SPTAG {
                             size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
                             if (p_opts.m_vidThresHold!= -1 && VID >= p_opts.m_vidThresHold) {
                                 LOG(Helper::LogLevel::LL_Error, "Error when read Posting to dedup: Global Vector ID: %lld\n", VID);
+                                //first check whether it is written in the wrong offset in temp file
+                                LOG(Helper::LogLevel::LL_Error, "it is %d posting in merging, posting's global vector id is %lld, it is in No %d file, the No %d in Metadata, vectorInfoSize: %d, its metadata info:\n", i, tempNode.globalVectorID, tempNode.fileNo, tempNode.listIndex, m_vectorInfoSize);
+                                LOG(Helper::LogLevel::LL_Error, "PageCount: %d, EleCount: %d, ListOffset: %llu, pageOffset: %d\n", m_listInfos[tempNode.fileNo][tempNode.listIndex].listPageCount, m_listInfos[tempNode.fileNo][tempNode.listIndex].listEleCount, m_listInfos[tempNode.fileNo][tempNode.listIndex].listOffset, m_listInfos[tempNode.fileNo][tempNode.listIndex].pageOffset);
+                                //begin to print the detailed error info
+                                for (int j = 0; j < vectorNum; j++) {
+                                    char* vectorInfo_temp = pptr + j * (m_vectorInfoSize);
+                                    size_t VID_temp = *(reinterpret_cast<size_t*>(vectorInfo_temp));
+                                    if (p_opts.m_vidThresHold!= -1 && VID_temp >= p_opts.m_vidThresHold) {
+                                        LOG(Helper::LogLevel::LL_Error, "The %d vector gets error VID: %lld\n", j, VID_temp);
+                                    }
+                                }
                                 exit(0);
                             }
                             // if (tempNode.listIndex == 288) LOG(Helper::LogLevel::LL_Info, "VID: %lu\n", VID);
