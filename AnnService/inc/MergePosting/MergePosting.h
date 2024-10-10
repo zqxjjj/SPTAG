@@ -906,8 +906,8 @@ namespace SPTAG {
                         char* pptr = (char*)(currentPosting.c_str());
                         // Scanning and Copying
                         // if (tempNode.listIndex == 288) LOG(Helper::LogLevel::LL_Info, "scanning, vectorNum : %d, actual vectorNum : %d, it is file : %d, ith : posting : %d\n", (currentPosting.size()/m_vectorInfoSize), m_listInfos[tempNode.fileNo][tempNode.listIndex].listEleCount, tempNode.fileNo, tempNode.listIndex);
-                        for (int vectorNum = (currentPosting.size()/m_vectorInfoSize), i = 0; i < vectorNum; i++) {
-                            char* vectorInfo = pptr + i * (m_vectorInfoSize);
+                        for (int vectorNum = (currentPosting.size()/m_vectorInfoSize), k = 0; k < vectorNum; k++) {
+                            char* vectorInfo = pptr + k * (m_vectorInfoSize);
                             size_t VID = *(reinterpret_cast<size_t*>(vectorInfo));
                             if (p_opts.m_vidThresHold!= -1 && VID >= p_opts.m_vidThresHold) {
                                 LOG(Helper::LogLevel::LL_Error, "Error when read Posting to dedup: Global Vector ID: %lld\n", VID);
