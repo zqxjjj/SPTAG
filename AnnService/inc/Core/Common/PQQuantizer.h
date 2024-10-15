@@ -231,7 +231,13 @@ namespace SPTAG
             IOBINARY(p_out, WriteBinary, sizeof(QuantizerType), (char*)&qtype);
             IOBINARY(p_out, WriteBinary, sizeof(VectorValueType), (char*)&rtype);
             IOBINARY(p_out, WriteBinary, sizeof(DimensionType), (char*)&m_NumSubvectors);
+            #ifdef LARGE_VID
+            int m_KsPerSubvector_int = m_KsPerSubvector;
+            IOBINARY(p_out, WriteBinary, sizeof(int), (char*)&m_KsPerSubvector_int);
+            #else
             IOBINARY(p_out, WriteBinary, sizeof(SizeType), (char*)&m_KsPerSubvector);
+            #endif
+
             IOBINARY(p_out, WriteBinary, sizeof(DimensionType), (char*)&m_DimPerSubvector);
             IOBINARY(p_out, WriteBinary, sizeof(T) * m_NumSubvectors * m_KsPerSubvector * m_DimPerSubvector, (char*)m_codebooks.get());
             LOG(Helper::LogLevel::LL_Info, "Saving quantizer: Subvectors:%d KsPerSubvector:%d DimPerSubvector:%d\n", m_NumSubvectors, m_KsPerSubvector, m_DimPerSubvector);
