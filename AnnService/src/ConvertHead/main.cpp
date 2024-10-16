@@ -217,7 +217,7 @@ ErrorCode ConvertHeadInternal()
 		IOBINARY(ptr_out, WriteBinary, sizeof(DimensionType), (char*)&mycols);
 		for (int64_t i = 0; i < CR; i++) {
 			for (int j = 0; j < mycols; j++) {
-				int64_t neighborID = *((int*)(data + ((size_t)i) * j * sizeof(int)));
+				int64_t neighborID = *((int*)(data + (((size_t)i) * mycols + j) * sizeof(int)));
 				IOBINARY(ptr_out, WriteBinary, sizeof(int64_t), (char*)&neighborID);
 			}
 		}
