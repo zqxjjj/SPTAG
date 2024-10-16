@@ -44,6 +44,8 @@ public:
         AddOptionalOption(m_metaIndexFileName, "-MetaIndexFileName", "--MetaIndexFileName", "1");
         AddOptionalOption(m_indexLabelPrefix, "-IndexLabelPrefix", "--IndexLabelPrefix", "1");
         AddOptionalOption(m_partition, "-Partition", "--Partition", "1");
+        AddOptionalOption(genSetBasedOnMeta, "-GenSetMeta", "--GenSetMeta", "1");
+        AddOptionalOption(convertLocal, "-ConvertLocal", "--ConvertLocal", "1");
     }
 
     ~ToolOptions() {}
@@ -72,10 +74,12 @@ public:
     std::string m_headVectorFile;
     std::string m_headIDFile;
     bool genMeta;
+    bool genSetBasedOnMeta;
     int m_partition;
     std::string m_metaDataFileName;
     std::string m_metaIndexFileName;
     std::string m_indexLabelPrefix;
+    bool convertLocal;
     
 } options;
 
@@ -584,11 +588,174 @@ void CallRecall(ToolOptions& p_opts)
     LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f\n", K, truthK, meanrecall);
 }
 
+template <typename ValueType>
+void GenerateSetBasedOnMeta(ToolOptions& p_opts)
+{
+    //Loading Metadata
+    auto metaData = MemMetadataSet(p_opts.m_metaDataFileName, p_opts.m_metaIndexFileName, 1024 * 1024, MaxSize, 10);
+    if (!(metaData.Available()))
+    {
+        LOG(Helper::LogLevel::LL_Error, "Error: Failed to load metadata.\n");
+        exit(0);
+    }
+
+    //Loading Full Vectors
+    auto vectorSet = LoadVectorSet(p_opts, 10);
+
+    std::string fileName = p_opts.newDataSetFileName;
+    auto ptr = f_createIO();
+    if (ptr == nullptr || !ptr->Initialize(fileName.c_str(), std::ios::out | std::ios::binary)) {
+        LOG(Helper::LogLevel::LL_Error, "Failed open trace file: %s\n", fileName.c_str());
+        exit(1);
+    }
+
+    int row = metaData.Count();
+
+    int dim = vectorSet->Dimension();
+
+    if (ptr->WriteBinary(4, reinterpret_cast<char*>(&row)) != 4) {
+        LOG(Helper::LogLevel::LL_Error, "vector Size Error!\n");
+        exit(1);
+    }
+
+    if (ptr->WriteBinary(4, reinterpret_cast<char*>(&dim)) != 4) {
+        LOG(Helper::LogLevel::LL_Error, "vector Size Error!\n");
+        exit(1);
+    }
+
+    //Generating
+    for (int i = 0; i < row; i++) {
+        ByteArray globalVectorID_byteArray = metaData.GetMetadata(i);
+        std::string globalVectorID_string;
+        globalVectorID_string.resize(globalVectorID_byteArray.Length());
+
+        memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
+
+        std::int64_t globalVectorID = std::stoull(globalVectorID_string);
+
+        if (ptr->WriteBinary(sizeof(ValueType) * dim, reinterpret_cast<char*>((ValueType*)(vectorSet->GetVector(globalVectorID)))) != sizeof(ValueType) * dim) {
+            LOG(Helper::LogLevel::LL_Error, "write vector error: global VID: %lld!\n", globalVectorID);
+            exit(1);
+        }
+    }
+
+}
+
+template <typename ValueType>
+void ConvertTruthFromLocalToGlobal(ToolOptions& p_opts)
+{
+
+    //Loading Metadata
+    auto metaData = MemMetadataSet(p_opts.m_metaDataFileName, p_opts.m_metaIndexFileName, 1024 * 1024, MaxSize, 10);
+    if (!(metaData.Available()))
+    {
+        LOG(Helper::LogLevel::LL_Error, "Error: Failed to load metadata.\n");
+        exit(0);
+    }
+
+    int K = p_opts.m_resultNum;
+
+    int numQueries = p_opts.m_querySize;
+
+    std::string truthFile = p_opts.m_truthPath;
+    std::vector<std::vector<SizeType>> truth;
+    LOG(Helper::LogLevel::LL_Info, "Start loading TruthFile...\n");
+    truth.resize(numQueries);
+    auto ptr = f_createIO();
+    if (ptr == nullptr || !ptr->Initialize(truthFile.c_str(), std::ios::in | std::ios::binary)) {
+        LOG(Helper::LogLevel::LL_Error, "Fail to read the file:%s\n", truthFile.c_str());
+        exit(1);
+    }
+
+    if (ptr->TellP() == 0) {
+        int row, originalK;
+        if (ptr->ReadBinary(4, (char*)&row) != 4 || ptr->ReadBinary(4, (char*)&originalK) != 4) {
+            LOG(Helper::LogLevel::LL_Error, "Fail to read truth file!\n");
+            exit(1);
+        }
+    }
+
+    for (int i = 0; i < numQueries; ++i)
+    {
+        truth[i].clear();
+        truth[i].resize(K);
+        if (ptr->ReadBinary(K * 4, (char*) truth[i].data()) != K * 4) {
+            LOG(Helper::LogLevel::LL_Error, "Truth number(%d) and query number(%d) are not match!\n", i, numQueries);
+            exit(1);
+        }
+    }
+
+    LOG(Helper::LogLevel::LL_Info, "ChangeMapping & Writing\n");
+    std::string truthFileAfter = p_opts.m_truthPath + "_after";
+    ptr = SPTAG::f_createIO();
+    if (ptr == nullptr || !ptr->Initialize(truthFileAfter.c_str(), std::ios::out | std::ios::binary)) {
+        LOG(Helper::LogLevel::LL_Error, "Fail to create the file:%s\n", truthFileAfter.c_str());
+        exit(1);
+    }
+    ptr->WriteBinary(4, (char*)&numQueries);
+    ptr->WriteBinary(4, (char*)&K);
+    for (int i = 0; i < numQueries; i++) {
+        for (int j = 0; j < K ; j++) {
+            ByteArray globalVectorID_byteArray = metaData.GetMetadata(truth[i][j]);
+            std::string globalVectorID_string;
+            globalVectorID_string.resize(globalVectorID_byteArray.Length());
+
+            memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
+
+            int globalVectorID = std::stoull(globalVectorID_string);
+
+            if (ptr->WriteBinary(4, (char*)(&globalVectorID)) != 4) {
+                LOG(Helper::LogLevel::LL_Error, "Fail to write the truth file!\n");
+                exit(1);
+            }
+            
+        }
+    }
+}
+
 
 int main(int argc, char* argv[]) {
     if (!options.Parse(argc - 1, argv + 1))
     {
         exit(1);
+    }
+
+    if (options.convertLocal) {
+        switch (options.m_inputValueType) {
+        case SPTAG::VectorValueType::Float:
+            ConvertTruthFromLocalToGlobal<float>(options);
+            break;
+        case SPTAG::VectorValueType::Int16:
+            ConvertTruthFromLocalToGlobal<std::int16_t>(options);
+            break;
+        case SPTAG::VectorValueType::Int8:
+            ConvertTruthFromLocalToGlobal<std::int8_t>(options);
+            break;
+        case SPTAG::VectorValueType::UInt8:
+            ConvertTruthFromLocalToGlobal<std::uint8_t>(options);
+            break;
+        default:
+            LOG(Helper::LogLevel::LL_Error, "Error data type!\n");
+        }
+    }
+
+    if (options.genSetBasedOnMeta) {
+        switch (options.m_inputValueType) {
+        case SPTAG::VectorValueType::Float:
+            GenerateSetBasedOnMeta<float>(options);
+            break;
+        case SPTAG::VectorValueType::Int16:
+            GenerateSetBasedOnMeta<std::int16_t>(options);
+            break;
+        case SPTAG::VectorValueType::Int8:
+            GenerateSetBasedOnMeta<std::int8_t>(options);
+            break;
+        case SPTAG::VectorValueType::UInt8:
+            GenerateSetBasedOnMeta<std::uint8_t>(options);
+            break;
+        default:
+            LOG(Helper::LogLevel::LL_Error, "Error data type!\n");
+        }
     }
 
     if (options.genMeta) {
