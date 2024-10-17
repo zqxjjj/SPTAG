@@ -6,6 +6,7 @@
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/VectorSetReader.h"
 #include "inc/SSDServing/Utils.h"
+#include <cstdint>
 #include <cstring>
 #include <future>
 
@@ -18,7 +19,26 @@ using namespace SPTAG;
 
 namespace SPTAG {
 	namespace RemoteServing {
-
+        void LoadTruthLARGEVID(std::shared_ptr<SPTAG::Helper::DiskIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, int p_iTruthNumber) {
+            if (ptr->TellP() == 0) {
+                int row;
+                if (ptr->ReadBinary(4, (char*)&row) != 4 || ptr->ReadBinary(4, (char*)&originalK) != 4) {
+                    LOG(Helper::LogLevel::LL_Error, "Fail to read truth file!\n");
+                    exit(1);
+                }
+            }
+            truth.clear();
+            truth.resize(p_iTruthNumber);
+            std::vector<int64_t> vec(originalK);
+            for (int i = 0; i < p_iTruthNumber; i++)
+            {
+                if (ptr->ReadBinary(sizeof(int64_t) * originalK, (char*)vec.data()) != sizeof(int64_t) * originalK) {
+                    LOG(Helper::LogLevel::LL_Error, "Truth number(%d) and query number(%d) are not match!\n", i, p_iTruthNumber);
+                    exit(1);
+                }
+                truth[i].insert(vec.begin(), vec.begin() + K);
+            }
+        }
 
         template<typename T, typename V>
         void PrintPercentiles(const std::vector<V>& p_values, std::function<T(const V&)> p_get, const char* p_format)
@@ -439,12 +459,18 @@ namespace SPTAG {
                     LOG(Helper::LogLevel::LL_Error, "Failed open truth file: %s\n", truthFile.c_str());
                     exit(1);
                 }
+
                 int originalK = truthK;
-                COMMON::TruthSet::LoadTruth(ptr, truth, numQueries, originalK, truthK, p_opts.m_truthType);
-                char tmp[4];
-                if (ptr->ReadBinary(4, tmp) == 4) {
-                    LOG(Helper::LogLevel::LL_Error, "Truth number is larger than query number(%d)!\n", numQueries);
+                if (p_opts.m_largeVID) {
+                    LOG(Helper::LogLevel::LL_Info, "Loading truthSet with 8 byte id\n");
+                    LoadTruthLARGEVID(ptr, truth, truthK, originalK, numQueries);
+                } else {
+                    COMMON::TruthSet::LoadTruth(ptr, truth, numQueries, originalK, truthK, p_opts.m_truthType);
                 }
+                // char tmp[4];
+                // if (ptr->ReadBinary(4, tmp) == 4) {
+                //     LOG(Helper::LogLevel::LL_Error, "Truth number is larger than query number(%d)!\n", numQueries);
+                // }
 
                 recall = COMMON::TruthSet::CalculateRecall<ValueType>(p_index, results, truth, K, truthK, querySet, nullptr, numQueries, nullptr, false, &MRR);
                 LOG(Helper::LogLevel::LL_Info, "Recall%d@%d: %f MRR@%d: %f\n", truthK, K, recall, K, MRR);

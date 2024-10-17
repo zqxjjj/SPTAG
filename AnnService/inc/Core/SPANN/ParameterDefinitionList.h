@@ -202,6 +202,7 @@ DefineSSDParameter(m_layers, int, 2, "Layers")
 DefineSSDParameter(m_headSize, int, 0, "HeadSize")
 DefineSSDParameter(m_isLocal, bool, true, "IsLocal")
 DefineSSDParameter(m_warmup, bool, false, "Warmup")
+DefineSSDParameter(m_largeVID, bool, false, "LargeVID")
 
 // DSPANN
 DefineSSDParameter(m_dspann, bool, false, "DSPANN")

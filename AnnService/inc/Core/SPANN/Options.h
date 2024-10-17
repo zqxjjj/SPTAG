@@ -195,6 +195,7 @@ namespace SPTAG {
             std::string m_topSPANNMetaIndex;
 
             bool m_warmup;
+            bool m_largeVID;
 
             // DSPANN
             bool m_dspann;
