@@ -745,6 +745,9 @@ break;
                     }
                     else {
                         for (SizeType begin = node.childStart; begin < node.childEnd; begin++) {
+                            _mm_prefetch((const char*)(data[m_pTreeRoots[begin].centerid]), _MM_HINT_T0);
+                        }
+                        for (SizeType begin = node.childStart; begin < node.childEnd; begin++) {
                             SizeType index = m_pTreeRoots[begin].centerid;
                             p_space.m_SPTQueue.insert(NodeDistPair(begin, fComputeDistance(p_query.GetQuantizedTarget(), data[index], data.C())));
                         }
