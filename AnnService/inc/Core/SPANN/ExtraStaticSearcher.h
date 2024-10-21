@@ -215,6 +215,7 @@ namespace SPTAG
                 for (uint32_t pi = 0; pi < postingListCount; ++pi)
                 {
                     auto curPostingID = p_exWorkSpace->m_postingIDs[pi];
+                    LOG(Helper::LogLevel::LL_Info, "SSDIndex: Searched postingID: %d\n", curPostingID);
                     ListInfo* listInfo = &(m_listInfos[curPostingID]);
                     int fileid = m_oneContext? 0: curPostingID / m_listPerFile;
 
