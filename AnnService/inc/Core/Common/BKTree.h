@@ -702,6 +702,11 @@ break;
                         Heap<NodeDistPair>* p_curr = &p_space.m_currBSPTQueue, * p_next = &p_space.m_nextBSPTQueue;
                         
                         p_curr->Top().distance = 1e9;
+                        
+                        for (SizeType begin = node.childStart; begin < node.childEnd; begin++) {
+                            _mm_prefetch((const char*)(data[m_pTreeRoots[begin].centerid]), _MM_HINT_T0);
+                        }
+                        
                         for (SizeType begin = node.childStart; begin < node.childEnd; begin++) {
                             SizeType index = m_pTreeRoots[begin].centerid;
                             float dist = fComputeDistance(p_query.GetQuantizedTarget(), data[index], data.C());
@@ -713,7 +718,7 @@ break;
                             }
                         }
 
-                        for (int level = 1; level < 2; level++) {
+                        for (int level = 1; level <= m_bfs; level++) {
                             p_next->Top().distance = 1e9;
                             while (!p_curr->empty()) {
                                 NodeDistPair tmp = p_curr->pop();
@@ -722,6 +727,9 @@ break;
                                     p_space.m_SPTQueue.insert(tmp);
                                 }
                                 else {
+                                    for (SizeType begin = tnode.childStart; begin < tnode.childEnd; begin++) {
+                                        _mm_prefetch((const char*)(data[m_pTreeRoots[begin].centerid]), _MM_HINT_T0);
+                                    }
                                     if (!p_space.CheckAndSet(tnode.centerid)) {
                                         p_space.m_NGQueue.insert(NodeDistPair(tnode.centerid, tmp.distance));
                                     }
@@ -764,7 +772,7 @@ break;
                 {
                     NodeDistPair bcell = p_space.m_SPTQueue.pop();
                     const BKTNode& tnode = m_pTreeRoots[bcell.node];
-                    LOG(Helper::LogLevel::LL_Info, "BKT: Current traverse node: %d, distance: %f\n", tnode.centerid, bcell.distance);
+                    // LOG(Helper::LogLevel::LL_Info, "BKT: Current traverse node: %d, distance: %f\n", tnode.centerid, bcell.distance);
                     if (tnode.childStart < 0) {
                         if (!p_space.CheckAndSet(tnode.centerid)) {
                             p_space.m_iNumberOfCheckedLeaves++;

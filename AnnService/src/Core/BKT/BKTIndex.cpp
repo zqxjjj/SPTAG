@@ -254,7 +254,7 @@ namespace SPTAG
             while (!p_space.m_NGQueue.empty()) {
                 NodeDistPair gnode = p_space.m_NGQueue.pop();
                 SizeType tmpNode = gnode.node;
-                LOG(Helper::LogLevel::LL_Info, "RNG: Current traverse node: %d, distance: %f\n", tmpNode, gnode.distance);
+                // LOG(Helper::LogLevel::LL_Info, "RNG: Current traverse node: %d, distance: %f\n", tmpNode, gnode.distance);
                 const SizeType* node = m_pGraph[tmpNode];
                 _mm_prefetch((const char*)node, _MM_HINT_T0);
                 for (DimensionType i = 0; i <= checkPos; i++) {
