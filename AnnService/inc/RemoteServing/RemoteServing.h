@@ -19,6 +19,50 @@ using namespace SPTAG;
 
 namespace SPTAG {
 	namespace RemoteServing {
+
+        template <typename ValueType>
+        ErrorCode OutputResult(const std::string& p_output, std::vector<QueryResult>& p_results, int p_resultNum)
+        {
+            if (!p_output.empty())
+            {
+                auto ptr = f_createIO();
+                if (ptr == nullptr || !ptr->Initialize(p_output.c_str(), std::ios::binary | std::ios::out)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed create file: %s\n", p_output.c_str());
+                    return ErrorCode::FailedCreateFile;
+                }
+                int32_t i32Val = static_cast<int32_t>(p_results.size());
+                if (ptr->WriteBinary(sizeof(i32Val), reinterpret_cast<char*>(&i32Val)) != sizeof(i32Val)) {
+                    LOG(Helper::LogLevel::LL_Error, "Fail to write result file!\n");
+                    return ErrorCode::DiskIOFail;
+                }
+                i32Val = p_resultNum;
+                if (ptr->WriteBinary(sizeof(i32Val), reinterpret_cast<char*>(&i32Val)) != sizeof(i32Val)) {
+                    LOG(Helper::LogLevel::LL_Error, "Fail to write result file!\n");
+                    return ErrorCode::DiskIOFail;
+                }
+
+                float fVal = 0;
+                for (size_t i = 0; i < p_results.size(); ++i)
+                {
+                    for (int j = 0; j < p_resultNum; ++j)
+                    {
+                        int64_t i64Val = p_results[i].GetResult(j)->VID;
+                        if (ptr->WriteBinary(sizeof(i64Val), reinterpret_cast<char*>(&i64Val)) != sizeof(i64Val)) {
+                            LOG(Helper::LogLevel::LL_Error, "Fail to write result file!\n");
+                            return ErrorCode::DiskIOFail;
+                        }
+
+                        float fVal = p_results[i].GetResult(j)->Dist;
+                        if (ptr->WriteBinary(sizeof(fVal), reinterpret_cast<char*>(&fVal)) != sizeof(fVal)) {
+                            LOG(Helper::LogLevel::LL_Error, "Fail to write result file!\n");
+                            return ErrorCode::DiskIOFail;
+                        }
+                    }
+                }
+            }
+            return ErrorCode::Success;
+        }
+
         void LoadTruthLARGEVID(std::shared_ptr<SPTAG::Helper::DiskIO>& ptr, std::vector<std::set<SizeType>>& truth, int K, int& originalK, int p_iTruthNumber) {
             if (ptr->TellP() == 0) {
                 int row;
@@ -250,7 +294,7 @@ namespace SPTAG {
 
         template <typename ValueType>
         void SPectrumSearchClient(SPANN::Index<ValueType>* p_index)
-        {
+        {            
             SPANN::Options& p_opts = *(p_index->GetOptions());
 
             std::vector<std::shared_ptr<SPANN::NetworkThreadPool>> m_clientThreadPool;
@@ -263,6 +307,8 @@ namespace SPTAG {
             SizeType numQueries = querySet->Count();
 
             std::string truthFile = p_opts.m_truthPath;
+
+            std::string outputFile = p_opts.m_searchResult;
 
             int K = p_opts.m_resultNum;
             int truthK = (p_opts.m_truthResultNum <= 0) ? K : p_opts.m_truthResultNum;
@@ -529,6 +575,13 @@ namespace SPTAG {
                         "%.3lf");
                 }
             }
+
+            if (!outputFile.empty())
+            {
+                LOG(Helper::LogLevel::LL_Info, "Start output to %s\n", outputFile.c_str());
+                OutputResult<ValueType>(outputFile, results, K);
+            }
+
         }
 
         template <typename ValueType>
