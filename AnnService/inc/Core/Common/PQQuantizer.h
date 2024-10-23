@@ -334,6 +334,7 @@ namespace SPTAG
         template <typename T>
         void PQQuantizer<T>::SetEnableADC(bool enableADC)
         {
+            LOG(Helper::LogLevel::LL_Info, "Enable ADC\n");
             m_EnableADC = enableADC;
         }
 

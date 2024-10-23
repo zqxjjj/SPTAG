@@ -605,6 +605,11 @@ namespace SPTAG {
                 { backend, 0, ZMQ_POLLIN, 0 }
             };
 
+            if (p_index->m_pQuantizer)
+            {
+                p_index->m_pQuantizer->SetEnableADC(p_opts.m_enableADC);
+            }
+
             // TopLayer connect to all nodes
             if (p_opts.m_isCoordinator) p_index->initDistKVNetWork();
 
