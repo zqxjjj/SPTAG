@@ -70,6 +70,16 @@ namespace SPTAG
         {
         public:
             std::string m_address;
+
+            ~NetworkThreadPool() 
+            {
+                m_abort.SetAbort(true);
+                m_cond.notify_all();
+                for (auto&& t : m_threads) t.join();
+                m_threads.clear();
+            }
+
+
             bool checkRemoteAvaliable()
             {
                 LOG(Helper::LogLevel::LL_Info,"Test to connect: %s\n", m_address.c_str());
@@ -145,12 +155,14 @@ namespace SPTAG
                         zmq::pollitem_t items[] = {
                             { clientSocket, 0, ZMQ_POLLIN, 0 } };
                         Job *j;
-                        while (1)
+                        while (!m_abort.ShouldAbort())
                         {
                             try 
                             {
                                 if (currentJobs == 0) {
-                                    get(j);
+                                    if (!get(j)) {
+                                        break;
+                                    }
                                     NetworkJob *nj = static_cast<NetworkJob*>(j);
                                     currentJobs++;
                                     zmq::message_t request((nj->request)->size() + sizeof(int));
@@ -211,6 +223,7 @@ namespace SPTAG
                                 LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
                             }
                         }
+                        LOG(Helper::LogLevel::LL_Info, "Exit ThreadPool\n");
                         clientSocket.close();
                         context.shutdown();
                         context.close();
