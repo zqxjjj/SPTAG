@@ -928,7 +928,7 @@ namespace SPTAG {
                             // if (tempNode.listIndex == 288) LOG(Helper::LogLevel::LL_Info, "VID: %lu\n", VID);
                             if (VIDset.find(VID) == VIDset.end()) {
                                 VIDset.insert(VID);
-                                memcpy(mptr, pptr, m_vectorInfoSize);
+                                memcpy(mptr, vectorInfo, m_vectorInfoSize);
                                 mptr += m_vectorInfoSize;
                             } else {
                                 postingPreSize--;
