@@ -322,6 +322,12 @@ namespace SPTAG {
 
                 std::vector<std::vector<double>> traverseLatencyDist(numQueries, std::vector<double>(top));
 
+                std::vector<int> shardHotness(p_opts.m_dspannIndexFileNum);
+
+                for (int i = 0; i < p_opts.m_dspannIndexFileNum; i++) {
+                    shardHotness[i] = 0;
+                }
+
                 struct ShardWithDist
                 {
                     int id;
@@ -343,6 +349,7 @@ namespace SPTAG {
 
                     for (int j = 0; j < top; j++) {
                         needToTraverse[index][j] = shardDist[j].id;
+                        shardHotness[shardDist[j].id]++;
                     }
                 }
                 // Dispatching query to shard
@@ -393,6 +400,14 @@ namespace SPTAG {
                         if (traverseLatencyDist[i][j] < minLatency[i]) minLatency[i] = traverseLatencyDist[i][j];
                     }
                 }
+
+                LOG(Helper::LogLevel::LL_Info, "\nHotness Distirbution:\n");
+                PrintPercentiles<int, int>(shardHotness,
+                    [](const int& ss) -> int
+                    {
+                        return ss;
+                    },
+                    "%.4d");
 
                 LOG(Helper::LogLevel::LL_Info, "\nMin Latency Distirbution:\n");
                 PrintPercentiles<double, double>(minLatency,

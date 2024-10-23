@@ -692,7 +692,7 @@ break;
             {
                 for (char i = 0; i < m_iTreeNumber; i++) {
                     const BKTNode& node = m_pTreeRoots[m_pTreeStart[i]];
-                    LOG(Helper::LogLevel::LL_Info, "BKT: Init current traverse node: %d\n", node.centerid);
+                    // LOG(Helper::LogLevel::LL_Info, "BKT: Init current traverse node: %d\n", node.centerid);
                     if (node.childStart < 0) {
                         p_space.m_SPTQueue.insert(NodeDistPair(m_pTreeStart[i], fComputeDistance(p_query.GetQuantizedTarget(), data[node.centerid], data.C())));
                     } else if (m_bfs) {
