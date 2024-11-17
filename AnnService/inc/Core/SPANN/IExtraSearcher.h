@@ -73,6 +73,8 @@ namespace SPTAG {
 
             double m_headLatency;
 
+            double m_RemoteRemoteLatency;
+
             std::vector<double> m_compLatencys;
 
             std::vector<int> m_layerCounts;
@@ -88,6 +90,8 @@ namespace SPTAG {
             std::vector<double> m_waitComLatencys;
 
             std::vector<double> m_RemoteRemoteLatencys;
+
+            std::vector<std::vector<int>> m_accessPartitionsPerNode;
 
             std::chrono::steady_clock::time_point m_searchRequestTime;
 
@@ -306,7 +310,7 @@ namespace SPTAG {
 
             virtual void GetWritePosting(SizeType pid, std::string& posting, bool write = false) { return; }
 
-            virtual void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) { return; }
+            virtual void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<std::string>* postingLists, int& vectorSize) { return; }
 
             virtual void GetAndCompMultiPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_queryResults, VectorIndex* p_index, double& compLatency, int& scannedNum, Options& p_options) { return; }
 

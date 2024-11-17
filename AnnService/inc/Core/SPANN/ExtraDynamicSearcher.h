@@ -1580,8 +1580,9 @@ namespace SPTAG::SPANN {
             }
         }
 
-        void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) override {
-            db->MultiGet(postingIDs, postingLists);
+        void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<std::string>* postingLists, int& vectorSize) override {
+            vectorSize = m_vectorInfoSize;
+            db->MultiGet(p_exWorkSpace->m_postingIDs, postingLists);
         }
 
         void InitPostingRecord(std::shared_ptr<VectorIndex> p_index) {

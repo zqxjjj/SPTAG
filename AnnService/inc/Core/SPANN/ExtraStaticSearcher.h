@@ -1396,10 +1396,24 @@ namespace SPTAG
                 return m_listInfos[pid].listEleCount;
             }
 
-            void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<SizeType>& postingIDs, std::vector<std::string>* postingLists) override {
-                int postingListCount = postingIDs.size();
-                for (int i = 0; i < postingIDs.size(); i++) {
-                    SizeType pid = postingIDs[i];
+            void GetMultiPosting(ExtraWorkSpace* p_exWorkSpace, std::vector<std::string>* postingLists, int& vectorSize) override {
+                vectorSize = m_vectorInfoSize;
+                int postingListCount = p_exWorkSpace->m_postingIDs.size();
+                for (int i = 0; i < postingListCount; i++) {
+                    SizeType pid =  p_exWorkSpace->m_postingIDs[i];
+
+                    if (m_distKV) {
+                        if (pid < 0) {
+                            LOG(Helper::LogLevel::LL_Error, "DistKV: Find a posting is error: posting id: %lld, drop it\n", pid);
+                            continue;
+                        }
+                        if (m_globalVectorIDToHeadMap.find(pid) == m_globalVectorIDToHeadMap.end()) {
+                            LOG(Helper::LogLevel::LL_Error, "DistKV: This pid doesn't exists: %lld, drop it\n", pid);
+                            continue;
+                        }
+                        pid = m_globalVectorIDToHeadMap[pid];
+                    }
+
                     // std::string posting;
                     ListInfo* listInfo = &(m_listInfos[pid]);
                     size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);

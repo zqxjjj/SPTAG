@@ -225,6 +225,26 @@ namespace SPTAG {
                 ptr += sizeof(double);
             }
 
+            for (int layer = 0; layer < p_opts.m_layers - 1; layer++) {
+                memcpy((char*)&stats->m_RemoteRemoteLatencys[layer], ptr, sizeof(double));
+                ptr += sizeof(double);
+            }
+
+            if (p_opts.m_moreStats) {
+                stats->m_accessPartitionsPerNode.resize(p_opts.m_layers - 1);
+                int totalStatNum;
+                memcpy((char*)&totalStatNum, ptr, sizeof(int));
+                ptr += sizeof(int);
+                int nodeNum = totalStatNum / (p_opts.m_layers - 1);
+                for (int layer = 0; layer < p_opts.m_layers - 1; layer++) {
+                    stats->m_accessPartitionsPerNode[layer].resize(nodeNum);
+                    for (int j = 0; j < nodeNum; j++) {
+                        memcpy((char*)&stats->m_accessPartitionsPerNode[layer][j], ptr, sizeof(int));
+                        ptr += sizeof(int);
+                    }
+                }
+            }
+
             return ErrorCode::Success;
             
         }
@@ -339,7 +359,7 @@ namespace SPTAG {
             SSDServing::Utils::StopW sw;
 
             if (p_opts.m_dspann) {
-                ValueType* centers = (ValueType*)ALIGN_ALLOC(sizeof(ValueType) * p_opts.m_dspannIndexFileNum * p_opts.m_dim);
+                ValueType* centers;
                 {
                     auto ptr = f_createIO();
                     if (ptr == nullptr || !ptr->Initialize(p_opts.m_dspannCenters.c_str(), std::ios::binary | std::ios::in)) {
@@ -353,13 +373,82 @@ namespace SPTAG {
                     ptr->ReadBinary(sizeof(int), (char*)&r) != sizeof(SizeType);
                     ptr->ReadBinary(sizeof(DimensionType), (char*)&c) != sizeof(DimensionType);
 
-                    if (r != row || c != col) {
-                        LOG(Helper::LogLevel::LL_Error, "Row(%d,%d) or Col(%d,%d) cannot match.\n", r, row, c, col);
+                    if (r != row) {
+                        LOG(Helper::LogLevel::LL_Info, "Center Number can't match (File Center Number: %d, Configure Center Number: %d)\n", r, row);
+                        LOG(Helper::LogLevel::LL_Info, "There must be mapping file");
+                        if (p_opts.m_mappingFilePath.empty()) {
+                            LOG(Helper::LogLevel::LL_Error, "Mapping file doesn't exist, Error\n");
+                            exit(0);
+                        }
                     }
 
-                    ptr->ReadBinary(sizeof(ValueType) * row * col, (char*)centers);
+                    if (c != col) {
+                        LOG(Helper::LogLevel::LL_Error, "Dim(File dim: %d,Config dim: %d) cannot match.\n", c, col);
+                        exit(0);
+                    }
+
+                    centers = (ValueType*)ALIGN_ALLOC(sizeof(ValueType) * r * p_opts.m_dim);
+
+                    ptr->ReadBinary(sizeof(ValueType) * r * col, (char*)centers);
                 }
                 LOG(Helper::LogLevel::LL_Info, "Load Center Finished\n");
+
+                std::map<int, std::vector<int>> centerMapping;
+                if (!p_opts.m_mappingFilePath.empty()) {
+                    LOG(Helper::LogLevel::LL_Info, "Exists Center Mapping, Begin Loading\n");
+                    std::ifstream file(p_opts.m_mappingFilePath); 
+                    if (!file.is_open()) {
+                        LOG(Helper::LogLevel::LL_Info, "Fail to open tsv file: %s\n", p_opts.m_mappingFilePath.c_str());
+                        exit(0);
+                    }
+
+                    std::string line;
+                    while (std::getline(file, line)) { 
+                        std::stringstream ss(line);
+                        std::string field;
+                        std::vector<int> fields;
+
+                        std::string key;
+                        // LOG(Helper::LogLevel::LL_Info, "line: %s\n", line.c_str());
+                        while (std::getline(ss, field, ',')) {
+                            while (!field.empty() && (field.front() == '[' || field.front() == ' ')) {
+                                field.erase(field.begin());
+                            }
+
+                            // while (!field.empty() && (field.back()  == '\t' || field.back() == ']')) {
+                            //     field.erase(field.end() - 1);
+                            // }
+                            int i = 0;
+                            for (; i < field.size(); i++){
+                                if (!std::isdigit(field[i])) {
+                                    break;
+                                }
+                            }
+
+                            std::string keyOrValue = field.substr(0, i);
+
+                            // LOG(Helper::LogLevel::LL_Info, "Fields back: %c\n", field.back());
+                            if (key.empty()) {
+                                key = keyOrValue;
+                            } else {
+                                // LOG(Helper::LogLevel::LL_Info, "Field: %s, Field Size: %d, Field Begin: %c, Fields back: %c\n", field.c_str(), field.size(), field.front(),field.back());
+                                fields.push_back(std::stoull(keyOrValue));
+                            }
+                        }
+                        centerMapping[std::stoull(key)] = fields;
+                    }
+
+                    for (auto key : centerMapping) {
+                        LOG(Helper::LogLevel::LL_Info, "CenterID: %d ", key.first);
+                        for (auto f : key.second) {
+                            LOG(Helper::LogLevel::LL_Info, "Fields: %d ", f);
+                        }
+                        LOG(Helper::LogLevel::LL_Info, "\n");
+                    }
+
+                    file.close();
+                    // exit(0);
+                }
                 // Calculating query to shard
 
                 int top = p_opts.m_dspannTopK;
@@ -381,21 +470,50 @@ namespace SPTAG {
                     float dist;
                 };
 
-                for (int index = 0; index < numQueries; index++) {
-                    std::vector<ShardWithDist> shardDist(p_opts.m_dspannIndexFileNum);
-                    for (int j = 0; j < p_opts.m_dspannIndexFileNum; j++) {
-                        float dist = COMMON::DistanceUtils::ComputeDistance((const ValueType*)querySet->GetVector(index), (const ValueType*)centers + j* p_opts.m_dim, querySet->Dimension(), p_index->GetDistCalcMethod());
-                        shardDist[j].id = j;
-                        shardDist[j].dist = dist;
+                if (p_opts.m_mappingFilePath.empty()) {
+                    for (int index = 0; index < numQueries; index++) {
+                        std::vector<ShardWithDist> shardDist(p_opts.m_dspannIndexFileNum);
+                        for (int j = 0; j < p_opts.m_dspannIndexFileNum; j++) {
+                            float dist = COMMON::DistanceUtils::ComputeDistance((const ValueType*)querySet->GetVector(index), (const ValueType*)centers + j* p_opts.m_dim, querySet->Dimension(), p_index->GetDistCalcMethod());
+                            shardDist[j].id = j;
+                            shardDist[j].dist = dist;
+                        }
+
+                        std::sort(shardDist.begin(), shardDist.end(), [&](ShardWithDist& a, const ShardWithDist& b){
+                            return a.dist == b.dist ? a.id < b.id : a.dist < b.dist;
+                        });
+
+                        for (int j = 0; j < top; j++) {
+                            needToTraverse[index][j] = shardDist[j].id;
+                            shardHotness[shardDist[j].id]++;
+                        }
                     }
+                } else {
+                    // Exists mapping
+                    int realCenterNum = centerMapping.size();
+                    for (int index = 0; index < numQueries; index++) {
+                        std::vector<ShardWithDist> shardDist(p_opts.m_dspannIndexFileNum);
+                        for (int j = 0; j < p_opts.m_dspannIndexFileNum; j++) {
+                            shardDist[j].dist = MaxDist;
+                        }
+                        for (int j = 0; j < realCenterNum; j++) {
+                            float dist = COMMON::DistanceUtils::ComputeDistance((const ValueType*)querySet->GetVector(index), (const ValueType*)centers + j* p_opts.m_dim, querySet->Dimension(), p_index->GetDistCalcMethod());
+                            for (auto centerID : centerMapping[j]) {
+                                if (shardDist[centerID].dist > dist) {
+                                    shardDist[centerID].id = centerID;
+                                    shardDist[centerID].dist = dist;
+                                }
+                            }
+                        }
 
-                    std::sort(shardDist.begin(), shardDist.end(), [&](ShardWithDist& a, const ShardWithDist& b){
-                        return a.dist == b.dist ? a.id < b.id : a.dist < b.dist;
-                    });
+                        std::sort(shardDist.begin(), shardDist.end(), [&](ShardWithDist& a, const ShardWithDist& b){
+                            return a.dist == b.dist ? a.id < b.id : a.dist < b.dist;
+                        });
 
-                    for (int j = 0; j < top; j++) {
-                        needToTraverse[index][j] = shardDist[j].id;
-                        shardHotness[shardDist[j].id]++;
+                        for (int j = 0; j < top; j++) {
+                            needToTraverse[index][j] = shardDist[j].id;
+                            shardHotness[shardDist[j].id]++;
+                        }
                     }
                 }
                 // Dispatching query to shard
@@ -448,12 +566,17 @@ namespace SPTAG {
                 }
 
                 LOG(Helper::LogLevel::LL_Info, "\nHotness Distirbution:\n");
-                PrintPercentiles<int, int>(shardHotness,
-                    [](const int& ss) -> int
-                    {
-                        return ss;
-                    },
-                    "%.4d");
+                for (int i = 0; i < p_opts.m_dspannIndexFileNum; i++) {
+                    LOG(Helper::LogLevel::LL_Info, "Shard %d : %d queries ", i, shardHotness[i]);
+                    if (i&& i % 3 == 0) LOG(Helper::LogLevel::LL_Info, "\n");
+                }
+                LOG(Helper::LogLevel::LL_Info, "\n");
+                // PrintPercentiles<int, int>(shardHotness,
+                //     [](const int& ss) -> int
+                //     {
+                //         return ss;
+                //     },
+                //     "%.4d");
 
                 LOG(Helper::LogLevel::LL_Info, "\nMin Latency Distirbution:\n");
                 PrintPercentiles<double, double>(minLatency,
@@ -485,6 +608,7 @@ namespace SPTAG {
                                     LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / numQueries);
                                 }
                                 traverseLatency[index].m_diskReadLatencys.resize(p_opts.m_layers-1);
+                                traverseLatency[index].m_RemoteRemoteLatencys.resize(p_opts.m_layers-1);
                                 auto t1 = std::chrono::high_resolution_clock::now();
                                 SearchSPectrumRemote<ValueType>(p_opts, results[index], m_clientThreadPool[index % p_opts.m_dspannIndexFileNum], &traverseLatency[index]);
                                 auto t2 = std::chrono::high_resolution_clock::now();
@@ -565,6 +689,7 @@ namespace SPTAG {
                 for (int layer = 0; layer < p_opts.m_layers -1 ; layer++) {
                     for (int qID = 0; qID < numQueries; qID++) {
                         traverseLatency[qID].m_diskReadLatency = traverseLatency[qID].m_diskReadLatencys[layer];
+                        traverseLatency[qID].m_RemoteRemoteLatency = traverseLatency[qID].m_RemoteRemoteLatencys[layer];
                     }
                     LOG(Helper::LogLevel::LL_Info, "\nDisk Read Layer %d Latency Distirbution:\n", layer+1);
                     PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
@@ -573,9 +698,33 @@ namespace SPTAG {
                             return ss.m_diskReadLatency;
                         },
                         "%.3lf");
+                        
+                    LOG(Helper::LogLevel::LL_Info, "\nDisk Read Layer %d Avg Transfer Latency Distirbution:\n", layer+1);
+                    PrintPercentiles<double, SPANN::SearchStats>(traverseLatency,
+                        [](const SPANN::SearchStats& ss) -> double
+                        {
+                            return ss.m_RemoteRemoteLatency;
+                        },
+                        "%.3lf");
+                }
+
+                if (p_opts.m_moreStats) {
+                    std::vector<int> accessPartitionTotal(traverseLatency[0].m_accessPartitionsPerNode[0].size());
+                    for (int node = 0; node < accessPartitionTotal.size(); node++) {
+                        accessPartitionTotal[node] = 0;
+                    }
+                    for (int qID = 0; qID < numQueries; qID++) {
+                        for (int node = 0; node < accessPartitionTotal.size(); node++) {
+                            for (int layer = 0; layer < p_opts.m_layers -1 ; layer++) {
+                                accessPartitionTotal[node] += traverseLatency[qID].m_accessPartitionsPerNode[layer][node];
+                            }
+                        }
+                    }
+                    for (int node = 0; node < accessPartitionTotal.size(); node++) {
+                        LOG(Helper::LogLevel::LL_Info, "Node %d: %d\n", node, accessPartitionTotal[node]);
+                    }
                 }
             }
-
             if (!outputFile.empty())
             {
                 LOG(Helper::LogLevel::LL_Info, "Start output to %s\n", outputFile.c_str());

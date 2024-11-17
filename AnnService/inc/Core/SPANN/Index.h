@@ -58,8 +58,11 @@ namespace SPTAG
             std::string* reply;
             int* in_flight;
             double* latency;
+            std::chrono::high_resolution_clock::time_point enterPoint;
             NetworkJob(std::string* request, std::string* reply, int* in_flight, double* latency = nullptr)
-                : request(request), reply(reply), in_flight(in_flight), latency(latency) {}
+                : request(request), reply(reply), in_flight(in_flight), latency(latency) {
+                    enterPoint = std::chrono::high_resolution_clock::now();
+                }
             ~NetworkJob() {}
             inline void exec(IAbortOperation* p_abort) override {
                 *in_flight = 0;
@@ -213,6 +216,10 @@ namespace SPTAG
                                     // LOG(Helper::LogLevel::LL_Info,"Ready to copy\n", currentKey);
                                     memcpy((unfinished[currentKey]->reply)->data(), ptr, reply.size()-sizeof(int));
                                     *(unfinished[currentKey]->in_flight) = 0;
+                                    if (unfinished[currentKey]->latency) {
+                                        auto endTime = std::chrono::high_resolution_clock::now();
+                                        *(unfinished[currentKey]->latency) = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(endTime - unfinished[currentKey]->enterPoint).count())) / 1000;
+                                    }
                                     delete unfinished[currentKey];
                                     unfinished.erase(currentKey);
                                     currentJobs--;
@@ -530,6 +537,7 @@ namespace SPTAG
                 p_stats->m_diskReadPages.resize(m_options.m_layers-1);
                 p_stats->m_exWaitLatencys.resize(m_options.m_layers-1);
                 p_stats->m_RemoteRemoteLatencys.resize(m_options.m_layers-1);
+                p_stats->m_accessPartitionsPerNode.resize(m_options.m_layers-1);
 
                 for (int layer = 0; layer < m_options.m_layers - 1; layer++) {
                     // QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
@@ -543,7 +551,7 @@ namespace SPTAG
                     {
                         auto res = p_queryResults->GetResult(i);
                         if (res->VID == -1) break;
-                        
+                        // LOG(Helper::LogLevel::LL_Error, "Layer %d, VectorID: %lld, dist: %f\n", layer, res->VID, res->Dist);
                         auto postingID = res->VID;
                         m_workspace->m_postingIDs.emplace_back(postingID);
 
@@ -571,14 +579,17 @@ namespace SPTAG
                         keys_eachNode[node].push_back(key);
                     }
 
+                    p_stats->m_accessPartitionsPerNode[layer].resize(GroupNum());
                     std::string* request[GroupNum()];
                     std::string* reply[GroupNum()];
                     std::vector<int> in_flight(GroupNum(), 0); 
                     std::vector<int> visit(GroupNum(), 0);
+                    std::vector<double> transferLatency(GroupNum(), 0);
 
                     //Send to all distKV
                     auto t3 = std::chrono::high_resolution_clock::now();
                     for (int i = 0; i < GroupNum(); i++) {
+                        p_stats->m_accessPartitionsPerNode[layer][i] = keys_eachNode[i].size();
                         if (keys_eachNode[i].size() != 0) {
                             request[i] = new std::string();
                             request[i]->resize(sizeof(SizeType)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(SizeType) + sizeof(char));
@@ -610,7 +621,7 @@ namespace SPTAG
 
                             memcpy(ptr, (char*)&code, sizeof(char));
 
-                            auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i]);
+                            auto* curJob = new NetworkJob(request[i], reply[i], &in_flight[i], &transferLatency[i]);
 
                             m_commSocketPool[i]->add(curJob);
                             
@@ -626,18 +637,62 @@ namespace SPTAG
                             if (visit[i] == 0 && in_flight[i] == 0) {
                                 visit[i] = 1;
                                 auto ptr = static_cast<char*>(reply[i]->data());
-                                for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
-                                    SizeType VID;
-                                    float Dist;
-                                    memcpy((char *)&VID, ptr, sizeof(SizeType));
-                                    memcpy((char *)&Dist, ptr + sizeof(SizeType), sizeof(float));
-                                    ptr += sizeof(SizeType);
-                                    ptr += sizeof(float);
-                                    if (VID == -1) break;
-                                    if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
-                                    // LOG(Helper::LogLevel::LL_Info, "Layer : %d, VID : %lu, Dist : %f\n", layer+1, VID, Dist);
-                                    p_queryResults->AddPoint(VID, Dist);
+                                if (m_options.m_tranPost) {
+                                    // LOG(Helper::LogLevel::LL_Error, "Reading Result\n");
+                                    std::string postingList;
+                                    int totalSize = reply[i]->size();
+                                    int currentSize = sizeof(double);
+                                    int m_vectorSize;
+                                    memcpy(&m_vectorSize, ptr, sizeof(int));
+
+                                    ptr += sizeof(int);
+                                    currentSize += sizeof(int);
+
+                                    while (currentSize < totalSize) {
+                                        int postingSize;
+                                        memcpy(&postingSize, ptr, sizeof(int));
+                                        ptr += sizeof(int);
+                                        // LOG(Helper::LogLevel::LL_Error, "Reading Rosting: %d\n", postingSize);
+                                        postingList.resize(postingSize);
+                                        memcpy((char*)postingList.data(), ptr, postingSize);
+
+                                        ptr += postingSize;
+
+                                        //compute posting data
+
+                                        int vectorNum = postingSize / m_vectorSize;
+
+                                        for (int j = 0; j < vectorNum; j++) {
+                                            SizeType vectorID = *(reinterpret_cast<SizeType*>(postingList.data() + j * m_vectorSize));
+                                            // if (vectorID == 444703) LOG(Helper::LogLevel::LL_Error, "VectorID: %lld\n", vectorID);
+                                            // LOG(Helper::LogLevel::LL_Error, "VectorID: %lld\n", vectorID);
+                                            if (vectorID < 0) LOG(Helper::LogLevel::LL_Error, "Toplayer: No Near-data Processing, Find one vector ID gets minus: %lld\n", vectorID);
+                                            if (m_workspace->m_deduper.CheckAndSet(vectorID)) continue;
+                                            auto distance2leaf = m_index->ComputeDistance(p_queryResults->GetQuantizedTarget(), postingList.data() + j * m_vectorSize + sizeof(SizeType));
+                                            p_queryResults->AddPoint(vectorID, distance2leaf);
+                                        }
+                                        currentSize += postingSize;
+                                        currentSize += sizeof(int);
+                                    }
+                                    // finally read the last process time
+                                } else {
+                                    for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
+                                        SizeType VID;
+                                        float Dist;
+                                        memcpy((char *)&VID, ptr, sizeof(SizeType));
+                                        memcpy((char *)&Dist, ptr + sizeof(SizeType), sizeof(float));
+                                        ptr += sizeof(SizeType);
+                                        ptr += sizeof(float);
+                                        if (VID == -1) break;
+                                        if (m_workspace->m_deduper.CheckAndSet(VID)) continue;
+                                        // LOG(Helper::LogLevel::LL_Info, "Layer : %d, VID : %lu, Dist : %f\n", layer+1, VID, Dist);
+                                        p_queryResults->AddPoint(VID, Dist);
+                                    }
                                 }
+                                double localProcessTime;
+                                memcpy(&localProcessTime, ptr, sizeof(double));
+                                // LOG(Helper::LogLevel::LL_Info, "Local Processing : %lf, Transfer : %lf\n", layer+1, localProcessTime, transferLatency[i]);
+                                transferLatency[i] -= (localProcessTime / 1000);
                             }
                         }
                         notReady = false;
@@ -650,6 +705,13 @@ namespace SPTAG
 
                     p_stats->m_diskReadLatencys[layer] = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())) / 1000;
 
+                    //caculate avg communication latency
+
+                    for (int i = 0; i < GroupNum(); i++) {
+                        p_stats->m_RemoteRemoteLatencys[layer] += transferLatency[i];
+                    }
+                    p_stats->m_RemoteRemoteLatencys[layer] /= GroupNum();
+
                     // p_tempResult->SortResult();
                     // for (int i = 0; i < p_tempResult->GetResultNum(); ++i) {
                     //     auto res = p_tempResult->GetResult(i);
@@ -658,6 +720,7 @@ namespace SPTAG
                     // }
                     p_queryResults->SortResult();
                 }
+                // exit(0);
                 return ErrorCode::Success;
             }
 
@@ -718,8 +781,16 @@ namespace SPTAG
                     SearchIndexRemote(result, &stats);
 
                     int K = m_options.m_resultNum;
-                        
-                    zmq::message_t request(K * (sizeof(SizeType) + sizeof(float))+ sizeof(double) * (m_options.m_layers + 1)+ sizeof(int));
+
+                    size_t msgSize = K * (sizeof(SizeType) + sizeof(float))+ sizeof(double) * m_options.m_layers * 2 + sizeof(int);
+
+                    if (m_options.m_moreStats) {
+                        msgSize += sizeof(int) * (m_options.m_layers - 1) * GroupNum();
+                        msgSize += sizeof(int);
+                    }
+
+
+                    zmq::message_t request(msgSize);
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & result;
 
                     ptr = static_cast<char*>(request.data());
@@ -752,6 +823,23 @@ namespace SPTAG
                     for (int layer = 0; layer < m_options.m_layers -1; layer++) {
                         memcpy(ptr, (char *)&stats.m_diskReadLatencys[layer], sizeof(double));
                         ptr += sizeof(double);
+                    }
+
+                    for (int layer = 0; layer < m_options.m_layers -1; layer++) {
+                        memcpy(ptr, (char *)&stats.m_RemoteRemoteLatencys[layer], sizeof(double));
+                        ptr += sizeof(double);
+                    }
+
+                    if (m_options.m_moreStats) {
+                        int totalStatNum = (m_options.m_layers - 1) * GroupNum();
+                        memcpy(ptr, (char *)&totalStatNum, sizeof(int));
+                        ptr += sizeof(int);
+                        for (int layer = 0; layer < m_options.m_layers - 1; layer++) {
+                            for (int node = 0; node < GroupNum(); node++) {
+                                memcpy(ptr, (char *)&stats.m_accessPartitionsPerNode[layer][node], sizeof(int));
+                                ptr += sizeof(int);
+                            }
+                        }
                     }
 
 
@@ -998,46 +1086,94 @@ namespace SPTAG
                         double compLatency = 0;
                         int scannedNum = 0;
                         VectorIndex* tempIndex = this;
-                        m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, tempIndex, compLatency, scannedNum, m_options);
 
-                        // Return result
-                        queryResults->SortResult();
+                        if (!m_options.m_tranPost) {
+                            m_extraSearchers[layer]->GetAndCompMultiPosting(m_workspace.get(), p_Result, tempIndex, compLatency, scannedNum, m_options);
 
-                        int K = m_options.m_searchInternalResultNum;
-                        
-                        zmq::message_t request(K * (sizeof(SizeType) + sizeof(float)) + sizeof(double) + sizeof(int));
+                            // Return result
+                            queryResults->SortResult();
 
-                        ptr = static_cast<char*>(request.data());
+                            int K = m_options.m_searchInternalResultNum;
+                            
+                            zmq::message_t request(K * (sizeof(SizeType) + sizeof(float)) + sizeof(double) + sizeof(int));
 
-                        memcpy(ptr, (char *)&currentKey, sizeof(int));
+                            ptr = static_cast<char*>(request.data());
 
-                        ptr += sizeof(int);
+                            memcpy(ptr, (char *)&currentKey, sizeof(int));
 
-                        for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
-                            auto res = queryResults->GetResult(i);
-                            if (res->VID == -1) break;
-                            // LOG(Helper::LogLevel::LL_Info, "Send Back, VID: %lu, Dist: %f\n", res->VID, res->Dist);
-                            if (res->VID < -1) {
-                                LOG(Helper::LogLevel::LL_Info, "DistKV, temporarily find a wrong VID: %d when searching layer: %d, drop it but it is a bug\n", res->VID, layer+1);
-                                continue;
+                            ptr += sizeof(int);
+
+                            for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
+                                auto res = queryResults->GetResult(i);
+                                if (res->VID == -1) break;
+                                // LOG(Helper::LogLevel::LL_Info, "Send Back, VID: %lu, Dist: %f\n", res->VID, res->Dist);
+                                if (res->VID < -1) {
+                                    LOG(Helper::LogLevel::LL_Info, "DistKV, temporarily find a wrong VID: %d when searching layer: %d, drop it but it is a bug\n", res->VID, layer+1);
+                                    continue;
+                                }
+                                memcpy(ptr, (char *)&res->VID, sizeof(SizeType));
+                                memcpy(ptr+sizeof(SizeType), (char *)&res->Dist, sizeof(float));
+                                ptr+=sizeof(SizeType);
+                                ptr+=sizeof(float);
                             }
-                            memcpy(ptr, (char *)&res->VID, sizeof(SizeType));
-                            memcpy(ptr+sizeof(SizeType), (char *)&res->Dist, sizeof(float));
-                            ptr+=sizeof(SizeType);
-                            ptr+=sizeof(float);
+
+                            auto t2 = std::chrono::high_resolution_clock::now();
+
+                            double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
+
+                            memcpy(ptr, (char *)&processTime, sizeof(double));
+                            // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d\n", request.size());
+
+                            // responder.send(request);
+                            responder.send(identity, ZMQ_SNDMORE);
+                            responder.send(request);
+                        } else {
+                            std::vector<std::string> postingLists;
+                            int vectorSize = 0;
+                            m_extraSearchers[layer]->GetMultiPosting(m_workspace.get(), &postingLists, vectorSize);
+
+                            int totalSize = sizeof(int);
+                            totalSize += sizeof(int);
+                            totalSize += sizeof(double);
+                            for (int i = 0; i < postingLists.size(); i++) {
+                                totalSize += sizeof(int);
+                                totalSize += postingLists[i].size();
+                            }
+
+                            zmq::message_t request(totalSize);
+
+                            ptr = static_cast<char*>(request.data());
+
+                            memcpy(ptr, (char *)&currentKey, sizeof(int));
+
+                            ptr += sizeof(int);
+
+                            memcpy(ptr, (char *)&vectorSize, sizeof(int));
+
+                            ptr += sizeof(int);
+
+                            for (int i = 0; i < postingLists.size(); i++) {
+                                int postingSize = postingLists[i].size();
+                                memcpy(ptr, (char *)&postingSize, sizeof(int));
+                                ptr += sizeof(int);
+                                memcpy(ptr, (char *)postingLists[i].data(), postingSize);
+                                ptr += postingSize;
+                            }
+
+
+                            auto t2 = std::chrono::high_resolution_clock::now();
+
+                            //here is dist read latency
+                            double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
+
+                            memcpy(ptr, (char *)&processTime, sizeof(double));
+
+                            // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d\n", request.size());
+
+                            // responder.send(request);
+                            responder.send(identity, ZMQ_SNDMORE);
+                            responder.send(request);
                         }
-
-                        auto t2 = std::chrono::high_resolution_clock::now();
-
-                        double processTime = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()));
-
-                        memcpy(ptr, (char *)&processTime, sizeof(double));
-
-                        // LOG(Helper::LogLevel::LL_Info, "Send Back, size: %d\n", request.size());
-
-                        // responder.send(request);
-                        responder.send(identity, ZMQ_SNDMORE);
-                        responder.send(request);
 
                     } else {
                         LOG(Helper::LogLevel::LL_Error, "Invalid msg: %d\n", reply.size());

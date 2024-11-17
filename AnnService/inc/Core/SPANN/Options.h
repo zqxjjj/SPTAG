@@ -180,6 +180,9 @@ namespace SPTAG {
             bool m_multiLayer;
             int m_layers;
             int m_headSize;
+            
+            bool m_moreStats;
+            bool m_tranPost;
 
             // Decouple L0 and other layer option
             bool m_isLocal;
@@ -199,6 +202,7 @@ namespace SPTAG {
 
             // DSPANN
             bool m_dspann;
+            std::string m_mappingFilePath;
             int m_dspannIndexFileNum;
             std::string m_dspannIndexLabelPrefix;
             std::string m_dspannCenters;
