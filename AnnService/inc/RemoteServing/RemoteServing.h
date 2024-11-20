@@ -735,7 +735,7 @@ namespace SPTAG {
 
         template <typename ValueType>
         ErrorCode BrokerOn(SPANN::Index<ValueType>* p_index) {
-            LOG(Helper::LogLevel::LL_Info, "Start Broker\n");
+            LOG(Helper::LogLevel::LL_Info, "Start Broker, v0.1, %d byte version\n", sizeof(SizeType));
 
             SPANN::Options& p_opts = *(p_index->GetOptions());
 
