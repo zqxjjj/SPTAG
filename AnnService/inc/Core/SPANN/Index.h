@@ -592,7 +592,7 @@ namespace SPTAG
                         p_stats->m_accessPartitionsPerNode[layer][i] = keys_eachNode[i].size();
                         if (keys_eachNode[i].size() != 0) {
                             request[i] = new std::string();
-                            request[i]->resize(sizeof(SizeType)*(keys_eachNode[i].size() +1) + m_options.m_dim * sizeof(T) + sizeof(SizeType) + sizeof(char));
+                            request[i]->resize(sizeof(SizeType)*(keys_eachNode[i].size() + 1) + m_options.m_dim * sizeof(T) + sizeof(SizeType) + sizeof(char));
                             reply[i] = new std::string();
                             in_flight[i] = 1;
 
@@ -637,6 +637,7 @@ namespace SPTAG
                             if (visit[i] == 0 && in_flight[i] == 0) {
                                 visit[i] = 1;
                                 auto ptr = static_cast<char*>(reply[i]->data());
+                                int totalSize = reply[i]->size();
                                 if (m_options.m_tranPost) {
                                     // LOG(Helper::LogLevel::LL_Error, "Reading Result\n");
                                     std::string postingList;
@@ -676,7 +677,8 @@ namespace SPTAG
                                     }
                                     // finally read the last process time
                                 } else {
-                                    for (int j = 0; j < m_options.m_searchInternalResultNum; j++) {
+                                    int totalResultNum = (totalSize - sizeof(double)) / (sizeof(SizeType) + sizeof(float));
+                                    for (int j = 0; j < totalResultNum; j++) {
                                         SizeType VID;
                                         float Dist;
                                         memcpy((char *)&VID, ptr, sizeof(SizeType));
@@ -1093,9 +1095,16 @@ namespace SPTAG
                             // Return result
                             queryResults->SortResult();
 
-                            int K = m_options.m_searchInternalResultNum;
+                            int actualVectorNum = 0;
+                            for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
+                                auto res = queryResults->GetResult(i);
+                                if (res->VID == -1) break;
+                                actualVectorNum += 1;
+                            }
+
+                            // int K = m_options.m_searchInternalResultNum;
                             
-                            zmq::message_t request(K * (sizeof(SizeType) + sizeof(float)) + sizeof(double) + sizeof(int));
+                            zmq::message_t request(actualVectorNum * (sizeof(SizeType) + sizeof(float)) + sizeof(double) + sizeof(int));
 
                             ptr = static_cast<char*>(request.data());
 
@@ -1103,7 +1112,7 @@ namespace SPTAG
 
                             ptr += sizeof(int);
 
-                            for (int i = 0; i < m_options.m_searchInternalResultNum; i++) {
+                            for (int i = 0; i < actualVectorNum; i++) {
                                 auto res = queryResults->GetResult(i);
                                 if (res->VID == -1) break;
                                 // LOG(Helper::LogLevel::LL_Info, "Send Back, VID: %lu, Dist: %f\n", res->VID, res->Dist);
