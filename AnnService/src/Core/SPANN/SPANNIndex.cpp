@@ -178,7 +178,7 @@ namespace SPTAG
                 }
             }
 
-            if (!m_options.m_recovery) {
+            if (!m_options.m_recovery && m_options.m_excludehead) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
                 m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
                 IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
