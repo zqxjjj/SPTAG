@@ -8,6 +8,7 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <fcntl.h>
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_hash_map.h>
 namespace SPTAG::SPANN {
@@ -15,10 +16,38 @@ namespace SPTAG::SPANN {
     class FileIO : public Helper::KeyValueIO {
         class BlockController {
         private:
+            #ifndef USE_HELPER_THREADPOOL
+            class ThreadPool {
+            public:
+                ThreadPool(size_t numThreads, int fd);
+                ~ThreadPool();
+
+                void enqueueRead(const void* app_buff, size_t size, off_t offset);
+                void enqueueWrite(const void* app_buff, size_t size, off_t offset);
+                void notify_one();
+            private:
+                std::vector<pthread_t> workers;
+                BlockController* ctrl;
+                std::mutex queueMutex;
+                std::condition_variable condition;
+                int fd;
+                bool stop;
+
+                static void* workerThread(void* arg);
+                void threadLoop();
+            };
+            friend ThreadPool;
+            #endif
             static char* filePath;
+            static int fd;
+
             static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
             static constexpr const char* kFileIoDepth = "SPFRESH_FILE_IO_DEPTH";
             static constexpr int kSsdFileIoDefaultIoDepth = 1024;
+            static constexpr const char* kFileIoThreadNum = "SPFRESH_FILE_IO_THREAD_NUM";
+            static constexpr int kSsdFileIoDefaultIoThreadNum = 64;
+            static constexpr const char* kFileIoAlignment = "SPFRESH_FILE_IO_ALIGNMENT";
+            static constexpr int kSsdFileIoDefaultAlignment = 4096;
 
             tbb::concurrent_queue<AddressType> m_blockAddresses;
             tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
@@ -28,14 +57,16 @@ namespace SPTAG::SPANN {
             volatile bool m_fileIoThreadReady = false;
             volatile bool m_fileIoThreadExiting = false;
 
+            int m_ssdFileIoAlignment = kSsdFileIoDefaultAlignment;
             int m_ssdFileIoDepth = kSsdFileIoDefaultIoDepth;
+            int m_ssdFileIoThreadNum = kSsdFileIoDefaultIoThreadNum;
             struct SubIoRequest {
                 tbb::concurrent_queue<SubIoRequest *>* completed_sub_io_requests;
                 void* app_buff;
-                void* dma_buff;
+                void* io_buff;
+                bool is_read;
                 AddressType real_size;
                 AddressType offset;
-                bool is_read;
                 BlockController* ctrl;
                 int posting_id;
             };
@@ -47,6 +78,10 @@ namespace SPTAG::SPANN {
                 int in_flight = 0;
             };
             static thread_local struct IoContext m_currIoContext;
+
+            #ifndef USE_HELPER_THREADPOOL
+            ThreadPool* m_threadPool;
+            #endif
 
             static int m_ssdInflight;
 
@@ -69,6 +104,8 @@ namespace SPTAG::SPANN {
             static void FileIoCallback(bool success, void *cb_arg);
 
             static void Stop(void* args);
+
+            static void* pread_thread_func(void* args);
 
         public:
             bool Initialize(int batchSize);
