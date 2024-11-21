@@ -292,5 +292,36 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     return true;
 }
 
+bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value) {
+    AddressType currBlockIdx = 0;
+    int inflight = 0;
+    SubIoRequest* currSubIo;
+    int totalSize = p_value.size();
+    // Submit all I/Os
+    while(currBlockIdx < p_size || inflight) {
+        // Try submit
+        if(currBlockIdx < p_size && m_currIoContext.free_sub_io_requests.size()) {
+            currSubIo = m_currIoContext.free_sub_io_requests.back();
+            m_currIoContext.free_sub_io_requests.pop_back();
+            currSubIo->app_buff = (void*)p_value.data() + currBlockIdx * PageSize;
+            currSubIo->real_size = (PageSize * (currBlockIdx + 1)) > totalSize ? (totalSize - currBlockIdx * PageSize) : PageSize;
+            currSubIo->is_read = false;
+            currSubIo->offset = p_data[currBlockIdx] * PageSize;
+            memcpy(currSubIo->io_buff, currSubIo->app_buff, currSubIo->real_size);
+            m_submittedSubIoRequests.push(currSubIo);
+            m_threadPool->notify_one();
+            currBlockIdx++;
+            inflight++;
+        }
+        // Try complete
+        if(inflight && m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
+            currSubIo->app_buff = nullptr;
+            m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+            inflight--;
+        }
+    }
+    return true;
+}
+
 
 } // namespace SPTAG::SPANN
