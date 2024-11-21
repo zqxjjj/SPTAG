@@ -533,9 +533,9 @@ namespace SPTAG
 
                 p_stats->m_compLatencys.resize(m_options.m_layers-1);
                 p_stats->m_diskReadLatencys.resize(m_options.m_layers-1);
-                p_stats->m_exLatencys.resize(m_options.m_layers-1);
-                p_stats->m_diskReadPages.resize(m_options.m_layers-1);
-                p_stats->m_exWaitLatencys.resize(m_options.m_layers-1);
+                // p_stats->m_exLatencys.resize(m_options.m_layers-1);
+                // p_stats->m_diskReadPages.resize(m_options.m_layers-1);
+                // p_stats->m_exWaitLatencys.resize(m_options.m_layers-1);
                 p_stats->m_RemoteRemoteLatencys.resize(m_options.m_layers-1);
                 p_stats->m_accessPartitionsPerNode.resize(m_options.m_layers-1);
 
