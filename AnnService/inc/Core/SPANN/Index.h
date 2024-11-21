@@ -695,6 +695,8 @@ namespace SPTAG
                                 memcpy(&localProcessTime, ptr, sizeof(double));
                                 // LOG(Helper::LogLevel::LL_Info, "Local Processing : %lf, Transfer : %lf\n", layer+1, localProcessTime, transferLatency[i]);
                                 transferLatency[i] -= (localProcessTime / 1000);
+                                delete reply[i];
+                                delete request[i];
                             }
                         }
                         notReady = false;
@@ -703,6 +705,7 @@ namespace SPTAG
                         }
                         if (notReady) std::this_thread::sleep_for(std::chrono::microseconds(5));
                     }
+
                     auto t4 = std::chrono::high_resolution_clock::now();
 
                     p_stats->m_diskReadLatencys[layer] = ((double)(std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count())) / 1000;
@@ -735,12 +738,13 @@ namespace SPTAG
                 zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
 
+                int msg_size = m_options.m_dim * sizeof(T);
+                        
+                char* vectorBuffer = new char[msg_size];
+
                 LOG(Helper::LogLevel::LL_Info,"Ready For Recv\n");
 
                 while(1) {
-                    int msg_size = m_options.m_dim * sizeof(T);
-                        
-                    char* vectorBuffer = new char[msg_size];
 
                     zmq::message_t identity;
                     zmq::message_t reply;
@@ -927,12 +931,13 @@ namespace SPTAG
                 zmq::socket_t responder(context, ZMQ_DEALER);
                 responder.connect(m_options.m_ipAddrBackend.c_str());
 
+                int msg_size = m_options.m_dim * sizeof(T);
+                        
+                char* vectorBuffer = new char[msg_size];
+
                 LOG(Helper::LogLevel::LL_Info,"Ready For Recv\n");
 
                 while(1) {
-                    int msg_size = m_options.m_dim * sizeof(T);
-                        
-                    char* vectorBuffer = new char[msg_size];
 
                     zmq::message_t identity;
                     zmq::message_t reply;
@@ -1025,6 +1030,8 @@ namespace SPTAG
 
                 LOG(Helper::LogLevel::LL_Info,"Ready For Recv\n");
 
+                char* vectorBuffer = new char[m_options.m_dim * sizeof(T)];
+
                 while(1) {
                     QueryResult p_Result(NULL, m_options.m_searchInternalResultNum, false);
                     COMMON::QueryResultSet<T>* queryResults = (COMMON::QueryResultSet<T>*) & p_Result;
@@ -1060,8 +1067,6 @@ namespace SPTAG
                     std::vector<SizeType> keys(size);
                     memcpy((char *)keys.data(), ptr, sizeof(SizeType)*size);
                     ptr += sizeof(SizeType)*size;
-                        
-                    char* vectorBuffer = new char[m_options.m_dim * sizeof(T)];
 
                     memcpy(vectorBuffer, ptr, m_options.m_dim * sizeof(T));
 
