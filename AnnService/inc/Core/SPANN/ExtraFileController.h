@@ -19,11 +19,9 @@ namespace SPTAG::SPANN {
             #ifndef USE_HELPER_THREADPOOL
             class ThreadPool {
             public:
-                ThreadPool(size_t numThreads, int fd);
+                ThreadPool(size_t numThreads, int fd, BlockController* ctrl);
                 ~ThreadPool();
 
-                void enqueueRead(const void* app_buff, size_t size, off_t offset);
-                void enqueueWrite(const void* app_buff, size_t size, off_t offset);
                 void notify_one();
             private:
                 std::vector<pthread_t> workers;
@@ -97,15 +95,13 @@ namespace SPTAG::SPANN {
 
             static void* InitializeFileIo(void* args);
 
-            static void Start(void* args);
+            // static void Start(void* args);
 
             static void FileIoLoop(void *arg);
 
-            static void FileIoCallback(bool success, void *cb_arg);
+            // static void FileIoCallback(bool success, void *cb_arg);
 
-            static void Stop(void* args);
-
-            static void* pread_thread_func(void* args);
+            // static void Stop(void* args);
 
         public:
             bool Initialize(int batchSize);

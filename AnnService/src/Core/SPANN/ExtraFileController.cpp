@@ -8,8 +8,9 @@ int FileIO::BlockController::m_ioCompleteCount = 0;
 std::unique_ptr<char[]> FileIO::BlockController::m_memBuffer;
 #ifndef USE_HELPER_THREADPOOL
 
-FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd) {
+FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, BlockController* ctrl) {
     this->fd = fd;
+    this->ctrl = ctrl;
     stop = false;
     for (size_t i = 0; i < numThreads; i++) {
         workers.emplace_back(workerThread, this);
@@ -112,7 +113,8 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
 
     if(ctrl->m_fileIoThreadStartFailed == false) {
         ctrl->m_fileIoThreadReady = true;
-        ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd);
+        ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd, ctrl);
+        m_ssdInflight = 0;
     }
     pthread_exit(NULL);
 }
@@ -323,5 +325,54 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     return true;
 }
 
+bool FileIO::BlockController::IOStatistics() {
+    int currIOCount = m_ioCompleteCount;
+    int diffIOCount = currIOCount - m_preIOCompleteCount;
+    m_preIOCompleteCount = currIOCount;
+
+    auto currTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(currTime - m_preTime);
+    m_preTime = currTime;
+
+    double currIOPS = (double)diffIOCount * 1000 / duration.count();
+    double currBandWidth = (double)diffIOCount * PageSize / 1024 * 1000 / 1024 * 1000 / duration.count();
+
+    std::cout << "IOPS: " << currIOPS << "k Bandwidth: " << currBandWidth << "MB/s" << std::endl;
+
+    return true;
+}
+
+bool FileIO::BlockController::ShutDown() {
+    std::lock_guard<std::mutex> lock(m_initMutex);
+    m_numInitCalled--;
+
+    if(m_numInitCalled == 0) {
+        m_fileIoThreadExiting = true;
+        delete m_threadPool;
+        pthread_join(m_fileIoTid, NULL);
+        while(!m_blockAddresses.empty()) {
+            AddressType currBlockAddress;
+            m_blockAddresses.try_pop(currBlockAddress);
+        }
+    }
+
+    SubIoRequest* currSubIo;
+    while (m_currIoContext.in_flight) {
+        if (m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
+            currSubIo->app_buff = nullptr;
+            m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+            m_currIoContext.in_flight--;
+        }
+    }
+
+    for (auto &sr : m_currIoContext.sub_io_requests) {
+        sr.completed_sub_io_requests = nullptr;
+        sr.app_buff = nullptr;
+        free(sr.io_buff);
+        sr.io_buff = nullptr;
+    }
+    m_currIoContext.free_sub_io_requests.clear();
+    return true;
+}
 
 } // namespace SPTAG::SPANN
