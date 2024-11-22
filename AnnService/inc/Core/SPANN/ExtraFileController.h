@@ -125,6 +125,33 @@ namespace SPTAG::SPANN {
             };
         };
 
+    public:
+        FileIO(const char* filePath, SizeType blockSize, SizeType capacity, SizeType postingBlocks, SizeType bufferSize = 1024, int batchSize = 64, bool recovery = false, int compactionThreads = 1) {
+            // TODO: 后面还得再看看，可能需要修改
+            m_mappingPath = std::string(filePath);
+            m_blockLimit = postingBlocks + 1;
+            m_bufferLimit = bufferSize;
+            if (recovery) {
+                // TODO
+            } else if(fileexists(m_mappingPath.c_str())) {
+                // TODO
+            } else {
+                m_pBlockMapping.Initialize(0, 1, blockSize, capacity);
+            }
+            for (int i = 0; i < bufferSize; i++) {
+                m_buffer.push((uintptr_t)(new AddressType[m_blockLimit]));
+            }
+            m_compactionThreadPool = std::make_shared<Helper::ThreadPool>();
+            m_compactionThreadPool->init(compactionThreads);
+            if (recovery) {
+                // TODO
+            } else if (!m_pBlockController.Initialize(batchSize)) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize SPDK!\n");
+                exit(0);
+            }
+            m_shutdownCalled = false;
+        }
+
     private:
         std::string m_mappingPath;
         SizeType m_blockLimit;
