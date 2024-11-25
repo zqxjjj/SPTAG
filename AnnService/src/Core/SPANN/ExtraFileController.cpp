@@ -73,6 +73,15 @@ void FileIO::BlockController::ThreadPool::threadLoop() {
 void* FileIO::BlockController::InitializeFileIo(void* args) {
     FileIO::BlockController* ctrl = (FileIO::BlockController *)args;
     struct stat st;
+    const char* fileIoPath = getenv(kFileIoPath);
+    if(fileIoPath) {
+        strcpy(filePath, fileIoPath);
+    }
+    else {
+        fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed: No filePath\n");
+        ctrl->m_fileIoThreadStartFailed = true;
+        fd = -1;
+    }
     if(stat(filePath, &st) != 0) {
         std::ofstream file(filePath, std::ios::binary);
         file.seekp(kSsdImplMaxNumBlocks * PageSizeEx - 1);
@@ -94,7 +103,7 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
             file.seekp(kSsdImplMaxNumBlocks * PageSizeEx - 1);
             file.write("", 1);
             if(file.fail()) {
-                fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed\n");
+                fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed: Failed to create file\n");
                 ctrl->m_fileIoThreadStartFailed = true;
                 fd = -1;
             }
