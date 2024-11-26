@@ -196,6 +196,8 @@ namespace SPTAG {
             int m_myNodeId;
             std::string m_topSPANNMetaFile;
             std::string m_topSPANNMetaIndex;
+            int m_hashPlan;
+            std::string m_hashMap;
 
             bool m_warmup;
             bool m_largeVID;

@@ -28,6 +28,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -252,6 +253,8 @@ namespace SPTAG
             std::vector<std::shared_ptr<IExtraSearcher>> m_extraSearchers;
             std::vector<std::shared_ptr<std::uint64_t>> m_vectorTranslateMaps;
 
+            std::vector<std::unordered_map<SizeType, short>> m_globalVectorIDHashMap;
+
             Options m_options;
 
             std::function<float(const T*, const T*, DimensionType)> m_fComputeDistance;
@@ -425,31 +428,22 @@ namespace SPTAG
 
             bool ExitBlockController() { return m_extraSearcher->ExitBlockController(); }
 
-            // void InitDSPANNNetWork() {
-            //     m_commSocketPool.resize(m_options.m_dspannIndexFileNum * 2);
-            //     // m_commSocketPool.resize(m_options.m_dspannIndexFileNum);
-
-            //     // each node gets a replica, 8000&8001 for the first 8002&80003 for the second
-            //     // for shard i, m_commSocketPool[i*2] and m_commSocketPool[i*2+1] are all for processing
-            //     int node = 4;
-            //     for (int i = 0; i < m_options.m_dspannIndexFileNum; i++, node += 1) {
-            //         std::string addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-            //         addrPrefix += std::to_string(node);
-            //         addrPrefix += ":8000";
-            //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-            //         m_commSocketPool[i*2] = std::make_shared<NetworkThreadPool>();
-            //         m_commSocketPool[i*2]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
-            //         // m_commSocketPool[i] = std::make_shared<NetworkThreadPool>();
-            //         // m_commSocketPool[i]->initNetwork(m_options.m_searchThreadNum, addrPrefix);
-
-            //         addrPrefix = m_options.m_ipAddrFrontendDSPANN;
-            //         addrPrefix += std::to_string(node);
-            //         addrPrefix += ":8002";
-            //         LOG(Helper::LogLevel::LL_Info, "Connecting to %s\n", addrPrefix.c_str());
-            //         m_commSocketPool[i*2+1] = std::make_shared<NetworkThreadPool>();
-            //         m_commSocketPool[i*2+1]->initNetwork(m_options.m_searchThreadNum/m_options.m_dspannIndexFileNum, addrPrefix);
-            //     }
-            // }
+            void LoadingHashMap(std::string filename, int layer) {
+                std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+                if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to open headMapFile file:%s\n", filename.c_str());
+                    exit(0);
+                }
+                for (short nodeID = 0; nodeID < m_options.m_dspannIndexFileNum; nodeID++) {
+                    int64_t totalSize;
+                    ptr->ReadBinary(sizeof(int64_t), (char*)&totalSize);
+                    int64_t globalVID;
+                    for (int64_t i = 0; i < totalSize; i++) {
+                        ptr->ReadBinary(sizeof(int64_t), (char*)&globalVID);
+                        m_globalVectorIDHashMap[layer].emplace(globalVID, nodeID);
+                    }
+                }
+            }
 
             ErrorCode AddIndexSPFresh(const void *p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType* VID) {
                 if ((!m_options.m_useKV &&!m_options.m_useSPDK) || m_extraSearcher == nullptr) {
@@ -910,6 +904,9 @@ namespace SPTAG
             }
 
             int NodeHash(SizeType key, int layer) {
+                if (m_options.m_hashPlan == 1) {
+                    return m_globalVectorIDHashMap[layer][key];
+                }
                 return key % m_options.m_dspannIndexFileNum;
             }
 

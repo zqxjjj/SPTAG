@@ -42,6 +42,8 @@ namespace SPTAG {
                 AddOptionalOption(m_processFiles, "-pfs", "--processfiles", "ProcessFileSet, Example: 1-2-3-5-8");
                 AddOptionalOption(m_processNodes, "-pn", "--processNode", "ProcessNode, Example: 1-2-4");
                 AddOptionalOption(m_vidThresHold, "-vt", "--vidThreshold", "VID, Threshold, error when greater than this value");
+                AddOptionalOption(m_hashPlan, "-hp", "--hashPlan", "hashPlan, 0 stands for random, 1 stands for cluster-based or specifc");
+                AddOptionalOption(m_hashRoute, "-hR", "--hashRoute", "hashPlan, 0 stands for random, 1 stands for cluster-based");
             }
 
             ~MergeOptions() {}
@@ -59,8 +61,12 @@ namespace SPTAG {
             std::string m_processFiles;
             std::string m_processNodes;
             std::int64_t m_vidThresHold = -1;
+            int m_hashPlan = 0;
+            std::string m_hashRoute;
 
         } options;
+
+        std::shared_ptr<short> m_vectorHashMaps;
 
         struct ListInfoSubFile
         {
@@ -269,30 +275,69 @@ namespace SPTAG {
             LOG(Helper::LogLevel::LL_Info, "Dispatch Posting to Node\n");
             size_t localTotalHeadNum = p_index->GetMemoryIndex()->GetNumSamples();
             LOG(Helper::LogLevel::LL_Info, "Total Posting Num: %d\n", localTotalHeadNum);
-            for (size_t localHeadID = 0; localHeadID < localTotalHeadNum; localHeadID++) {
-                ByteArray globalVectorID_byteArray = p_index->GetMetadata(p_index->ReturnTrueId(localHeadID));
+            if (p_opts.m_hashPlan == 0) {
+                for (size_t localHeadID = 0; localHeadID < localTotalHeadNum; localHeadID++) {
+                    ByteArray globalVectorID_byteArray = p_index->GetMetadata(p_index->ReturnTrueId(localHeadID));
 
-                std::string globalVectorID_string;
-                globalVectorID_string.resize(globalVectorID_byteArray.Length());
+                    std::string globalVectorID_string;
+                    globalVectorID_string.resize(globalVectorID_byteArray.Length());
 
-                memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
+                    memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
 
-                // LOG(Helper::LogLevel::LL_Info, "Loacal HeadID: %d, Local Vector ID: %d, Global Vector ID: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID_string.c_str());
+                    // LOG(Helper::LogLevel::LL_Info, "Loacal HeadID: %d, Local Vector ID: %d, Global Vector ID: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID_string.c_str());
 
-                std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
+                    std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
 
-                if (p_opts.m_vidThresHold!= -1 && globalVectorID >= p_opts.m_vidThresHold) {
-                    LOG(Helper::LogLevel::LL_Error, "Error when transfer headID metadata to integer: Loacal HeadID: %d, Local Vector ID: %d, Global vector id in uint64_tL %llu, Global Vector ID in string: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID, globalVectorID_string.c_str());
-                    exit(0);
+                    if (p_opts.m_vidThresHold!= -1 && globalVectorID >= p_opts.m_vidThresHold) {
+                        LOG(Helper::LogLevel::LL_Error, "Error when transfer headID metadata to integer: Loacal HeadID: %d, Local Vector ID: %d, Global vector id in uint64_tL %llu, Global Vector ID in string: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID, globalVectorID_string.c_str());
+                        exit(0);
+                    }
+
+                    sortHeadByNodeAndGlobalVectorID[globalVectorID % p_opts.m_numNodes].emplace(globalVectorID, localHeadID);
+                }
+            } else {
+                for (size_t localHeadID = 0; localHeadID < localTotalHeadNum; localHeadID++) {
+                    ByteArray globalVectorID_byteArray = p_index->GetMetadata(p_index->ReturnTrueId(localHeadID));
+
+                    std::string globalVectorID_string;
+                    globalVectorID_string.resize(globalVectorID_byteArray.Length());
+
+                    memcpy((char*)globalVectorID_string.data(), (char*)globalVectorID_byteArray.Data(), globalVectorID_byteArray.Length());
+
+                    // LOG(Helper::LogLevel::LL_Info, "Loacal HeadID: %d, Local Vector ID: %d, Global Vector ID: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID_string.c_str());
+
+                    std::uint64_t globalVectorID = std::stoull(globalVectorID_string);
+
+                    if (p_opts.m_vidThresHold!= -1 && globalVectorID >= p_opts.m_vidThresHold) {
+                        LOG(Helper::LogLevel::LL_Error, "Error when transfer headID metadata to integer: Loacal HeadID: %d, Local Vector ID: %d, Global vector id in uint64_tL %llu, Global Vector ID in string: %s\n", localHeadID, p_index->ReturnTrueId(localHeadID), globalVectorID, globalVectorID_string.c_str());
+                        exit(0);
+                    }
+                    
+                    sortHeadByNodeAndGlobalVectorID[m_vectorHashMaps.get()[localHeadID]].emplace(globalVectorID, localHeadID);
                 }
 
-                sortHeadByNodeAndGlobalVectorID[globalVectorID % p_opts.m_numNodes].emplace(globalVectorID, localHeadID);
+                // std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+
+                // std::string filename = options.m_hashRoute + "_globalVID";
+
+                // if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::out)) {
+                //     LOG(Helper::LogLevel::LL_Error, "Failed to create headMapFile file:%s\n", filename.c_str());
+                //     exit(0);
+                // }
+                // LOG(Helper::LogLevel::LL_Info, "Creating Hash Map from :%s\n", filename.c_str());
+
+                // for (int nodeID = 0; nodeID < p_opts.m_numNodes; nodeID++) {
+                //     int64_t totalSize = sortHeadByNodeAndGlobalVectorID[nodeID].size();
+                //     ptr->WriteBinary(sizeof(int64_t), (char*)&totalSize);
+                //     for (auto iter : sortHeadByNodeAndGlobalVectorID[nodeID]) {
+                //         ptr->WriteBinary(sizeof(int64_t), (char*)&(iter.first));
+                //     }
+                // }
+                // exit(0);
             }
-            
             for (int i = 0; i < p_opts.m_numNodes; i++) {
                 LOG(Helper::LogLevel::LL_Info, "Dispatch Posting to Node %d : %d\n", i, sortHeadByNodeAndGlobalVectorID[i].size());
             }
-
         }
 
         template <typename ValueType>
@@ -1305,6 +1350,27 @@ namespace SPTAG {
                     }
                     LOG(Helper::LogLevel::LL_Info, "\n");
                 }
+
+                if (options.m_hashPlan == 1) {
+                    std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+
+                    std::string filename = options.m_hashRoute;
+
+                    if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
+                        LOG(Helper::LogLevel::LL_Error, "Failed to open headMapFile file:%s\n", filename.c_str());
+                        exit(0);
+                    }
+                    LOG(Helper::LogLevel::LL_Info, "Loading Hash Map from :%s\n", filename.c_str());
+                    int rows;
+                    DimensionType cols;
+                    ptr->ReadBinary(sizeof(int), (char*)&rows);
+                    ptr->ReadBinary(sizeof(DimensionType), (char*)&cols);
+
+                    m_vectorHashMaps.reset(new short[rows], std::default_delete<short[]>());
+                    ptr->ReadBinary(sizeof(short) * rows, (char*)(m_vectorHashMaps.get()));
+                    LOG(Helper::LogLevel::LL_Info, "Loading %d Head Map\n", rows);
+                }
+
                 for (int FileNo : FileNoSet) {
                     LOG(Helper::LogLevel::LL_Info, "Loading File No: %d\n", FileNo);
                     /* Loading Index */

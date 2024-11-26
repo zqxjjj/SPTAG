@@ -222,6 +222,8 @@ DefineSSDParameter(m_myNodeId, int, -1, "MyNodeId")
 DefineSSDParameter(m_socketThreadNum, int, 2, "SocketThreadNum")
 DefineSSDParameter(m_topSPANNMetaFile, std::string, std::string(""), "TopSPANNMetaFile")
 DefineSSDParameter(m_topSPANNMetaIndex, std::string, std::string(""), "TopSPANNMetaIndex")
+DefineSSDParameter(m_hashMap, std::string, std::string(""), "HashMap")
+DefineSSDParameter(m_hashPlan, int, 0, "HashPlan")
 
 DefineSSDParameter(m_multiLayer, bool, false, "MultiLayer")
 

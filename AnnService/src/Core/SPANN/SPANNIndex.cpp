@@ -286,6 +286,18 @@ namespace SPTAG
 
                         (m_vectorTranslateMaps[0].get())[i] = globalVectorID;
                     }
+                    if (m_options.m_hashPlan == 1) {
+                        LOG(Helper::LogLevel::LL_Info, "Loading Hash Map\n");
+                        m_globalVectorIDHashMap.resize(toLoadLayers);
+                        for (int i = toLoadLayers; i > 0; i--) {
+                            std::string folderPath = m_options.m_indexDirectory;
+                            for (int j = 1; j < i; j++) {
+                                folderPath += FolderSep;
+                                folderPath += m_spannIndexFolder;
+                            }
+                            LoadingHashMap(folderPath + FolderSep + m_options.m_hashMap, toLoadLayers-i);
+                        }
+                    }
 
                 } else {
                     /* Set ComputeDistance */
