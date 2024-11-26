@@ -179,8 +179,6 @@ namespace SPTAG::SPANN {
                 // Create sub I/O request pool
                 m_currIoContext.sub_io_requests.resize(m_ssdFileIoDepth);
                 m_currIoContext.in_flight = 0;
-                uint32_t buf_align;
-                // buf_align = spdk_bdev_get_buf_align(m_ssdSpdkBdev);
                 for (auto &sr : m_currIoContext.sub_io_requests) {
                     sr.completed_sub_io_requests = &(m_currIoContext.completed_sub_io_requests);
                     sr.app_buff = nullptr;
@@ -290,12 +288,13 @@ namespace SPTAG::SPANN {
                 // 从buffer里拿一组Mapping块，一会再还一组回去
                 while (!m_buffer.try_pop(tmpblocks));
                 // 获取一组新的磁盘块，直接写入数据
-                // TODO: 考虑这里是否能够复用原有的磁盘块
+                // 为保证Checkpoint的效果，这里必须分配新的块进行写入
                 m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks);
                 m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value);
                 *((int64_t*)tmpblocks) = value.size();
 
                 // 释放原有的块
+                // 这里是否应该加锁？否则可能同一组磁盘块会被多次释放
                 m_pBlockController.ReleaseBlocks(postingSize + 1, (*postingSize + PageSize -1) >> PageSizeEx);
                 while (InterlockedCompareExchange(&At(key), tmpblocks, (uintptr_t)postingSize) != (uintptr_t)postingSize) {
                     postingSize = (int64_t*)At(key);
@@ -305,7 +304,52 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
 
+        ErrorCode Merge(SizeType key, const std::string& value) {
+            if (key >= m_pBlockMapping.R()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key range error: key: %d, mapping size: %d\n", key, m_pBlockMapping.R());
+                return ErrorCode::Fail;
+            }
 
+            int64_t* postingSize = (int64_t*)At(key);
+            auto newSize = *postingSize + value.size();
+            int newblocks = ((newSize + PageSize - 1) >> PageSizeEx);
+            if (newblocks >= m_blockLimit) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failt to merge key:%d value:%lld since value too long!\n", key, newSize);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Origin Size: %lld, merge size: %lld\n", *postingSize, value.size());
+                return ErrorCode::Fail;
+            }
+
+            auto sizeInPage = (*postingSize) % PageSize;    // 最后一个块的实际大小
+            int oldblocks = (*postingSize >> PageSizeEx);
+            int allocblocks = newblocks - oldblocks;
+            // 最后一个块没有写满的话，需要先读出来，然后拼接新的数据，再写回去
+            if (sizeInPage != 0) {
+                std::string newValue;
+                AddressType readreq[] = { sizeInPage, *(postingSize + 1 + oldblocks) };
+                m_pBlockController.ReadBlocks(readreq, &newValue);
+                newValue += value;
+
+                uintptr_t tmpblocks;
+                while (!m_buffer.try_pop(tmpblocks));
+                memcpy((AddressType*)tmpblocks, postingSize, sizeof(AddressType) * (oldblocks + 1));
+                m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks);
+                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks, newValue);
+                *((int64_t*)tmpblocks) = newSize;
+
+                // 这里也是为了保证Checkpoint，所以将原本没用满的块释放，分配一个新的
+                m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, 1);
+                while (InterlockedCompareExchange(&At(key), tmpblocks, (uintptr_t)postingSize) != (uintptr_t)postingSize) {
+                    postingSize = (int64_t*)At(key);
+                }
+                m_buffer.push((uintptr_t)postingSize);
+            }
+            else {  // 否则直接分配一组块接在后面
+                m_pBlockController.GetBlocks(postingSize + 1 + oldblocks, allocblocks);
+                m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value);
+                *postingSize = newSize;
+            }
+            return ErrorCode::Success;
+        }
 
     private:
         std::string m_mappingPath;
