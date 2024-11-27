@@ -190,6 +190,21 @@ namespace SPTAG::SPANN {
             }
         };
 
+        class CompactionJob : public Helper::ThreadPool::Job
+        {
+        private:
+            FileIO* m_fileIO;
+
+        public:
+            CompactionJob(FileIO* fileIO): m_fileIO(fileIO) {}
+
+            ~CompactionJob() {}
+
+            inline void exec(IAbortOperation* p_abort) override {
+                m_fileIO->ForceCompaction();
+            }
+        };
+
     public:
         FileIO(const char* filePath, SizeType blockSize, SizeType capacity, SizeType postingBlocks, SizeType bufferSize = 1024, int batchSize = 64, bool recovery = false, int compactionThreads = 1) {
             // TODO: 后面还得再看看，可能需要修改
@@ -197,9 +212,10 @@ namespace SPTAG::SPANN {
             m_blockLimit = postingBlocks + 1;
             m_bufferLimit = bufferSize;
             if (recovery) {
-                // TODO
+                m_mappingPath += "_blockmapping";
+                Load(m_mappingPath, blockSize, capacity);
             } else if(fileexists(m_mappingPath.c_str())) {
-                // TODO
+                Load(m_mappingPath, blockSize, capacity);
             } else {
                 m_pBlockMapping.Initialize(0, 1, blockSize, capacity);
             }
@@ -209,7 +225,10 @@ namespace SPTAG::SPANN {
             m_compactionThreadPool = std::make_shared<Helper::ThreadPool>();
             m_compactionThreadPool->init(compactionThreads);
             if (recovery) {
-                // TODO
+                if (m_pBlockController.Recovery(std::string(filePath), batchSize) != ErrorCode::Success) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Recover SPDK!\n");
+                    exit(0);
+                }
             } else if (!m_pBlockController.Initialize(batchSize)) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize SPDK!\n");
                 exit(0);
@@ -222,7 +241,19 @@ namespace SPTAG::SPANN {
         }
 
         void ShutDown() override {
-            // TODO
+            if (m_shutdownCalled) {
+                return;
+            }
+            if (!m_mappingPath.empty()) Save(m_mappingPath);
+            for (int i = 0; i < m_pBlockMapping.R(); i++) {
+                if (At(i) != 0xffffffffffffffff) delete[]((AddressType*)At(i));
+            }
+            while (!m_buffer.empty()) {
+                uintptr_t ptr;
+                if (m_buffer.try_pop(ptr)) delete[]((AddressType*)ptr);
+            }
+            m_pBlockController.ShutDown();
+            m_shutdownCalled = true;
         }
 
         inline uintptr_t& At(SizeType key) {
@@ -349,6 +380,88 @@ namespace SPTAG::SPANN {
                 *postingSize = newSize;
             }
             return ErrorCode::Success;
+        }
+
+        ErrorCode Delete(SizeType key) override {
+            if (key >= m_pBlockMapping.R()) return ErrorCode::Fail;
+            int64_t* postingSize = (int64_t*)At(key);
+            if (*postingSize < 0) return ErrorCode::Fail;
+
+            int blocks = ((*postingSize + PageSize - 1) >> PageSizeEx);
+            m_pBlockController.ReleaseBlocks(postingSize + 1, blocks);
+            m_buffer.push((uintptr_t)postingSize);
+            At(key) = 0xffffffffffffffff;
+            return ErrorCode::Success;
+        }
+
+        void ForceCompaction() {
+            Save(m_mappingPath);
+        }
+
+        void GetStat() {
+            int remainBlocks = m_pBlockController.RemainBlocks();
+            int remainGB = remainBlocks << PageSizeEx >> 30;
+            // int remainGB = remainBlocks >> 20 << 2;
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Remain %d blocks, totally %d GB\n", remainBlocks, remainGB);
+            m_pBlockController.IOStatistics();
+        }
+
+        ErrorCode Load(std::string path, SizeType blockSize, SizeType capacity) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load mapping From %s\n", path.c_str());
+            auto ptr = f_createIO();
+            if (ptr == nullptr || !ptr->Initialize(path.c_str(), std::ios::binary | std::ios::in)) return ErrorCode::FailedOpenFile;
+
+            SizeType CR, mycols;
+            IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&CR);
+            IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&mycols);
+            if (mycols > m_blockLimit) m_blockLimit = mycols;
+
+            m_pBlockMapping.Initialize(CR, 1, blockSize, capacity);
+            for (int i = 0; i < CR; i++) {
+                At(i) = (uintptr_t)(new AddressType[m_blockLimit]);
+                IOBINARY(ptr, ReadBinary, sizeof(AddressType) * mycols, (char*)At(i));
+            }
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load mapping (%d,%d) Finish!\n", CR, mycols);
+            return ErrorCode::Success;
+        }
+        
+        ErrorCode Save(std::string path) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save mapping To %s\n", path.c_str());
+            auto ptr = f_createIO();
+            if (ptr == nullptr || !ptr->Initialize(path.c_str(), std::ios::binary | std::ios::out)) return ErrorCode::FailedCreateFile;
+
+            SizeType CR = m_pBlockMapping.R();
+            IOBINARY(ptr, WriteBinary, sizeof(SizeType), (char*)&CR);
+            IOBINARY(ptr, WriteBinary, sizeof(SizeType), (char*)&m_blockLimit);
+            std::vector<AddressType> empty(m_blockLimit, 0xffffffffffffffff);
+            for (int i = 0; i < CR; i++) {
+                if (At(i) == 0xffffffffffffffff) {
+                    IOBINARY(ptr, WriteBinary, sizeof(AddressType) * m_blockLimit, (char*)(empty.data()));
+                }
+                else {
+                    int64_t* postingSize = (int64_t*)At(i);
+                    IOBINARY(ptr, WriteBinary, sizeof(AddressType) * m_blockLimit, (char*)postingSize);
+                }
+            }
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save mapping (%d,%d) Finish!\n", CR, m_blockLimit);
+            return ErrorCode::Success;
+        }
+
+        bool Initialize(bool debug = false) override {
+            if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize SPDK for new threads\n");
+            return m_pBlockController.Initialize(64);
+        }
+
+        bool ExitBlockController(bool debug = false) override { 
+            if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Exit SPDK for thread\n");
+            return m_pBlockController.ShutDown(); 
+        }
+
+        ErrorCode Checkpoint(std::string prefix) override {
+            std::string filename = prefix + "_blockmapping";
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK: saving block mapping\n");
+            Save(filename);
+            return m_pBlockController.Checkpoint(prefix);
         }
 
     private:
