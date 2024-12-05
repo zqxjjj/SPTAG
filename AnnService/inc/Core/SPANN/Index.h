@@ -198,14 +198,14 @@ namespace SPTAG
             ErrorCode BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader);
 
         public:
-            bool AllFinished() { if (m_options.m_useKV || m_options.m_useSPDK) return m_extraSearcher->AllFinished(); return true; }
+            bool AllFinished() { if (m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) return m_extraSearcher->AllFinished(); return true; }
 
             void GetDBStat() { 
-                if (m_options.m_useKV || m_options.m_useSPDK) m_extraSearcher->GetDBStats(); 
+                if (m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) m_extraSearcher->GetDBStats(); 
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current Vector Num: %d, Deleted: %d .\n", GetNumSamples(), GetNumDeleted());
             }
 
-            void GetIndexStat(int finishedInsert, bool cost, bool reset) { if (m_options.m_useKV || m_options.m_useSPDK) m_extraSearcher->GetIndexStats(finishedInsert, cost, reset); }
+            void GetIndexStat(int finishedInsert, bool cost, bool reset) { if (m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) m_extraSearcher->GetIndexStats(finishedInsert, cost, reset); }
             
             void ForceCompaction() { if (m_options.m_useKV) m_extraSearcher->ForceCompaction(); }
 
@@ -244,7 +244,7 @@ namespace SPTAG
             }
 
             ErrorCode AddIndexSPFresh(const void *p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType* VID) {
-                if ((!m_options.m_useKV &&!m_options.m_useSPDK) || m_extraSearcher == nullptr) {
+                if ((!m_options.m_useKV &&!m_options.m_useSPDK && !m_options.m_useFileIO) || m_extraSearcher == nullptr) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Only Support KV Extra Update\n");
                     return ErrorCode::Fail;
                 }

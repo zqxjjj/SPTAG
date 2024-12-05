@@ -4,7 +4,9 @@ namespace SPTAG::SPANN
 {
 thread_local struct FileIO::BlockController::IoContext FileIO::BlockController::m_currIoContext;
 int FileIO::BlockController::m_ssdInflight = 0;
-int FileIO::BlockController::m_ioCompleteCount = 0;
+std::atomic<int> FileIO::BlockController::m_ioCompleteCount(0);
+int FileIO::BlockController::fd = -1;
+char* FileIO::BlockController::filePath = new char[1024];
 std::unique_ptr<char[]> FileIO::BlockController::m_memBuffer;
 #ifndef USE_HELPER_THREADPOOL
 
@@ -12,9 +14,22 @@ FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, Block
     this->fd = fd;
     this->ctrl = ctrl;
     stop = false;
+    busy_time_vec.resize(numThreads);
+    io_time_vec.resize(numThreads);
+    read_complete_vec.resize(numThreads);
+    write_complete_vec.resize(numThreads);
+    busy_thread_vec.resize(numThreads);
     for (size_t i = 0; i < numThreads; i++) {
-        workers.emplace_back(workerThread, this);
+        workers.push_back(pthread_t());
+        threadArgs_vec.push_back(ThreadArgs{i, this});
+        pthread_create(&workers.back(), nullptr, workerThread, &threadArgs_vec.back());
+        busy_time_vec[i] = 0;
+        io_time_vec[i] = 0;
+        read_complete_vec[i] = 0;
+        write_complete_vec[i] = 0;
+        busy_thread_vec[i] = false;
     }
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ThreadPool initialized with %d threads, fd=%d\n", numThreads, fd);
 }
 
 FileIO::BlockController::ThreadPool::~ThreadPool() {
@@ -30,41 +45,68 @@ void FileIO::BlockController::ThreadPool::notify_one() {
 }
 
 void* FileIO::BlockController::ThreadPool::workerThread(void* arg) {
-    ThreadPool* pool = (ThreadPool*)arg;
-    pool->threadLoop();
+    auto args = static_cast<ThreadArgs*>(arg);
+    auto pool = args->pool;
+    pool->threadLoop(args->id);
     return nullptr;
 }
 
-void FileIO::BlockController::ThreadPool::threadLoop() {
+void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
+    std::mutex selfMutex;
     while(true) {
         {
             std::unique_lock<std::mutex> lock(queueMutex);
             condition.wait(lock, [this] { return stop || !ctrl->m_submittedSubIoRequests.empty();});
         }
+        busy_thread_vec[id] = true;
+        auto start_time = std::chrono::high_resolution_clock::now();
         SubIoRequest* currSubIo = nullptr;
         while(ctrl->m_submittedSubIoRequests.try_pop(currSubIo)) {
-            ctrl->m_ssdInflight++;
+            // ctrl->m_ssdInflight++;
             if(currSubIo->is_read) {
+                // fprintf(stderr, "pread\n");
+                auto io_begin_time = std::chrono::high_resolution_clock::now();
                 ssize_t bytesRead = pread(fd, currSubIo->io_buff, PageSize, currSubIo->offset);
+                auto io_end_time = std::chrono::high_resolution_clock::now();
+                auto io_time = std::chrono::duration_cast<std::chrono::microseconds>(io_end_time - io_begin_time).count();
+                io_time_vec[id] += io_time;
                 if(bytesRead == -1) {
-                    fprintf(stderr, "pread failed");
+                    auto err_str = strerror(errno);
+                    fprintf(stderr, "pread failed: %s\n", err_str);
                     stop = true;
+                }
+                else {
+                    read_complete_vec[id]++;
                 }
             }
             else {
+                // fprintf(stderr, "pwrite\n");
+                auto io_begin_time = std::chrono::high_resolution_clock::now();
                 ssize_t bytesWritten = pwrite(fd, currSubIo->io_buff, PageSize, currSubIo->offset);
+                auto io_end_time = std::chrono::high_resolution_clock::now();
+                auto io_time = std::chrono::duration_cast<std::chrono::microseconds>(io_end_time - io_begin_time).count();
+                io_time_vec[id] += io_time;
                 if(bytesWritten == -1) {
-                    fprintf(stderr, "pwrite failed");
+                    auto err_str = strerror(errno);
+                    fprintf(stderr, "pwrite failed: %s\n", err_str);
                     stop = true;
                 }
+                else {
+                    write_complete_vec[id]++;
+                }
             }
-            ctrl->m_ioCompleteCount++;
+            // TODO: 这里会有冲突，后面要处理
+            // ctrl->m_ioCompleteCount++;
             currSubIo->completed_sub_io_requests->push(currSubIo);
-            ctrl->m_ssdInflight--;
+            // ctrl->m_ssdInflight--;
         }
         if(stop) {
             break;
         }
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto busy_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+        busy_time_vec[id] += busy_time;
+        busy_thread_vec[id] = false;
     }
 }
 
@@ -74,6 +116,7 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
     FileIO::BlockController* ctrl = (FileIO::BlockController *)args;
     struct stat st;
     const char* fileIoPath = getenv(kFileIoPath);
+    auto fileSize = kSsdImplMaxNumBlocks << PageSizeEx;
     if(fileIoPath) {
         strcpy(filePath, fileIoPath);
     }
@@ -81,36 +124,61 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
         fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed: No filePath\n");
         ctrl->m_fileIoThreadStartFailed = true;
         fd = -1;
+        // strcpy(filePath, "/home/lml/SPFreshTest/testfile");
     }
     if(stat(filePath, &st) != 0) {
         std::ofstream file(filePath, std::ios::binary);
-        file.seekp(kSsdImplMaxNumBlocks * PageSizeEx - 1);
+        file.seekp(fileSize - 1);
         file.write("", 1);
         if(file.fail()) {
             fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed\n");
             // return nullptr;
             ctrl->m_fileIoThreadStartFailed = true;
             fd = -1;
-        }
-        else {
+            file.close();
+        } else {
+            file.close();
             fd = open(filePath, O_RDWR | O_DIRECT);
+            if (fd == -1) {
+                auto err_str = strerror(errno);
+                fprintf(stderr, "open failed: %s\n", err_str);
+                ctrl->m_fileIoThreadStartFailed = true;
+            } else {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::InitializeFileIo: file %s created, fd=%d\n", filePath, fd);
+            }
         }
-        file.close();
     }
     else {
-        if(st.st_size < kSsdImplMaxNumBlocks * PageSizeEx) {
+        if(st.st_size < fileSize) {
             std::ofstream file(filePath, std::ios::binary | std::ios::app);
-            file.seekp(kSsdImplMaxNumBlocks * PageSizeEx - 1);
+            file.seekp(fileSize - 1);
             file.write("", 1);
             if(file.fail()) {
                 fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed: Failed to create file\n");
                 ctrl->m_fileIoThreadStartFailed = true;
                 fd = -1;
+                file.close();
             }
             else {
+                file.close();
                 fd = open(filePath, O_RDWR | O_DIRECT);
+                if (fd == -1) {
+                    auto err_str = strerror(errno);
+                    fprintf(stderr, "open failed: %s\n", err_str);
+                    ctrl->m_fileIoThreadStartFailed = true;
+                } else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::InitializeFileIo: file %s created, fd=%d\n", filePath, fd);
+                }
             }
-            file.close();
+        } else {
+            fd = open(filePath, O_RDWR | O_DIRECT);
+            if (fd == -1) {
+                auto err_str = strerror(errno);
+                fprintf(stderr, "open failed: %s\n", err_str);
+                ctrl->m_fileIoThreadStartFailed = true;
+            } else {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::InitializeFileIo: file %s opened, fd=%d\n", filePath, fd);
+            }
         }
     }
     const char* fileIoDepth = getenv(kFileIoDepth);
@@ -123,7 +191,7 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
     if(ctrl->m_fileIoThreadStartFailed == false) {
         ctrl->m_fileIoThreadReady = true;
         ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd, ctrl);
-        m_ssdInflight = 0;
+        // m_ssdInflight = 0;
     }
     pthread_exit(NULL);
 }
@@ -284,6 +352,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             if(m_currIoContext.in_flight && m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
                 memcpy(currSubIo->app_buff, currSubIo->io_buff, currSubIo->real_size);
                 currSubIo->app_buff = nullptr;
+                subIoRequestCount[currSubIo->posting_id]--;
                 m_currIoContext.free_sub_io_requests.push_back(currSubIo);
                 m_currIoContext.in_flight--;
             }
@@ -308,6 +377,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     int inflight = 0;
     SubIoRequest* currSubIo;
     int totalSize = p_value.size();
+    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks: %d\n", p_size);
     // Submit all I/Os
     while(currBlockIdx < p_size || inflight) {
         // Try submit
@@ -335,7 +405,10 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
 }
 
 bool FileIO::BlockController::IOStatistics() {
-    int currIOCount = m_ioCompleteCount;
+    int currReadCount = m_threadPool->get_read_count();
+    int currWriteCount = m_threadPool->get_write_count();
+    
+    int currIOCount = currReadCount + currWriteCount;
     int diffIOCount = currIOCount - m_preIOCompleteCount;
     m_preIOCompleteCount = currIOCount;
 
@@ -346,7 +419,15 @@ bool FileIO::BlockController::IOStatistics() {
     double currIOPS = (double)diffIOCount * 1000 / duration.count();
     double currBandWidth = (double)diffIOCount * PageSize / 1024 * 1000 / 1024 * 1000 / duration.count();
 
+    auto busy_time = m_threadPool->get_busy_time();
+    auto io_time = m_threadPool->get_io_time();
+    auto busy_thread_num = m_threadPool->get_busy_thread_num();
+
     std::cout << "IOPS: " << currIOPS << "k Bandwidth: " << currBandWidth << "MB/s" << std::endl;
+    std::cout << "Read Count: " << currReadCount << " Write Count: " << currWriteCount << std::endl;
+    std::cout << "Busy Time: " << busy_time << "ms IO Time: " << io_time << "ms" << " io rate:" << (double)io_time / busy_time << std::endl;
+    std::cout << "Busy Thread Num: " << busy_thread_num << std::endl;
+    std::cout << "Inflight IO Num: " << m_submittedSubIoRequests.unsafe_size() << std::endl;
 
     return true;
 }

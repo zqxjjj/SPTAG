@@ -100,6 +100,7 @@ namespace SPTAG {
             std::string m_fullDeletedIDFile;
             bool m_useKV;
             bool m_useSPDK;
+            bool m_useFileIO;
             std::string m_KVPath;
             std::string m_spdkMappingPath;
             std::string m_ssdInfoFile;

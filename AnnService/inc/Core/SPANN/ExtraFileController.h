@@ -20,19 +20,67 @@ namespace SPTAG::SPANN {
             class ThreadPool {
             public:
                 ThreadPool(size_t numThreads, int fd, BlockController* ctrl);
+                struct ThreadArgs {
+                    size_t id;
+                    ThreadPool* pool;
+                };
                 ~ThreadPool();
 
                 void notify_one();
+                int get_read_count() {
+                    int count = 0;
+                    for (int i = 0; i < read_complete_vec.size(); i++) {
+                        count += read_complete_vec[i];
+                    }
+                    return count;
+                };
+                int get_write_count() {
+                    int count = 0;
+                    for (int i = 0; i < write_complete_vec.size(); i++) {
+                        count += write_complete_vec[i];
+                    }
+                    return count;
+                };
+                int64_t get_busy_time() {
+                    int64_t time = 0;
+                    for (int i = 0; i < busy_time_vec.size(); i++) {
+                        time += busy_time_vec[i];
+                    }
+                    return time;
+                };
+                int64_t get_io_time() {
+                    int64_t time = 0;
+                    for (int i = 0; i < io_time_vec.size(); i++) {
+                        time += io_time_vec[i];
+                    }
+                    return time;
+                };
+                int get_busy_thread_num() {
+                    int count = 0;
+                    for (int i = 0; i < busy_thread_vec.size(); i++) {
+                        if (busy_thread_vec[i]) {
+                            count++;
+                        }
+                    }
+                    return count;
+                }
             private:
                 std::vector<pthread_t> workers;
                 BlockController* ctrl;
                 std::mutex queueMutex;
                 std::condition_variable condition;
+                std::atomic<bool> stop;
+                std::vector<ThreadArgs> threadArgs_vec;
+                std::vector<int64_t> busy_time_vec;
+                std::vector<int64_t> io_time_vec;
+                std::vector<int> read_complete_vec;
+                std::vector<int> write_complete_vec;
+                std::vector<bool> busy_thread_vec;
                 int fd;
-                bool stop;
+                // bool stop;
 
                 static void* workerThread(void* arg);
-                void threadLoop();
+                void threadLoop(size_t id);
             };
             friend ThreadPool;
             #endif
@@ -90,7 +138,7 @@ namespace SPTAG::SPANN {
             int m_numInitCalled = 0;
 
             int m_batchSize;
-            static int m_ioCompleteCount;
+            static std::atomic<int> m_ioCompleteCount;
             int m_preIOCompleteCount = 0;
             std::chrono::time_point<std::chrono::high_resolution_clock> m_preTime = std::chrono::high_resolution_clock::now();
 
@@ -282,7 +330,7 @@ namespace SPTAG::SPANN {
         ErrorCode Put(SizeType key, const std::string& value) override {
             int blocks = ((value.size() + PageSize - 1) >> PageSizeEx);
             if (blocks >= m_blockLimit) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failt to put key:%d value:%lld since value too long!\n", key, value.size());
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to put key:%d value:%lld since value too long!\n", key, value.size());
                 return ErrorCode::Fail;
             }
             // 计算是否需要更多的Mapping块
@@ -400,7 +448,7 @@ namespace SPTAG::SPANN {
 
         void GetStat() {
             int remainBlocks = m_pBlockController.RemainBlocks();
-            int remainGB = remainBlocks << PageSizeEx >> 30;
+            int remainGB = (long long)remainBlocks << PageSizeEx >> 30;
             // int remainGB = remainBlocks >> 20 << 2;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Remain %d blocks, totally %d GB\n", remainBlocks, remainGB);
             m_pBlockController.IOStatistics();
