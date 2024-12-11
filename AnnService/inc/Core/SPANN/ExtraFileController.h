@@ -8,6 +8,7 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <shared_mutex>
 #include <fcntl.h>
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_hash_map.h>
@@ -175,7 +176,7 @@ namespace SPTAG::SPANN {
 
             ErrorCode Checkpoint(std::string prefix) {
                 std::string filename = prefix + "_blockpool";
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK: saving block pool\n");
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: saving block pool\n");
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Reload reserved blocks!\n");
                 AddressType currBlockAddress = 0;
                 for (int count = 0; count < m_blockAddresses_reserve.unsafe_size(); count++) {
@@ -198,7 +199,7 @@ namespace SPTAG::SPANN {
             ErrorCode Recovery(std::string prefix, int batchSize) {
                 std::lock_guard<std::mutex> lock(m_initMutex);
                 m_numInitCalled++;
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK Recovery: Loading block pool\n");
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO Recovery: Loading block pool\n");
                 std::string filename = prefix + "_blockpool";
                 auto ptr = f_createIO();
                 if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::in)) {
@@ -206,14 +207,14 @@ namespace SPTAG::SPANN {
                 }
                 int blocks;
                 IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&blocks);
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK Recovery: Reading %d blocks to pool\n", blocks);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO Recovery: Reading %d blocks to pool\n", blocks);
                 AddressType currBlockAddress = 0;
                 for (int i = 0; i < blocks; i++) {
                     IOBINARY(ptr, ReadBinary, sizeof(AddressType), (char*)&(currBlockAddress));
                     m_blockAddresses.push(currBlockAddress);
                 }
 
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK Recovery: Initializing SPDK\n");
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO Recovery: Initializing FileIO\n");
                 
                 if (m_numInitCalled == 1) {
                     m_batchSize = batchSize;
@@ -259,6 +260,22 @@ namespace SPTAG::SPANN {
             m_mappingPath = std::string(filePath);
             m_blockLimit = postingBlocks + 1;
             m_bufferLimit = bufferSize;
+
+            const char* fileIoUseLock = getenv(kFileIoUseLock);
+            if(fileIoUseLock) {
+                if(strcmp(fileIoUseLock, "True") == 0) {
+                    m_fileIoUseLock = true;
+                    const char* fileIoLockSize = getenv(kFileIoLockSize);
+                    if(fileIoLockSize) {
+                        m_fileIoLockSize = atoi(fileIoLockSize);
+                    }
+                    m_rwMutex = std::vector<std::shared_mutex>(m_fileIoLockSize);
+                }
+                else {
+                    m_fileIoUseLock = false;
+                }
+            }
+
             if (recovery) {
                 m_mappingPath += "_blockmapping";
                 Load(m_mappingPath, blockSize, capacity);
@@ -274,11 +291,11 @@ namespace SPTAG::SPANN {
             m_compactionThreadPool->init(compactionThreads);
             if (recovery) {
                 if (m_pBlockController.Recovery(std::string(filePath), batchSize) != ErrorCode::Success) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Recover SPDK!\n");
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Recover FileIO!\n");
                     exit(0);
                 }
             } else if (!m_pBlockController.Initialize(batchSize)) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize SPDK!\n");
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize FileIO!\n");
                 exit(0);
             }
             m_shutdownCalled = false;
@@ -293,6 +310,7 @@ namespace SPTAG::SPANN {
                 return;
             }
             if (!m_mappingPath.empty()) Save(m_mappingPath);
+            // TODO: 这里是不是应该加锁？
             for (int i = 0; i < m_pBlockMapping.R(); i++) {
                 if (At(i) != 0xffffffffffffffff) delete[]((AddressType*)At(i));
             }
@@ -309,22 +327,61 @@ namespace SPTAG::SPANN {
         }
 
         ErrorCode Get(SizeType key, std::string* value) override {
-            if (key >= m_pBlockMapping.R()) return ErrorCode::Fail;
-
-            if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) return ErrorCode::Success;
-            return ErrorCode::Fail;
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].lock_shared();
+            }
+            SizeType r;
+            if (m_fileIoUseLock) {
+                m_updateMutex.lock_shared();
+                r = m_pBlockMapping.R();
+                m_updateMutex.unlock_shared();
+            }
+            else {
+                r = m_pBlockMapping.R();
+            }
+            if (key >= r) return ErrorCode::Fail;
+            
+            // if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) {
+            //     return ErrorCode::Success;
+            // }
+            auto result = m_pBlockController.ReadBlocks((AddressType*)At(key), value);
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].unlock_shared();
+            }
+            return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
         ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
             std::vector<AddressType*> blocks;
-            for (SizeType key : keys) {
-                if (key < m_pBlockMapping.R()) blocks.push_back((AddressType*)At(key));
-                else {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to read key:%d total key number:%d\n", key, m_pBlockMapping.R());
+            if (m_fileIoUseLock) {
+                // TODO: 这里是不是需要考虑哈希冲突的问题？感觉上不需要
+                for (SizeType key : keys) {
+                    m_rwMutex[hash(key)].lock_shared();
                 }
             }
-            if (m_pBlockController.ReadBlocks(blocks, values, timeout)) return ErrorCode::Success;
-            return ErrorCode::Fail; 
+            SizeType r;
+            for (SizeType key : keys) {
+                if (m_fileIoUseLock) {
+                    m_updateMutex.lock_shared();
+                    r = m_pBlockMapping.R();
+                    m_updateMutex.unlock_shared();
+                }
+                else {
+                    r = m_pBlockMapping.R();
+                }
+                if (key < r) blocks.push_back((AddressType*)At(key));
+                else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to read key:%d total key number:%d\n", key, r);
+                }
+            }
+            // if (m_pBlockController.ReadBlocks(blocks, values, timeout)) return ErrorCode::Success;
+            auto result = m_pBlockController.ReadBlocks(blocks, values, timeout);
+            if (m_fileIoUseLock) {
+                for (SizeType key : keys) {
+                    m_rwMutex[hash(key)].unlock_shared();
+                }
+            }
+            return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
         ErrorCode Put(SizeType key, const std::string& value) override {
@@ -334,12 +391,26 @@ namespace SPTAG::SPANN {
                 return ErrorCode::Fail;
             }
             // 计算是否需要更多的Mapping块
-            int delta = key + 1 - m_pBlockMapping.R();
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].lock();
+            }
+            int delta;
+            if (m_fileIoUseLock) {
+                m_updateMutex.lock_shared();
+                delta = key + 1 - m_pBlockMapping.R();
+                m_updateMutex.unlock_shared();
+            }
+            else {
+                delta = key + 1 - m_pBlockMapping.R();
+            }
             if (delta > 0) {
-                {
-                    std::lock_guard<std::mutex> lock(m_updateMutex);
+                    // std::lock_guard<std::mutex> lock(m_updateMutex);
+                m_updateMutex.lock();
+                delta = key + 1 - m_pBlockMapping.R();
+                if (delta > 0) {
                     m_pBlockMapping.AddBatch(delta);
                 }
+                m_updateMutex.unlock();
             }
             // 如果这个key还没有分配过Mapping块，就分配一组
             if (At(key) == 0xffffffffffffffff) {
@@ -378,23 +449,45 @@ namespace SPTAG::SPANN {
                 while (InterlockedCompareExchange(&At(key), tmpblocks, (uintptr_t)postingSize) != (uintptr_t)postingSize) {
                     postingSize = (int64_t*)At(key);
                 }
+                // At(key) = tmpblocks;
                 m_buffer.push((uintptr_t)postingSize);
+            }
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].unlock();
             }
             return ErrorCode::Success;
         }
 
         ErrorCode Merge(SizeType key, const std::string& value) {
-            if (key >= m_pBlockMapping.R()) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key range error: key: %d, mapping size: %d\n", key, m_pBlockMapping.R());
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].lock();
+            }
+            SizeType r;
+            if (m_fileIoUseLock) {
+                m_updateMutex.lock_shared();
+                r = m_pBlockMapping.R();
+                m_updateMutex.unlock_shared();
+            }
+            else {
+                r = m_pBlockMapping.R();
+            }
+            if (key >= r) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key range error: key: %d, mapping size: %d\n", key, r);
+                if (m_fileIoUseLock) {
+                    m_rwMutex[hash(key)].unlock();
+                }
                 return ErrorCode::Fail;
             }
-
+            
             int64_t* postingSize = (int64_t*)At(key);
             auto newSize = *postingSize + value.size();
             int newblocks = ((newSize + PageSize - 1) >> PageSizeEx);
             if (newblocks >= m_blockLimit) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failt to merge key:%d value:%lld since value too long!\n", key, newSize);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Origin Size: %lld, merge size: %lld\n", *postingSize, value.size());
+                if (m_fileIoUseLock) {
+                    m_rwMutex[hash(key)].unlock();
+                }
                 return ErrorCode::Fail;
             }
 
@@ -427,18 +520,42 @@ namespace SPTAG::SPANN {
                 m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value);
                 *postingSize = newSize;
             }
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].unlock();
+            }
             return ErrorCode::Success;
         }
 
         ErrorCode Delete(SizeType key) override {
-            if (key >= m_pBlockMapping.R()) return ErrorCode::Fail;
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].lock();
+            }
+            SizeType r;
+            if (m_fileIoUseLock) {
+                m_updateMutex.lock_shared();
+                r = m_pBlockMapping.R();
+                m_updateMutex.unlock_shared();
+            }
+            else {
+                r = m_pBlockMapping.R();
+            }
+            if (key >= r) return ErrorCode::Fail;
+
             int64_t* postingSize = (int64_t*)At(key);
-            if (*postingSize < 0) return ErrorCode::Fail;
+            if (*postingSize < 0) {
+                if (m_fileIoUseLock) {
+                    m_rwMutex[hash(key)].unlock();
+                }
+                return ErrorCode::Fail;
+            }
 
             int blocks = ((*postingSize + PageSize - 1) >> PageSizeEx);
             m_pBlockController.ReleaseBlocks(postingSize + 1, blocks);
             m_buffer.push((uintptr_t)postingSize);
             At(key) = 0xffffffffffffffff;
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].unlock();
+            }
             return ErrorCode::Success;
         }
 
@@ -496,23 +613,30 @@ namespace SPTAG::SPANN {
         }
 
         bool Initialize(bool debug = false) override {
-            if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize SPDK for new threads\n");
+            if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize FileIO for new threads\n");
             return m_pBlockController.Initialize(64);
         }
 
         bool ExitBlockController(bool debug = false) override { 
-            if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Exit SPDK for thread\n");
+            if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Exit FileIO for thread\n");
             return m_pBlockController.ShutDown(); 
         }
 
         ErrorCode Checkpoint(std::string prefix) override {
             std::string filename = prefix + "_blockmapping";
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK: saving block mapping\n");
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: saving block mapping\n");
             Save(filename);
             return m_pBlockController.Checkpoint(prefix);
         }
 
     private:
+        static constexpr const char* kFileIoUseLock = "SPFRESH_FILE_IO_USE_LOCK";
+        static constexpr bool kFileIoDefaultUseLock = false;
+        static constexpr const char* kFileIoLockSize = "SPFRESH_FILE_IO_LOCK_SIZE";
+        static constexpr int kFileIoDefaultLockSize = 1024;
+
+        bool m_fileIoUseLock = kFileIoDefaultUseLock;
+        int m_fileIoLockSize = kFileIoDefaultLockSize;
         std::string m_mappingPath;
         SizeType m_blockLimit;
         COMMON::Dataset<uintptr_t> m_pBlockMapping;
@@ -523,7 +647,12 @@ namespace SPTAG::SPANN {
         BlockController m_pBlockController;
 
         bool m_shutdownCalled;
-        std::mutex m_updateMutex;
+        std::shared_mutex m_updateMutex;
+        std::vector<std::shared_mutex> m_rwMutex;
+
+        inline int hash(int key) {
+            return key % m_fileIoLockSize;
+        }
     };
 }
 #endif
