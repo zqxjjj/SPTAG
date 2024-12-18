@@ -444,12 +444,8 @@ namespace SPTAG::SPANN {
                 *((int64_t*)tmpblocks) = value.size();
 
                 // 释放原有的块
-                // 这里是否应该加锁？否则可能同一组磁盘块会被多次释放
                 m_pBlockController.ReleaseBlocks(postingSize + 1, (*postingSize + PageSize -1) >> PageSizeEx);
-                while (InterlockedCompareExchange(&At(key), tmpblocks, (uintptr_t)postingSize) != (uintptr_t)postingSize) {
-                    postingSize = (int64_t*)At(key);
-                }
-                // At(key) = tmpblocks;
+                At(key) = tmpblocks;
                 m_buffer.push((uintptr_t)postingSize);
             }
             if (m_fileIoUseLock) {
@@ -510,9 +506,7 @@ namespace SPTAG::SPANN {
 
                 // 这里也是为了保证Checkpoint，所以将原本没用满的块释放，分配一个新的
                 m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, 1);
-                while (InterlockedCompareExchange(&At(key), tmpblocks, (uintptr_t)postingSize) != (uintptr_t)postingSize) {
-                    postingSize = (int64_t*)At(key);
-                }
+                At(key) = tmpblocks;
                 m_buffer.push((uintptr_t)postingSize);
             }
             else {  // 否则直接分配一组块接在后面

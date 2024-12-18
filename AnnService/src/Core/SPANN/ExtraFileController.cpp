@@ -68,7 +68,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 auto io_begin_time = std::chrono::high_resolution_clock::now();
                 ssize_t bytesRead = pread(fd, currSubIo->io_buff, PageSize, currSubIo->offset);
                 auto io_end_time = std::chrono::high_resolution_clock::now();
-                auto io_time = std::chrono::duration_cast<std::chrono::microseconds>(io_end_time - io_begin_time).count();
+                auto io_time = std::chrono::duration_cast<std::chrono::milliseconds>(io_end_time - io_begin_time).count();
                 io_time_vec[id] += io_time;
                 if(bytesRead == -1) {
                     auto err_str = strerror(errno);
@@ -84,7 +84,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 auto io_begin_time = std::chrono::high_resolution_clock::now();
                 ssize_t bytesWritten = pwrite(fd, currSubIo->io_buff, PageSize, currSubIo->offset);
                 auto io_end_time = std::chrono::high_resolution_clock::now();
-                auto io_time = std::chrono::duration_cast<std::chrono::microseconds>(io_end_time - io_begin_time).count();
+                auto io_time = std::chrono::duration_cast<std::chrono::milliseconds>(io_end_time - io_begin_time).count();
                 io_time_vec[id] += io_time;
                 if(bytesWritten == -1) {
                     auto err_str = strerror(errno);
@@ -104,7 +104,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
             break;
         }
         auto end_time = std::chrono::high_resolution_clock::now();
-        auto busy_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+        auto busy_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
         busy_time_vec[id] += busy_time;
         busy_thread_vec[id] = false;
     }
