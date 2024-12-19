@@ -92,7 +92,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 io_time_vec[id] += io_time;
                 if(bytesWritten == -1) {
                     auto err_str = strerror(errno);
-                    fprintf(stderr, "pwrite failed: %s, Block offset: %d\n", err_str, currSubIo->offset);
+                    fprintf(stderr, "pwrite failed: %s, Block offset: %d, io buf address: %p\n", err_str, currSubIo->offset, currSubIo->io_buff);
                     stop = true;
                 }
                 else {
@@ -243,6 +243,10 @@ bool FileIO::BlockController::Initialize(int batchSize) {
         sr.free_sub_io_requests = &(m_currIoContext.free_sub_io_requests);
         sr.app_buff = nullptr;
         sr.io_buff = aligned_alloc(m_ssdFileIoAlignment, PageSize);
+        if (sr.io_buff == nullptr) {
+            fprintf(stderr, "FileIO::BlockController::Initialize failed: aligned_alloc failed\n");
+            return false;
+        }
         sr.ctrl = this;
         m_currIoContext.free_sub_io_requests.push(&sr);
     }
@@ -477,6 +481,13 @@ bool FileIO::BlockController::IOStatistics() {
 
 bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
+    if (m_writeCache->RemainWriteJobs()) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain write jobs, wait for them.\n");
+    }
+    while (m_writeCache->RemainWriteJobs()) {
+        usleep(1000);
+    }
     m_numInitCalled--;
 
     if(m_numInitCalled == 0) {
