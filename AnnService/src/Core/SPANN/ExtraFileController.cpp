@@ -10,9 +10,10 @@ char* FileIO::BlockController::filePath = new char[1024];
 std::unique_ptr<char[]> FileIO::BlockController::m_memBuffer;
 #ifndef USE_HELPER_THREADPOOL
 
-FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, BlockController* ctrl) {
+FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, BlockController* ctrl, BlockController::WriteCache* wc) {
     this->fd = fd;
     this->ctrl = ctrl;
+    this->m_writeCache = wc;
     stop = false;
     busy_time_vec.resize(numThreads);
     io_time_vec.resize(numThreads);
@@ -78,26 +79,37 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 else {
                     read_complete_vec[id]++;
                 }
+                currSubIo->completed_sub_io_requests->push(currSubIo);
             }
             else {
                 // fprintf(stderr, "pwrite\n");
+                // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ThreadPool::threadLoop: write page %ld\n", currSubIo->offset / PageSize);
                 auto io_begin_time = std::chrono::high_resolution_clock::now();
                 ssize_t bytesWritten = pwrite(fd, currSubIo->io_buff, PageSize, currSubIo->offset);
+                // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ThreadPool::threadLoop: write page %ld done\n", currSubIo->offset / PageSize);
                 auto io_end_time = std::chrono::high_resolution_clock::now();
                 auto io_time = std::chrono::duration_cast<std::chrono::milliseconds>(io_end_time - io_begin_time).count();
                 io_time_vec[id] += io_time;
                 if(bytesWritten == -1) {
                     auto err_str = strerror(errno);
-                    fprintf(stderr, "pwrite failed: %s\n", err_str);
+                    fprintf(stderr, "pwrite failed: %s, Block offset: %d\n", err_str, currSubIo->offset);
                     stop = true;
                 }
                 else {
                     write_complete_vec[id]++;
                 }
+                if (currSubIo->need_free) {
+                    currSubIo->free_sub_io_requests->push(currSubIo);
+                    m_writeCache->removePage(currSubIo->offset / PageSize);
+                    // printf("FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld\n", currSubIo->offset / PageSize);
+                }
+                else {
+                    // printf("FileIO::BlockController::ThreadPool::threadLoop: does not remove page %ld\n", currSubIo->offset / PageSize);
+                    currSubIo->completed_sub_io_requests->push(currSubIo);
+                }
             }
             // TODO: 这里会有冲突，后面要处理
             // ctrl->m_ioCompleteCount++;
-            currSubIo->completed_sub_io_requests->push(currSubIo);
             // ctrl->m_ssdInflight--;
         }
         if(stop) {
@@ -190,7 +202,19 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
 
     if(ctrl->m_fileIoThreadStartFailed == false) {
         ctrl->m_fileIoThreadReady = true;
-        ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd, ctrl);
+        std::lock_guard<std::mutex> lock(ctrl->m_uniqueResourceMutex);
+        if (ctrl->m_writeCache == nullptr) {
+            const char* fileIoCachePageNum = getenv(kFileIoCachePageNum);
+            if (fileIoCachePageNum) {
+                ctrl->m_writeCache = new WriteCache(PageSize, atoi(fileIoCachePageNum));
+            }
+            else {
+                ctrl->m_writeCache = new WriteCache(PageSize, kSsdFileIoDefaultCachePageNum);
+            }
+        }
+        if (ctrl->m_threadPool == nullptr) {
+            ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd, ctrl, ctrl->m_writeCache);
+        }
         // m_ssdInflight = 0;
     }
     pthread_exit(NULL);
@@ -216,10 +240,11 @@ bool FileIO::BlockController::Initialize(int batchSize) {
     m_currIoContext.in_flight = 0;
     for(auto &sr : m_currIoContext.sub_io_requests) {
         sr.completed_sub_io_requests = &(m_currIoContext.completed_sub_io_requests);
+        sr.free_sub_io_requests = &(m_currIoContext.free_sub_io_requests);
         sr.app_buff = nullptr;
         sr.io_buff = aligned_alloc(m_ssdFileIoAlignment, PageSize);
         sr.ctrl = this;
-        m_currIoContext.free_sub_io_requests.push_back(&sr);
+        m_currIoContext.free_sub_io_requests.push(&sr);
     }
     return true;
 }
@@ -250,7 +275,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
     while (m_currIoContext.in_flight) {
         if (m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
             currSubIo->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+            m_currIoContext.free_sub_io_requests.push(currSubIo);
             m_currIoContext.in_flight--;
         }
     }
@@ -261,10 +286,17 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
             return false;
         }
+        // Try read from write cache
+        if(currOffset < p_data[0]) {
+            auto p_addr = p_data[dataIdx];
+            if (m_writeCache->GetPage(p_addr, (void*)p_value->data() + currOffset, (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize)) {
+                currOffset += PageSize;
+                dataIdx++;
+                continue;
+            }
+        }
         // Try submit
-        if(currOffset < p_data[0] && m_currIoContext.free_sub_io_requests.size()) {
-            currSubIo = m_currIoContext.free_sub_io_requests.back();
-            m_currIoContext.free_sub_io_requests.pop_back();
+        if(currOffset < p_data[0] && m_currIoContext.free_sub_io_requests.try_pop(currSubIo)) {
             currSubIo->app_buff = (void*)p_value->data() + currOffset;
             currSubIo->real_size = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
             currSubIo->is_read = true;
@@ -279,7 +311,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         if(m_currIoContext.in_flight && m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
             memcpy(currSubIo->app_buff, currSubIo->io_buff, currSubIo->real_size);
             currSubIo->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+            m_currIoContext.free_sub_io_requests.push(currSubIo);
             m_currIoContext.in_flight--;
         }
     }
@@ -319,7 +351,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         SubIoRequest* currSubIo;
         if(m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
             currSubIo->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+            m_currIoContext.free_sub_io_requests.push(currSubIo);
             m_currIoContext.in_flight--;
         }
     }
@@ -334,10 +366,17 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                 break;
             }
+            // Try read from write cache
+            if(currSubIoIdx < currSubIoEndId) {
+                auto p_addr = subIoRequests[currSubIoIdx].offset / PageSize;
+                if(m_writeCache->GetPage(p_addr, subIoRequests[currSubIoIdx].app_buff, subIoRequests[currSubIoIdx].real_size)) {
+                    subIoRequestCount[subIoRequests[currSubIoIdx].posting_id]--;
+                    currSubIoIdx++;
+                    continue;
+                }
+            }
             // Try submit
-            if(currSubIoIdx < currSubIoEndId && m_currIoContext.free_sub_io_requests.size()) {
-                currSubIo = m_currIoContext.free_sub_io_requests.back();
-                m_currIoContext.free_sub_io_requests.pop_back();
+            if(currSubIoIdx < currSubIoEndId && m_currIoContext.free_sub_io_requests.try_pop(currSubIo)) {
                 currSubIo->app_buff = subIoRequests[currSubIoIdx].app_buff;
                 currSubIo->real_size = subIoRequests[currSubIoIdx].real_size;
                 currSubIo->is_read = true;
@@ -353,7 +392,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 memcpy(currSubIo->app_buff, currSubIo->io_buff, currSubIo->real_size);
                 currSubIo->app_buff = nullptr;
                 subIoRequestCount[currSubIo->posting_id]--;
-                m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+                m_currIoContext.free_sub_io_requests.push(currSubIo);
                 m_currIoContext.in_flight--;
             }
         }
@@ -379,15 +418,19 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     int totalSize = p_value.size();
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks: %d\n", p_size);
     // Submit all I/Os
-    while(currBlockIdx < p_size || inflight) {
+    auto need_free = m_writeCache->AddPages(p_data, p_size, p_value);
+    while(currBlockIdx < p_size || (inflight && !need_free)) {
         // Try submit
-        if(currBlockIdx < p_size && m_currIoContext.free_sub_io_requests.size()) {
-            currSubIo = m_currIoContext.free_sub_io_requests.back();
-            m_currIoContext.free_sub_io_requests.pop_back();
+        if(currBlockIdx < p_size && m_currIoContext.free_sub_io_requests.try_pop(currSubIo)) {
             currSubIo->app_buff = (void*)p_value.data() + currBlockIdx * PageSize;
             currSubIo->real_size = (PageSize * (currBlockIdx + 1)) > totalSize ? (totalSize - currBlockIdx * PageSize) : PageSize;
             currSubIo->is_read = false;
+            currSubIo->need_free = need_free;
             currSubIo->offset = p_data[currBlockIdx] * PageSize;
+            // if (need_free) {
+            //     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::WriteBlocks: write cache add page %ld\n", p_data[currBlockIdx]);
+            // }
+            // currSubIo->free_sub_io_requests = &(m_currIoContext.free_sub_io_requests);
             memcpy(currSubIo->io_buff, currSubIo->app_buff, currSubIo->real_size);
             m_submittedSubIoRequests.push(currSubIo);
             m_threadPool->notify_one();
@@ -395,9 +438,9 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
             inflight++;
         }
         // Try complete
-        if(inflight && m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
+        if(!need_free && inflight && m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
             currSubIo->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+            m_currIoContext.free_sub_io_requests.push(currSubIo);
             inflight--;
         }
     }
@@ -450,7 +493,7 @@ bool FileIO::BlockController::ShutDown() {
     while (m_currIoContext.in_flight) {
         if (m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
             currSubIo->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+            m_currIoContext.free_sub_io_requests.push(currSubIo);
             m_currIoContext.in_flight--;
         }
     }

@@ -17,10 +17,131 @@ namespace SPTAG::SPANN {
     class FileIO : public Helper::KeyValueIO {
         class BlockController {
         private:
+            class WriteCache {
+            public:
+                WriteCache(int pageSize, int pageNum) {
+                    this->pageSize = pageSize;
+                    this->pageNum = pageNum;
+                    m_memCache.reserve(pageNum);
+                    for (int i = 0; i < pageNum; i++) {
+                        m_memCache.push_back(std::unique_ptr<char[]>(new char[pageSize]));
+                        m_memCacheFree.push(i);
+                    }
+                    m_cacheMutex = std::vector<std::shared_mutex>(pageNum);
+                }
+                ~WriteCache() {
+                    m_memCache.clear();
+                }
+                bool AddPages(AddressType* p_data, int p_size, const std::string& p_value) {
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AddPages: %d\n", p_size);
+                    if (p_size > pageNum || p_size > m_memCacheFree.unsafe_size()) return false;
+                    m_popMutex.lock();
+                    std::vector<int> cachePages(p_size);
+                    bool success = true;
+                    for(int i = 0; i < p_size; i++) {
+                        if (!m_memCacheFree.try_pop(cachePages[i])) {
+                            success = false;
+                            break;
+                        }
+                    }
+                    m_popMutex.unlock();
+                    if (!success) {
+                        for (int i = 0; i < p_size; i++) {
+                            m_memCacheFree.push(cachePages[i]);
+                        }
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AddPages: %d failed\n", p_size);
+                        return false;
+                    }
+                    int totalSize = p_value.size();
+                    for (int i = 0; i < p_size; i++) {
+                        // m_cacheMutex[cachePages[i]].lock();
+                        memcpy(m_memCache[cachePages[i]].get(), (void*)p_value.data() + i * PageSize, (PageSize * (i + 1)) > totalSize ? (totalSize - i * PageSize) : PageSize);
+                        m_memCacheMap.insert(std::make_pair(p_data[i], cachePages[i]));
+                        // m_cacheMutex[cachePages[i]].unlock();
+                    }
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AddPages: %d success\n", p_size);
+                    return true;
+                }
+                bool GetPage(AddressType p_data, void *p_value, AddressType real_size) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d\n", p_data);
+                    int cachePage;
+                    tbb::concurrent_hash_map<AddressType, int>::accessor cachePageAccessor;
+                    if (!m_memCacheMap.find(cachePageAccessor, p_data)) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d failed\n", p_data);
+                        return false;
+                    }
+                    cachePage = cachePageAccessor->second;
+                    // m_cacheMutex[cachePage].lock_shared();
+                    // if (m_memCacheMap.find(cachePageAccessor, p_data) && cachePageAccessor->second == cachePage) { // 这个==其实可以去掉
+                    //     memcpy(p_value, m_memCache[cachePage].get(), PageSize);
+                    //     m_cacheMutex[cachePage].unlock_shared();
+                    //     return true;
+                    // }
+                    // else {
+                    //     m_cacheMutex[cachePage].unlock_shared();
+                    //     return false;
+                    // }
+                    auto tmpPage = std::make_unique<char[]>(PageSize);
+                    memcpy(tmpPage.get(), m_memCache[cachePage].get(), real_size);
+                    if (m_memCacheMap.find(cachePageAccessor, p_data) && cachePageAccessor->second == cachePage) {
+                        memcpy(p_value, tmpPage.get(), real_size);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d success\n", p_data);
+                        return true;
+                    }
+                    else {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d failed\n", p_data);
+                        return false;
+                    }
+                }
+                bool removePage(AddressType p_data) {
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d\n", p_data);
+                    tbb::concurrent_hash_map<AddressType, int>::accessor cachePageAccessor;
+                    if (!m_memCacheMap.find(cachePageAccessor, p_data)) {
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed\n", p_data);
+                        return false;
+                    }
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Successfully find page %d\n", p_data);
+                    int cachePage = cachePageAccessor->second;
+                    // m_cacheMutex[cachePage].lock();
+                    // if (m_memCacheMap.find(cachePageAccessor, p_data) && cachePageAccessor->second == cachePage) {
+                    //     m_memCacheMap.erase(cachePageAccessor);
+                    //     m_memCacheFree.push(cachePage);
+                    //     m_cacheMutex[cachePage].unlock();
+                    //     return true;
+                    // }
+                    // else {
+                    //     m_cacheMutex[cachePage].unlock();
+                    //     return false;
+                    // }
+                    auto result = m_memCacheMap.erase(cachePageAccessor);
+                    if (result) {
+                        m_memCacheFree.push(cachePage);
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d success\n", p_data);
+                        return true;
+                    }
+                    else {
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed\n", p_data);
+                        return false;
+                    }
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d %s\n", p_data, result ? "success" : "failed");
+                    // return result;
+                }
+                bool RemainWriteJobs() {
+                    return m_memCacheMap.size() > 0;
+                }
+            private:
+                int pageSize;
+                int pageNum;
+                std::vector<std::unique_ptr<char[]>> m_memCache;
+                tbb::concurrent_hash_map<AddressType, int> m_memCacheMap;
+                tbb::concurrent_queue<int> m_memCacheFree;
+                std::mutex m_popMutex;
+                std::vector<std::shared_mutex> m_cacheMutex;
+            };
             #ifndef USE_HELPER_THREADPOOL
             class ThreadPool {
             public:
-                ThreadPool(size_t numThreads, int fd, BlockController* ctrl);
+                ThreadPool(size_t numThreads, int fd, BlockController* ctrl, BlockController::WriteCache* wc);
                 struct ThreadArgs {
                     size_t id;
                     ThreadPool* pool;
@@ -77,6 +198,7 @@ namespace SPTAG::SPANN {
                 std::vector<int> read_complete_vec;
                 std::vector<int> write_complete_vec;
                 std::vector<bool> busy_thread_vec;
+                BlockController::WriteCache* m_writeCache;
                 int fd;
                 // bool stop;
 
@@ -85,6 +207,7 @@ namespace SPTAG::SPANN {
             };
             friend ThreadPool;
             #endif
+            
             static constexpr const char* kFileIoPath = "SPFRESH_FILE_IO_PATH";
             static char* filePath;
             static int fd;
@@ -96,6 +219,8 @@ namespace SPTAG::SPANN {
             static constexpr int kSsdFileIoDefaultIoThreadNum = 64;
             static constexpr const char* kFileIoAlignment = "SPFRESH_FILE_IO_ALIGNMENT";
             static constexpr int kSsdFileIoDefaultAlignment = 4096;
+            static constexpr const char* kFileIoCachePageNum = "SPFRESH_FILE_IO_CACHE_PAGE_NUM";
+            static constexpr int kSsdFileIoDefaultCachePageNum = 512;
 
             tbb::concurrent_queue<AddressType> m_blockAddresses;
             tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
@@ -110,9 +235,11 @@ namespace SPTAG::SPANN {
             int m_ssdFileIoThreadNum = kSsdFileIoDefaultIoThreadNum;
             struct SubIoRequest {
                 tbb::concurrent_queue<SubIoRequest *>* completed_sub_io_requests;
+                tbb::concurrent_queue<SubIoRequest *>* free_sub_io_requests;
                 void* app_buff;
                 void* io_buff;
                 bool is_read;
+                bool need_free;
                 AddressType real_size;
                 AddressType offset;
                 BlockController* ctrl;
@@ -121,15 +248,19 @@ namespace SPTAG::SPANN {
             tbb::concurrent_queue<SubIoRequest *> m_submittedSubIoRequests;
             struct IoContext {
                 std::vector<SubIoRequest> sub_io_requests;
-                std::vector<SubIoRequest *> free_sub_io_requests;
+                tbb::concurrent_queue<SubIoRequest *> free_sub_io_requests;
                 tbb::concurrent_queue<SubIoRequest *> completed_sub_io_requests;
                 int in_flight = 0;
             };
             static thread_local struct IoContext m_currIoContext;
 
             #ifndef USE_HELPER_THREADPOOL
-            ThreadPool* m_threadPool;
+            ThreadPool* m_threadPool = nullptr;
             #endif
+
+            WriteCache* m_writeCache = nullptr;
+
+            std::mutex m_uniqueResourceMutex;
 
             static int m_ssdInflight;
 
@@ -169,6 +300,10 @@ namespace SPTAG::SPANN {
             bool IOStatistics();
 
             bool ShutDown();
+
+            bool RemainWriteJobs() {
+                return m_writeCache->RemainWriteJobs();
+            }
 
             int RemainBlocks() {
                 return m_blockAddresses.unsafe_size();
@@ -233,7 +368,7 @@ namespace SPTAG::SPANN {
                     sr.app_buff = nullptr;
                     sr.io_buff = aligned_alloc(m_ssdFileIoAlignment, PageSize);
                     sr.ctrl = this;
-                    m_currIoContext.free_sub_io_requests.push_back(&sr);
+                    m_currIoContext.free_sub_io_requests.push(&sr);
                 }
                 return ErrorCode::Success;
             }
@@ -274,6 +409,9 @@ namespace SPTAG::SPANN {
                 else {
                     m_fileIoUseLock = false;
                 }
+            }
+            else {
+                m_fileIoUseLock = false;
             }
 
             if (recovery) {
@@ -586,6 +724,10 @@ namespace SPTAG::SPANN {
         
         ErrorCode Save(std::string path) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save mapping To %s\n", path.c_str());
+            if (m_pBlockController.RemainWriteJobs()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "There are still write jobs in progress, wait for them to finish\n");
+            }
+            while (m_pBlockController.RemainWriteJobs());
             auto ptr = f_createIO();
             if (ptr == nullptr || !ptr->Initialize(path.c_str(), std::ios::binary | std::ios::out)) return ErrorCode::FailedCreateFile;
 
