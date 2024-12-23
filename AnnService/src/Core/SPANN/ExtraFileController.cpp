@@ -202,19 +202,15 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
 
     if(ctrl->m_fileIoThreadStartFailed == false) {
         ctrl->m_fileIoThreadReady = true;
-        std::lock_guard<std::mutex> lock(ctrl->m_uniqueResourceMutex);
-        if (ctrl->m_writeCache == nullptr) {
-            const char* fileIoCachePageNum = getenv(kFileIoCachePageNum);
-            if (fileIoCachePageNum) {
-                ctrl->m_writeCache = new WriteCache(PageSize, atoi(fileIoCachePageNum));
-            }
-            else {
-                ctrl->m_writeCache = new WriteCache(PageSize, kSsdFileIoDefaultCachePageNum);
-            }
+        // std::lock_guard<std::mutex> lock(ctrl->m_uniqueResourceMutex);
+        const char* fileIoCachePageNum = getenv(kFileIoCachePageNum);
+        if (fileIoCachePageNum) {
+            ctrl->m_writeCache = new WriteCache(PageSize, atoi(fileIoCachePageNum));
         }
-        if (ctrl->m_threadPool == nullptr) {
-            ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd, ctrl, ctrl->m_writeCache);
+        else {
+            ctrl->m_writeCache = new WriteCache(PageSize, kSsdFileIoDefaultCachePageNum);
         }
+        ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd, ctrl, ctrl->m_writeCache);
         // m_ssdInflight = 0;
     }
     pthread_exit(NULL);
@@ -481,7 +477,7 @@ bool FileIO::BlockController::IOStatistics() {
 
 bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
+    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
     if (m_writeCache->RemainWriteJobs()) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain write jobs, wait for them.\n");
     }

@@ -63,11 +63,11 @@ namespace SPTAG::SPANN {
                     return true;
                 }
                 bool GetPage(AddressType p_data, void *p_value, AddressType real_size) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d\n", p_data);
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d\n", p_data);
                     int cachePage;
                     tbb::concurrent_hash_map<AddressType, int>::accessor cachePageAccessor;
                     if (!m_memCacheMap.find(cachePageAccessor, p_data)) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d failed\n", p_data);
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d failed\n", p_data);
                         return false;
                     }
                     cachePage = cachePageAccessor->second;
@@ -85,11 +85,11 @@ namespace SPTAG::SPANN {
                     memcpy(tmpPage.get(), m_memCache[cachePage].get(), real_size);
                     if (m_memCacheMap.find(cachePageAccessor, p_data) && cachePageAccessor->second == cachePage) {
                         memcpy(p_value, tmpPage.get(), real_size);
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d success\n", p_data);
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d success\n", p_data);
                         return true;
                     }
                     else {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d failed\n", p_data);
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d failed\n", p_data);
                         return false;
                     }
                 }
