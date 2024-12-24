@@ -64,6 +64,14 @@ namespace SPTAG::SPANN {
                 }
                 bool GetPage(AddressType p_data, void *p_value, AddressType real_size) {
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d\n", p_data);
+                    if (real_size > PageSize) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "GetPage: %d failed, real_size > PageSize!\n", p_data);
+                        return false;
+                    }
+                    if (real_size <= 0) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "GetPage: %d failed, real_size <= 0!\n", p_data);
+                        return false;
+                    }
                     int cachePage;
                     tbb::concurrent_hash_map<AddressType, int>::accessor cachePageAccessor;
                     if (!m_memCacheMap.find(cachePageAccessor, p_data)) {
@@ -85,7 +93,7 @@ namespace SPTAG::SPANN {
                     memcpy(tmpPage.get(), m_memCache[cachePage].get(), real_size);
                     if (m_memCacheMap.find(cachePageAccessor, p_data) && cachePageAccessor->second == cachePage) {
                         memcpy(p_value, tmpPage.get(), real_size);
-                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d success\n", p_data);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d success\n", p_data);
                         return true;
                     }
                     else {
@@ -253,6 +261,8 @@ namespace SPTAG::SPANN {
                 int in_flight = 0;
             };
             static thread_local struct IoContext m_currIoContext;
+            static thread_local int debug_fd;
+            static std::chrono::high_resolution_clock::time_point m_startTime;
 
             #ifndef USE_HELPER_THREADPOOL
             ThreadPool* m_threadPool = nullptr;

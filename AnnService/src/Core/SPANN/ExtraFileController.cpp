@@ -3,6 +3,8 @@
 namespace SPTAG::SPANN
 {
 thread_local struct FileIO::BlockController::IoContext FileIO::BlockController::m_currIoContext;
+thread_local int FileIO::BlockController::debug_fd = -1;
+std::chrono::high_resolution_clock::time_point FileIO::BlockController::m_startTime;
 int FileIO::BlockController::m_ssdInflight = 0;
 std::atomic<int> FileIO::BlockController::m_ioCompleteCount(0);
 int FileIO::BlockController::fd = -1;
@@ -246,11 +248,22 @@ bool FileIO::BlockController::Initialize(int batchSize) {
         sr.ctrl = this;
         m_currIoContext.free_sub_io_requests.push(&sr);
     }
+    auto debug_file_name = std::string("/home/lml/SPFreshTest/") + std::to_string(m_numInitCalled) + "_debug.log";
+    debug_fd = open(debug_file_name.c_str(), O_RDWR | O_DIRECT | O_CREAT, 0666);
+    if (debug_fd == -1) {
+        fprintf(stderr, "FileIO::BlockController::Initialize failed: open debug file failed\n");
+        return false;
+    }
     return true;
 }
 
 bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
     AddressType currBlockAddress = 0;
+    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 1";
+    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
+    if (result == -1) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::GetBlocks: %s\n", strerror(errno));
+    }
     for(int i = 0; i < p_size; i++) {
         while(!m_blockAddresses.try_pop(currBlockAddress));
         p_data[i] = currBlockAddress;
@@ -259,6 +272,11 @@ bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
+    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 2";
+    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
+    if (result == -1) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReleaseBlocks: pwrite failed\n");
+    }
     for(int i = 0; i < p_size; i++) {
         m_blockAddresses_reserve.push(p_data[i]);
     }
@@ -266,6 +284,11 @@ bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout) {
+    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 3";
+    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
+    if (result == -1) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
+    }
     p_value->resize(p_data[0]);
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
@@ -289,6 +312,11 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         // Try read from write cache
         if(currOffset < p_data[0]) {
             auto p_addr = p_data[dataIdx];
+            void *p_val = (void*)p_value->data() + currOffset;
+            auto real_size = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
+            if (currOffset + real_size > p_value->size()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: currOffset + real_size > p_value->size()\n");
+            }
             if (m_writeCache->GetPage(p_addr, (void*)p_value->data() + currOffset, (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize)) {
                 currOffset += PageSize;
                 dataIdx++;
@@ -319,6 +347,11 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
 }
 
 bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout) {
+    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
+    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
+    if (result == -1) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
+    }
     auto t1 = std::chrono::high_resolution_clock::now();
     p_values->resize(p_data.size());
     std::vector<SubIoRequest> subIoRequests;
@@ -412,6 +445,11 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 }
 
 bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value) {
+    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 5";
+    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
+    if (result == -1) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: pwrite failed\n");
+    }
     AddressType currBlockIdx = 0;
     int inflight = 0;
     SubIoRequest* currSubIo;
