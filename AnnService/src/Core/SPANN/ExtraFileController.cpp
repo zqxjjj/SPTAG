@@ -102,7 +102,10 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 }
                 if (currSubIo->need_free) {
                     currSubIo->free_sub_io_requests->push(currSubIo);
-                    m_writeCache->removePage(currSubIo->offset / PageSize);
+                    auto result = m_writeCache->removePage(currSubIo->offset / PageSize);
+                    if (result == false) {
+                        fprintf(stderr, "FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld failed\n", currSubIo->offset / PageSize);
+                    }
                     // printf("FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld\n", currSubIo->offset / PageSize);
                 }
                 else {
@@ -224,6 +227,7 @@ bool FileIO::BlockController::Initialize(int batchSize) {
 
     if(m_numInitCalled == 1) {
         m_batchSize = batchSize;
+        m_startTime = std::chrono::high_resolution_clock::now();
         for(AddressType i = 0; i < kSsdImplMaxNumBlocks; i++) {
             m_blockAddresses.push(i);
         }
@@ -249,7 +253,7 @@ bool FileIO::BlockController::Initialize(int batchSize) {
         m_currIoContext.free_sub_io_requests.push(&sr);
     }
     auto debug_file_name = std::string("/home/lml/SPFreshTest/") + std::to_string(m_numInitCalled) + "_debug.log";
-    debug_fd = open(debug_file_name.c_str(), O_RDWR | O_DIRECT | O_CREAT, 0666);
+    debug_fd = open(debug_file_name.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
     if (debug_fd == -1) {
         fprintf(stderr, "FileIO::BlockController::Initialize failed: open debug file failed\n");
         return false;
@@ -264,6 +268,7 @@ bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::GetBlocks: %s\n", strerror(errno));
     }
+    fsync(debug_fd);
     for(int i = 0; i < p_size; i++) {
         while(!m_blockAddresses.try_pop(currBlockAddress));
         p_data[i] = currBlockAddress;
@@ -277,6 +282,7 @@ bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReleaseBlocks: pwrite failed\n");
     }
+    fsync(debug_fd);
     for(int i = 0; i < p_size; i++) {
         m_blockAddresses_reserve.push(p_data[i]);
     }
@@ -289,6 +295,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
     }
+    fsync(debug_fd);
     p_value->resize(p_data[0]);
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
@@ -352,6 +359,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
     }
+    fsync(debug_fd);
     auto t1 = std::chrono::high_resolution_clock::now();
     p_values->resize(p_data.size());
     std::vector<SubIoRequest> subIoRequests;
@@ -450,6 +458,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: pwrite failed\n");
     }
+    fsync(debug_fd);
     AddressType currBlockIdx = 0;
     int inflight = 0;
     SubIoRequest* currSubIo;
@@ -516,11 +525,12 @@ bool FileIO::BlockController::IOStatistics() {
 bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
-    if (m_writeCache->RemainWriteJobs()) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain write jobs, wait for them.\n");
-    }
     while (m_writeCache->RemainWriteJobs()) {
-        usleep(1000);
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain %d write jobs, wait for them.\n", m_writeCache->getCacheSize());
+        if (m_writeCache->getCacheSize() < 10) {
+            m_writeCache->getMapStat();
+        }
+        usleep((int)1e6);
     }
     m_numInitCalled--;
 

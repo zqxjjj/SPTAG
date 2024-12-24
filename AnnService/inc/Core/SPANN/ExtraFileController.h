@@ -105,7 +105,7 @@ namespace SPTAG::SPANN {
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d\n", p_data);
                     tbb::concurrent_hash_map<AddressType, int>::accessor cachePageAccessor;
                     if (!m_memCacheMap.find(cachePageAccessor, p_data)) {
-                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed\n", p_data);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed\n", p_data);
                         return false;
                     }
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Successfully find page %d\n", p_data);
@@ -128,7 +128,7 @@ namespace SPTAG::SPANN {
                         return true;
                     }
                     else {
-                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed\n", p_data);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed2\n", p_data);
                         return false;
                     }
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d %s\n", p_data, result ? "success" : "failed");
@@ -136,6 +136,15 @@ namespace SPTAG::SPANN {
                 }
                 bool RemainWriteJobs() {
                     return m_memCacheMap.size() > 0;
+                }
+                int getCacheSize() {
+                    return m_memCacheMap.size();
+                }
+                void getMapStat() {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Cache Map Status:\n", m_memCacheMap.size());
+                    for (auto it = m_memCacheMap.begin(); it != m_memCacheMap.end(); it++) {
+                        printf("Key: %d Value: %d\n", it->first, it->second);
+                    }
                 }
             private:
                 int pageSize;
