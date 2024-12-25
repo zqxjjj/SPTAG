@@ -38,15 +38,17 @@ namespace SPTAG::SPANN {
                     m_popMutex.lock();
                     std::vector<int> cachePages(p_size);
                     bool success = true;
+                    int max_pos = 0;
                     for(int i = 0; i < p_size; i++) {
                         if (!m_memCacheFree.try_pop(cachePages[i])) {
                             success = false;
+                            max_pos = i;
                             break;
                         }
                     }
                     m_popMutex.unlock();
                     if (!success) {
-                        for (int i = 0; i < p_size; i++) {
+                        for (int i = 0; i < max_pos; i++) {
                             m_memCacheFree.push(cachePages[i]);
                         }
                         // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AddPages: %d failed\n", p_size);
@@ -65,11 +67,11 @@ namespace SPTAG::SPANN {
                 bool GetPage(AddressType p_data, void *p_value, AddressType real_size) {
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d\n", p_data);
                     if (real_size > PageSize) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "GetPage: %d failed, real_size > PageSize!\n", p_data);
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "GetPage: %d failed, real_size > PageSize!\n", p_data);
                         return false;
                     }
                     if (real_size <= 0) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "GetPage: %d failed, real_size <= 0!\n", p_data);
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "GetPage: %d failed, real_size <= 0!\n", p_data);
                         return false;
                     }
                     int cachePage;
@@ -93,7 +95,7 @@ namespace SPTAG::SPANN {
                     memcpy(tmpPage.get(), m_memCache[cachePage].get(), real_size);
                     if (m_memCacheMap.find(cachePageAccessor, p_data) && cachePageAccessor->second == cachePage) {
                         memcpy(p_value, tmpPage.get(), real_size);
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d success\n", p_data);
+                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GetPage: %d success\n", p_data);
                         return true;
                     }
                     else {
@@ -105,7 +107,7 @@ namespace SPTAG::SPANN {
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d\n", p_data);
                     tbb::concurrent_hash_map<AddressType, int>::accessor cachePageAccessor;
                     if (!m_memCacheMap.find(cachePageAccessor, p_data)) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed\n", p_data);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %ld failed\n", p_data);
                         return false;
                     }
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Successfully find page %d\n", p_data);
@@ -128,7 +130,7 @@ namespace SPTAG::SPANN {
                         return true;
                     }
                     else {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d failed2\n", p_data);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %ld failed2\n", p_data);
                         return false;
                     }
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "removePage: %d %s\n", p_data, result ? "success" : "failed");
@@ -143,7 +145,7 @@ namespace SPTAG::SPANN {
                 void getMapStat() {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Cache Map Status:\n", m_memCacheMap.size());
                     for (auto it = m_memCacheMap.begin(); it != m_memCacheMap.end(); it++) {
-                        printf("Key: %d Value: %d\n", it->first, it->second);
+                        printf("Key: %ld Value: %d\n", it->first, it->second);
                     }
                 }
             private:
@@ -231,7 +233,7 @@ namespace SPTAG::SPANN {
 
             static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
             static constexpr const char* kFileIoDepth = "SPFRESH_FILE_IO_DEPTH";
-            static constexpr int kSsdFileIoDefaultIoDepth = 1024;
+            static constexpr int kSsdFileIoDefaultIoDepth = 1536;
             static constexpr const char* kFileIoThreadNum = "SPFRESH_FILE_IO_THREAD_NUM";
             static constexpr int kSsdFileIoDefaultIoThreadNum = 64;
             static constexpr const char* kFileIoAlignment = "SPFRESH_FILE_IO_ALIGNMENT";

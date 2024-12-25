@@ -102,6 +102,9 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 }
                 if (currSubIo->need_free) {
                     currSubIo->free_sub_io_requests->push(currSubIo);
+                    if (currSubIo->offset % PageSize != 0) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ThreadPool::threadLoop: write page %ld not aligned\n", currSubIo->offset / PageSize);
+                    }
                     auto result = m_writeCache->removePage(currSubIo->offset / PageSize);
                     if (result == false) {
                         fprintf(stderr, "FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld failed\n", currSubIo->offset / PageSize);
