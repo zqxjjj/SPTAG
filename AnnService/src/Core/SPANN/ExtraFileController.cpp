@@ -527,16 +527,15 @@ bool FileIO::BlockController::IOStatistics() {
 
 bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
-    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
-    while (m_writeCache->RemainWriteJobs()) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain %d write jobs, wait for them.\n", m_writeCache->getCacheSize());
-        if (m_writeCache->getCacheSize() < 10) {
-            m_writeCache->getMapStat();
-        }
-        usleep((int)1e6);
+    while (m_currIoContext.free_sub_io_requests.unsafe_size() < m_ssdFileIoDepth) {
+        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain %d write jobs, wait for them.\n", m_writeCache->getCacheSize());
+        // if (m_writeCache->getCacheSize() < 10) {
+        //     m_writeCache->getMapStat();
+        // }
+        usleep(1000);
     }
     m_numInitCalled--;
-
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
     if(m_numInitCalled == 0) {
         m_fileIoThreadExiting = true;
         delete m_threadPool;
