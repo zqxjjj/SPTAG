@@ -147,40 +147,19 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
         // strcpy(filePath, "/home/lml/SPFreshTest/testfile");
     }
     if(stat(filePath, &st) != 0) {
-        std::ofstream file(filePath, std::ios::binary);
-        file.seekp(fileSize - 1);
-        file.write("", 1);
-        if(file.fail()) {
+        fd = open(filePath, O_CREAT | O_WRONLY, 0666);
+        if(fd == -1) {
             fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed\n");
             // return nullptr;
             ctrl->m_fileIoThreadStartFailed = true;
-            fd = -1;
-            file.close();
-        } else {
-            file.close();
-            fd = open(filePath, O_RDWR | O_DIRECT);
-            if (fd == -1) {
-                auto err_str = strerror(errno);
-                fprintf(stderr, "open failed: %s\n", err_str);
-                ctrl->m_fileIoThreadStartFailed = true;
-            } else {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::InitializeFileIo: file %s created, fd=%d\n", filePath, fd);
-            }
         }
-    }
-    else {
-        if(st.st_size < fileSize) {
-            std::ofstream file(filePath, std::ios::binary | std::ios::app);
-            file.seekp(fileSize - 1);
-            file.write("", 1);
-            if(file.fail()) {
-                fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed: Failed to create file\n");
+        else {
+            if (fallocate(fd, 0, 0, fileSize) == -1) {
+                fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed: fallocate failed\n");
                 ctrl->m_fileIoThreadStartFailed = true;
                 fd = -1;
-                file.close();
-            }
-            else {
-                file.close();
+            } else {
+                close(fd);
                 fd = open(filePath, O_RDWR | O_DIRECT);
                 if (fd == -1) {
                     auto err_str = strerror(errno);
@@ -190,7 +169,36 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::InitializeFileIo: file %s created, fd=%d\n", filePath, fd);
                 }
             }
+        }
+    }
+    else {
+        auto actualFileSize = st.st_blocks * st.st_blksize;
+        if(actualFileSize < fileSize) {
+            fd = open(filePath, O_CREAT | O_WRONLY, 0666);
+            if(fd == -1) {
+                fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed\n");
+                // return nullptr;
+                ctrl->m_fileIoThreadStartFailed = true;
+            }
+            else {
+                if (fallocate(fd, 0, 0, fileSize) == -1) {
+                    fprintf(stderr, "FileIO::BlockController::InitializeFileIo failed: fallocate failed\n");
+                    ctrl->m_fileIoThreadStartFailed = true;
+                    fd = -1;
+                } else {
+                    close(fd);
+                    fd = open(filePath, O_RDWR | O_DIRECT);
+                    if (fd == -1) {
+                        auto err_str = strerror(errno);
+                        fprintf(stderr, "open failed: %s\n", err_str);
+                        ctrl->m_fileIoThreadStartFailed = true;
+                    } else {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::InitializeFileIo: file %s created, fd=%d\n", filePath, fd);
+                    }
+                }
+            }
         } else {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::InitializeFileIo: file has been created with enough space.\n", filePath, fd);
             fd = open(filePath, O_RDWR | O_DIRECT);
             if (fd == -1) {
                 auto err_str = strerror(errno);
@@ -255,23 +263,27 @@ bool FileIO::BlockController::Initialize(int batchSize) {
         sr.ctrl = this;
         m_currIoContext.free_sub_io_requests.push(&sr);
     }
+#ifdef USE_FILE_DEBUG
     auto debug_file_name = std::string("/home/lml/SPFreshTest/") + std::to_string(m_numInitCalled) + "_debug.log";
     debug_fd = open(debug_file_name.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
     if (debug_fd == -1) {
         fprintf(stderr, "FileIO::BlockController::Initialize failed: open debug file failed\n");
         return false;
     }
+#endif
     return true;
 }
 
 bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
     AddressType currBlockAddress = 0;
+#ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 1";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::GetBlocks: %s\n", strerror(errno));
     }
     fsync(debug_fd);
+#endif
     for(int i = 0; i < p_size; i++) {
         while(!m_blockAddresses.try_pop(currBlockAddress));
         p_data[i] = currBlockAddress;
@@ -280,12 +292,14 @@ bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
+#ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 2";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReleaseBlocks: pwrite failed\n");
     }
     fsync(debug_fd);
+#endif
     for(int i = 0; i < p_size; i++) {
         m_blockAddresses_reserve.push(p_data[i]);
     }
@@ -293,12 +307,14 @@ bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout) {
+#ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 3";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
     }
     fsync(debug_fd);
+#endif
     p_value->resize(p_data[0]);
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
@@ -357,12 +373,14 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
 }
 
 bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout) {
+#ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
     }
     fsync(debug_fd);
+#endif
     auto t1 = std::chrono::high_resolution_clock::now();
     p_values->resize(p_data.size());
     std::vector<SubIoRequest> subIoRequests;
@@ -456,12 +474,14 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 }
 
 bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value) {
+#ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 5";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: pwrite failed\n");
     }
     fsync(debug_fd);
+#endif
     AddressType currBlockIdx = 0;
     int inflight = 0;
     SubIoRequest* currSubIo;
@@ -528,7 +548,7 @@ bool FileIO::BlockController::IOStatistics() {
 bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
     while (m_currIoContext.free_sub_io_requests.unsafe_size() < m_ssdFileIoDepth) {
-        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain %d write jobs, wait for them.\n", m_writeCache->getCacheSize());
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain %d write jobs, wait for them.\n", m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.unsafe_size());
         // if (m_writeCache->getCacheSize() < 10) {
         //     m_writeCache->getMapStat();
         // }
