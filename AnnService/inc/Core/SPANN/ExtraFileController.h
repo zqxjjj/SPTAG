@@ -216,6 +216,7 @@ namespace SPTAG::SPANN {
                 std::vector<int64_t> io_time_vec;
                 std::vector<int> read_complete_vec;
                 std::vector<int> write_complete_vec;
+                std::vector<int> remove_page_time_vec;
                 std::vector<bool> busy_thread_vec;
                 BlockController::WriteCache* m_writeCache;
                 int fd;

@@ -21,6 +21,7 @@ FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, Block
     io_time_vec.resize(numThreads);
     read_complete_vec.resize(numThreads);
     write_complete_vec.resize(numThreads);
+    remove_page_time_vec.resize(numThreads);
     busy_thread_vec.resize(numThreads);
     for (size_t i = 0; i < numThreads; i++) {
         workers.push_back(pthread_t());
@@ -30,6 +31,7 @@ FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, Block
         io_time_vec[i] = 0;
         read_complete_vec[i] = 0;
         write_complete_vec[i] = 0;
+        remove_page_time_vec[i] = 0;
         busy_thread_vec[i] = false;
     }
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ThreadPool initialized with %d threads, fd=%d\n", numThreads, fd);
@@ -94,7 +96,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 io_time_vec[id] += io_time;
                 if(bytesWritten == -1) {
                     auto err_str = strerror(errno);
-                    fprintf(stderr, "pwrite failed: %s, Block offset: %d, io buf address: %p\n", err_str, currSubIo->offset, currSubIo->io_buff);
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "pwrite failed: %s, Block offset: %d, io buf address: %p\n", err_str, currSubIo->offset, currSubIo->io_buff);
                     stop = true;
                 }
                 else {
@@ -107,7 +109,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                     }
                     auto result = m_writeCache->removePage(currSubIo->offset / PageSize);
                     if (result == false) {
-                        fprintf(stderr, "FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld failed\n", currSubIo->offset / PageSize);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld failed\n", currSubIo->offset / PageSize);
                     }
                     // printf("FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld\n", currSubIo->offset / PageSize);
                 }
@@ -116,9 +118,6 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                     currSubIo->completed_sub_io_requests->push(currSubIo);
                 }
             }
-            // TODO: 这里会有冲突，后面要处理
-            // ctrl->m_ioCompleteCount++;
-            // ctrl->m_ssdInflight--;
         }
         if(stop) {
             break;
@@ -333,6 +332,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
     while(currOffset < p_data[0] || m_currIoContext.in_flight) {
         auto t2 = std::chrono::high_resolution_clock::now();
         if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
+            // SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: timeout\n");
             return false;
         }
         // Try read from write cache
@@ -426,6 +426,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         while(currSubIoIdx < currSubIoEndId || m_currIoContext.in_flight) {
             auto t2 = std::chrono::high_resolution_clock::now();
             if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
+                // SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks (batch) : timeout\n");
                 break;
             }
             // Try read from write cache
@@ -547,6 +548,14 @@ bool FileIO::BlockController::IOStatistics() {
 
 bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
+    SubIoRequest* currSubIo;
+    while (m_currIoContext.in_flight) {
+        if (m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
+            currSubIo->app_buff = nullptr;
+            m_currIoContext.free_sub_io_requests.push(currSubIo);
+            m_currIoContext.in_flight--;
+        }
+    }
     while (m_currIoContext.free_sub_io_requests.unsafe_size() < m_ssdFileIoDepth) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown: Remain %d write jobs, wait for them.\n", m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.unsafe_size());
         // if (m_writeCache->getCacheSize() < 10) {
@@ -563,15 +572,6 @@ bool FileIO::BlockController::ShutDown() {
         while(!m_blockAddresses.empty()) {
             AddressType currBlockAddress;
             m_blockAddresses.try_pop(currBlockAddress);
-        }
-    }
-
-    SubIoRequest* currSubIo;
-    while (m_currIoContext.in_flight) {
-        if (m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
-            currSubIo->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(currSubIo);
-            m_currIoContext.in_flight--;
         }
     }
 
