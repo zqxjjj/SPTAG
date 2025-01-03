@@ -181,7 +181,7 @@ namespace SPTAG
                         currCenters[j] /= args.counts[k];
                     }
                     
-                    if (args._M == DistCalcMethod::Cosine) {
+                    if (args._M != DistCalcMethod::L2) {
                         COMMON::Utils::Normalize(currCenters, args._RD, COMMON::Utils::GetBase<T>());
                     }
                     

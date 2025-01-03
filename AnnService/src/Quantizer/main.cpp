@@ -33,7 +33,7 @@ void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader>& vectorRead
 #pragma omp parallel for
         for (int i = 0; i < set->Count(); i++)
         {
-            quantizer->QuantizeVector(set->GetVector(i), (uint8_t*)quantized_vectors->GetVector(i));
+            quantizer->QuantizeVector(set->GetVector(i), (uint8_t*)quantized_vectors->GetVector(i), false);
         }
 
         ErrorCode code;
@@ -68,7 +68,7 @@ void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader>& vectorRead
 
 int main(int argc, char* argv[])
 {
-    std::shared_ptr<QuantizerOptions> options = std::make_shared<QuantizerOptions>(10000, true, 0.0f, SPTAG::QuantizerType::None, std::string(), -1, std::string(), std::string());
+    std::shared_ptr<QuantizerOptions> options = std::make_shared<QuantizerOptions>(10000, true, 0.0f, SPTAG::QuantizerType::None, SPTAG::DistCalcMethod::L2, std::string(), -1, std::string(), std::string());
 
     if (!options->Parse(argc - 1, argv + 1))
     {
@@ -116,7 +116,7 @@ int main(int argc, char* argv[])
             {
 #define DefineVectorValueType(Name, Type) \
                     case VectorValueType::Name: \
-                        quantizer.reset(new COMMON::PQQuantizer<Type>(options->m_quantizedDim, 256, (DimensionType)(options->m_dimension/options->m_quantizedDim), false, TrainPQQuantizer<Type>(options, set, quantized_vectors))); \
+                        quantizer.reset(new COMMON::PQQuantizer<Type>(options->m_quantizedDim, 256, (DimensionType)(options->m_dimension/options->m_quantizedDim), false, TrainPQQuantizer<Type>(options, set, quantized_vectors), options->m_distMethod)); \
                         break;
 
 #include "inc/Core/DefinitionList.h"

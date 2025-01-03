@@ -2,6 +2,7 @@
 #include <inc/Core/Common/DistanceUtils.h>
 #include <inc/Core/Common/IQuantizer.h>
 #include <inc/Core/Common/PQQuantizer.h>
+#include <inc/Helper/VectorSetReader.h>
 
 #include <memory>
 #include <inc/Core/VectorSet.h>
@@ -13,7 +14,7 @@ using namespace SPTAG;
 class QuantizerOptions : public Helper::ReaderOptions
 {
 public:
-    QuantizerOptions(SizeType trainingSamples, bool debug, float lambda, SPTAG::QuantizerType qtype, std::string qfile, DimensionType qdim, std::string fullvecs, std::string recvecs) : Helper::ReaderOptions(VectorValueType::Float, 0, VectorFileType::TXT, "|", 32), m_trainingSamples(trainingSamples), m_debug(debug), m_KmeansLambda(lambda), m_quantizerType(qtype), m_outputQuantizerFile(qfile), m_quantizedDim(qdim), m_outputFullVecFile(fullvecs), m_outputReconstructVecFile(recvecs)
+    QuantizerOptions(SizeType trainingSamples, bool debug, float lambda, SPTAG::QuantizerType qtype, SPTAG::DistCalcMethod dm, std::string qfile, DimensionType qdim, std::string fullvecs, std::string recvecs) : Helper::ReaderOptions(VectorValueType::Float, 0, VectorFileType::TXT, "|", 32), m_trainingSamples(trainingSamples), m_debug(debug), m_KmeansLambda(lambda), m_quantizerType(qtype), m_distMethod(dm), m_outputQuantizerFile(qfile), m_quantizedDim(qdim), m_outputFullVecFile(fullvecs), m_outputReconstructVecFile(recvecs)
     {
         AddRequiredOption(m_inputFiles, "-i", "--input", "Input raw data.");
         AddRequiredOption(m_outputFile, "-o", "--output", "Output quantized vectors.");
@@ -29,6 +30,7 @@ public:
         AddOptionalOption(m_KmeansLambda, "-kml", "--lambda", "Kmeans lambda parameter.");
         AddOptionalOption(m_outputFullVecFile, "-ofv", "--output_full", "Output Uncompressed vectors.");
         AddOptionalOption(m_outputFullVecFile, "-orv", "--output_reconstruct", "Output reconstructed vectors.");
+        AddOptionalOption(m_distMethod, "-dist", "--distance_function", "The distance calculation method.");
     }
 
     ~QuantizerOptions() {}
@@ -52,6 +54,8 @@ public:
     SizeType m_trainingSamples;
 
     SPTAG::QuantizerType m_quantizerType;
+
+    SPTAG::DistCalcMethod m_distMethod;
 
     bool m_debug;
 
@@ -85,7 +89,7 @@ std::unique_ptr<T[]> TrainPQQuantizer(std::shared_ptr<QuantizerOptions> options,
         localindices.resize(dset.R());
         for (SizeType il = 0; il < localindices.size(); il++) localindices[il] = il;
 
-        auto kargs = COMMON::KmeansArgs<T>(numCentroids, subdim, raw_vectors->Count(), options->m_threadNum, DistCalcMethod::L2, nullptr);
+        auto kargs = COMMON::KmeansArgs<T>(numCentroids, subdim, raw_vectors->Count(), options->m_threadNum, options->m_distMethod, nullptr);
         auto nclusters = COMMON::KmeansClustering<T>(dset, localindices, 0, dset.R(), kargs, options->m_trainingSamples, options->m_KmeansLambda, options->m_debug, nullptr);
 
         std::vector<SizeType> reverselocalindex;
