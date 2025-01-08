@@ -1,5 +1,6 @@
 #ifndef _SPTAG_SPANN_EXTRAFILECONTROLLER_H_
 #define _SPTAG_SPANN_EXTRAFILECONTROLLER_H_
+#define USE_ASYNC_IO
 #include "inc/Helper/KeyValueIO.h"
 #include "inc/Core/Common/Dataset.h"
 #include "inc/Core/VectorIndex.h"
@@ -12,6 +13,8 @@
 #include <fcntl.h>
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_hash_map.h>
+#include <sys/syscall.h>
+#include <linux/aio_abi.h>
 namespace SPTAG::SPANN {
     typedef std::int64_t AddressType;
     class FileIO : public Helper::KeyValueIO {
@@ -240,9 +243,6 @@ namespace SPTAG::SPANN {
                 // bool stop;
 
                 static void* workerThread(void* arg);
-                #ifdef USE_ASYNC_IO
-                static void* checkerThread(void* arg);
-                #endif
                 void threadLoop(size_t id);
             };
             friend ThreadPool;
@@ -275,8 +275,10 @@ namespace SPTAG::SPANN {
             int m_ssdFileIoDepth = kSsdFileIoDefaultIoDepth;
             int m_ssdFileIoThreadNum = kSsdFileIoDefaultIoThreadNum;
             struct SubIoRequest {
+                #ifndef USE_ASYNC_IO
                 tbb::concurrent_queue<SubIoRequest *>* completed_sub_io_requests;
                 tbb::concurrent_queue<SubIoRequest *>* free_sub_io_requests;
+                #endif
                 void* app_buff;
                 void* io_buff;
                 bool is_read;
@@ -288,17 +290,32 @@ namespace SPTAG::SPANN {
             };
             tbb::concurrent_queue<SubIoRequest *> m_submittedSubIoRequests;
             struct IoContext {
+                #ifdef USE_ASYNC_IO
+                std::vector<SubIoRequest> sub_io_requests;
+                std::queue<SubIoRequest *> free_sub_io_requests;
+                int in_flight = 0;
+                #else
                 std::vector<SubIoRequest> sub_io_requests;
                 tbb::concurrent_queue<SubIoRequest *> free_sub_io_requests;
                 tbb::concurrent_queue<SubIoRequest *> completed_sub_io_requests;
                 int in_flight = 0;
+                #endif
             };
             static thread_local struct IoContext m_currIoContext;
             static thread_local int debug_fd;
+            #ifdef USE_ASYNC_IO
+            static thread_local uint64_t iocp;
+            #endif
             static std::chrono::high_resolution_clock::time_point m_startTime;
 
             #ifndef USE_HELPER_THREADPOOL
             ThreadPool* m_threadPool = nullptr;
+            #endif
+
+            #ifdef USE_ASYNC_IO
+            static thread_local int id;
+            std::vector<int> read_complete_vec;
+            std::vector<int> write_complete_vec;
             #endif
 
             WriteCache* m_writeCache = nullptr;
@@ -321,6 +338,7 @@ namespace SPTAG::SPANN {
 
             static void* IoStatisticsThread(void* args) {
                 auto ctrl = static_cast<BlockController*>(args);
+                #ifndef USE_ASYNC_IO
                 while (!ctrl->m_fileIoThreadExiting) {
                     auto working_thread_num = ctrl->m_threadPool->get_busy_thread_num();
                     auto remain_tasks_num = ctrl->m_submittedSubIoRequests.unsafe_size();
@@ -330,6 +348,7 @@ namespace SPTAG::SPANN {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: working thread num: %d, remain tasks num: %d, notify called: %d, notify times: %d, write jobs in cache: %d\n", working_thread_num, remain_tasks_num, notify_times.first, notify_times.second, write_jobs_in_cache);
                     std::this_thread::sleep_for(std::chrono::seconds(5));
                 }
+                #endif
                 pthread_exit(NULL);
             };
 
@@ -421,9 +440,16 @@ namespace SPTAG::SPANN {
                 m_currIoContext.sub_io_requests.resize(m_ssdFileIoDepth);
                 m_currIoContext.in_flight = 0;
                 for (auto &sr : m_currIoContext.sub_io_requests) {
+                    #ifndef USE_ASYNC_IO
                     sr.completed_sub_io_requests = &(m_currIoContext.completed_sub_io_requests);
+                    sr.free_sub_io_requests = &(m_currIoContext.free_sub_io_requests);
+                    #endif
                     sr.app_buff = nullptr;
                     sr.io_buff = aligned_alloc(m_ssdFileIoAlignment, PageSize);
+                    if (sr.io_buff == nullptr) {
+                        fprintf(stderr, "FileIO::BlockController::Initialize failed: aligned_alloc failed\n");
+                        return ErrorCode::Fail;
+                    }
                     sr.ctrl = this;
                     m_currIoContext.free_sub_io_requests.push(&sr);
                 }
