@@ -196,6 +196,13 @@ namespace SPTAG::SPANN {
                     }
                     return time;
                 };
+                int64_t get_remove_page_time() {
+                    int64_t time = 0;
+                    for (int i = 0; i < remove_page_time_vec.size(); i++) {
+                        time += remove_page_time_vec[i];
+                    }
+                    return time;
+                };
                 int get_busy_thread_num() {
                     int count = 0;
                     for (int i = 0; i < busy_thread_vec.size(); i++) {
@@ -204,6 +211,14 @@ namespace SPTAG::SPANN {
                         }
                     }
                     return count;
+                };
+
+                std::pair<int, int> get_notify_times() {
+                    int count = 0;
+                    for (int i = 0; i < notify_times_vec.size(); i++) {
+                        count += notify_times_vec[i];
+                    }
+                    return std::make_pair(notify_times, count);
                 }
             private:
                 std::vector<pthread_t> workers;
@@ -217,12 +232,17 @@ namespace SPTAG::SPANN {
                 std::vector<int> read_complete_vec;
                 std::vector<int> write_complete_vec;
                 std::vector<int> remove_page_time_vec;
+                std::vector<int> notify_times_vec;
                 std::vector<bool> busy_thread_vec;
                 BlockController::WriteCache* m_writeCache;
                 int fd;
+                int notify_times;
                 // bool stop;
 
                 static void* workerThread(void* arg);
+                #ifdef USE_ASYNC_IO
+                static void* checkerThread(void* arg);
+                #endif
                 void threadLoop(size_t id);
             };
             friend ThreadPool;
@@ -234,7 +254,7 @@ namespace SPTAG::SPANN {
 
             static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
             static constexpr const char* kFileIoDepth = "SPFRESH_FILE_IO_DEPTH";
-            static constexpr int kSsdFileIoDefaultIoDepth = 1536;
+            static constexpr int kSsdFileIoDefaultIoDepth = 1024;
             static constexpr const char* kFileIoThreadNum = "SPFRESH_FILE_IO_THREAD_NUM";
             static constexpr int kSsdFileIoDefaultIoThreadNum = 64;
             static constexpr const char* kFileIoAlignment = "SPFRESH_FILE_IO_ALIGNMENT";
@@ -246,6 +266,7 @@ namespace SPTAG::SPANN {
             tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
             
             pthread_t m_fileIoTid;
+            pthread_t m_ioStatisticsTid;
             volatile bool m_fileIoThreadStartFailed = false;
             volatile bool m_fileIoThreadReady = false;
             volatile bool m_fileIoThreadExiting = false;
@@ -297,6 +318,20 @@ namespace SPTAG::SPANN {
             std::chrono::time_point<std::chrono::high_resolution_clock> m_preTime = std::chrono::high_resolution_clock::now();
 
             static void* InitializeFileIo(void* args);
+
+            static void* IoStatisticsThread(void* args) {
+                auto ctrl = static_cast<BlockController*>(args);
+                while (!ctrl->m_fileIoThreadExiting) {
+                    auto working_thread_num = ctrl->m_threadPool->get_busy_thread_num();
+                    auto remain_tasks_num = ctrl->m_submittedSubIoRequests.unsafe_size();
+                    auto notify_times = ctrl->m_threadPool->get_notify_times();
+                    auto free_io_jobs = ctrl->m_currIoContext.free_sub_io_requests.unsafe_size();
+                    auto write_jobs_in_cache = ctrl->m_writeCache->getCacheSize();
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: working thread num: %d, remain tasks num: %d, notify called: %d, notify times: %d, write jobs in cache: %d\n", working_thread_num, remain_tasks_num, notify_times.first, notify_times.second, write_jobs_in_cache);
+                    std::this_thread::sleep_for(std::chrono::seconds(5));
+                }
+                pthread_exit(NULL);
+            };
 
             // static void Start(void* args);
 

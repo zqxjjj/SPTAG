@@ -13,15 +13,20 @@ std::unique_ptr<char[]> FileIO::BlockController::m_memBuffer;
 #ifndef USE_HELPER_THREADPOOL
 
 FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, BlockController* ctrl, BlockController::WriteCache* wc) {
+#ifdef USE_ASYNC_IO
+
+#else
     this->fd = fd;
     this->ctrl = ctrl;
     this->m_writeCache = wc;
+    this->notify_times = 0;
     stop = false;
     busy_time_vec.resize(numThreads);
     io_time_vec.resize(numThreads);
     read_complete_vec.resize(numThreads);
     write_complete_vec.resize(numThreads);
     remove_page_time_vec.resize(numThreads);
+    notify_times_vec.resize(numThreads);
     busy_thread_vec.resize(numThreads);
     for (size_t i = 0; i < numThreads; i++) {
         workers.push_back(pthread_t());
@@ -32,9 +37,11 @@ FileIO::BlockController::ThreadPool::ThreadPool(size_t numThreads, int fd, Block
         read_complete_vec[i] = 0;
         write_complete_vec[i] = 0;
         remove_page_time_vec[i] = 0;
+        notify_times_vec[i] = 0;
         busy_thread_vec[i] = false;
     }
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ThreadPool initialized with %d threads, fd=%d\n", numThreads, fd);
+#endif
 }
 
 FileIO::BlockController::ThreadPool::~ThreadPool() {
@@ -46,6 +53,7 @@ FileIO::BlockController::ThreadPool::~ThreadPool() {
 }
 
 void FileIO::BlockController::ThreadPool::notify_one() {
+    notify_times++;
     condition.notify_one();
 }
 
@@ -56,13 +64,25 @@ void* FileIO::BlockController::ThreadPool::workerThread(void* arg) {
     return nullptr;
 }
 
+#ifdef USE_ASYNC_IO
+void* FileIO::BlockController::ThreadPool::checkerThread(void* arg) {
+    auto args = static_cast<ThreadArgs*>(arg);
+    auto pool = args->pool;
+    // TODO: check io status
+    return nullptr;
+}
+#endif
+
 void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
-    std::mutex selfMutex;
+#ifdef USE_ASYNC_IO
+
+#else
     while(true) {
         {
             std::unique_lock<std::mutex> lock(queueMutex);
             condition.wait(lock, [this] { return stop || !ctrl->m_submittedSubIoRequests.empty();});
         }
+        notify_times_vec[id]++;
         busy_thread_vec[id] = true;
         auto start_time = std::chrono::high_resolution_clock::now();
         SubIoRequest* currSubIo = nullptr;
@@ -73,7 +93,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 auto io_begin_time = std::chrono::high_resolution_clock::now();
                 ssize_t bytesRead = pread(fd, currSubIo->io_buff, PageSize, currSubIo->offset);
                 auto io_end_time = std::chrono::high_resolution_clock::now();
-                auto io_time = std::chrono::duration_cast<std::chrono::milliseconds>(io_end_time - io_begin_time).count();
+                auto io_time = std::chrono::duration_cast<std::chrono::microseconds>(io_end_time - io_begin_time).count();
                 io_time_vec[id] += io_time;
                 if(bytesRead == -1) {
                     auto err_str = strerror(errno);
@@ -92,7 +112,7 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                 ssize_t bytesWritten = pwrite(fd, currSubIo->io_buff, PageSize, currSubIo->offset);
                 // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ThreadPool::threadLoop: write page %ld done\n", currSubIo->offset / PageSize);
                 auto io_end_time = std::chrono::high_resolution_clock::now();
-                auto io_time = std::chrono::duration_cast<std::chrono::milliseconds>(io_end_time - io_begin_time).count();
+                auto io_time = std::chrono::duration_cast<std::chrono::microseconds>(io_end_time - io_begin_time).count();
                 io_time_vec[id] += io_time;
                 if(bytesWritten == -1) {
                     auto err_str = strerror(errno);
@@ -107,10 +127,14 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
                     if (currSubIo->offset % PageSize != 0) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ThreadPool::threadLoop: write page %ld not aligned\n", currSubIo->offset / PageSize);
                     }
+                    auto remove_page_begin_time = std::chrono::high_resolution_clock::now();
                     auto result = m_writeCache->removePage(currSubIo->offset / PageSize);
                     if (result == false) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld failed\n", currSubIo->offset / PageSize);
                     }
+                    auto remove_page_end_time = std::chrono::high_resolution_clock::now();
+                    auto remove_page_time = std::chrono::duration_cast<std::chrono::microseconds>(remove_page_end_time - remove_page_begin_time).count();
+                    remove_page_time_vec[id] += remove_page_time;
                     // printf("FileIO::BlockController::ThreadPool::threadLoop: write cache remove page %ld\n", currSubIo->offset / PageSize);
                 }
                 else {
@@ -123,10 +147,11 @@ void FileIO::BlockController::ThreadPool::threadLoop(size_t id) {
             break;
         }
         auto end_time = std::chrono::high_resolution_clock::now();
-        auto busy_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        auto busy_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
         busy_time_vec[id] += busy_time;
         busy_thread_vec[id] = false;
     }
+#endif
 }
 
 #endif
@@ -227,6 +252,7 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
         }
         ctrl->m_threadPool = new ThreadPool(ctrl->m_ssdFileIoThreadNum, fd, ctrl, ctrl->m_writeCache);
         // m_ssdInflight = 0;
+        pthread_create(&ctrl->m_ioStatisticsTid, NULL, &IoStatisticsThread, ctrl);
     }
     pthread_exit(NULL);
 }
@@ -535,11 +561,13 @@ bool FileIO::BlockController::IOStatistics() {
 
     auto busy_time = m_threadPool->get_busy_time();
     auto io_time = m_threadPool->get_io_time();
+    auto remove_page_time = m_threadPool->get_remove_page_time() / 1000;
     auto busy_thread_num = m_threadPool->get_busy_thread_num();
 
     std::cout << "IOPS: " << currIOPS << "k Bandwidth: " << currBandWidth << "MB/s" << std::endl;
     std::cout << "Read Count: " << currReadCount << " Write Count: " << currWriteCount << std::endl;
-    std::cout << "Busy Time: " << busy_time << "ms IO Time: " << io_time << "ms" << " io rate:" << (double)io_time / busy_time << std::endl;
+    std::cout << "Busy Time: " << busy_time / 1000 << "ms IO Time: " << io_time / 1000 << "ms" << " io rate:" << (double)io_time / busy_time << std::endl;
+    std::cout << "Remove Page Time: " << remove_page_time << "ms" << std::endl;
     std::cout << "Busy Thread Num: " << busy_thread_num << std::endl;
     std::cout << "Inflight IO Num: " << m_submittedSubIoRequests.unsafe_size() << std::endl;
 
