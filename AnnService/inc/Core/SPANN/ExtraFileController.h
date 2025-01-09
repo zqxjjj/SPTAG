@@ -1,6 +1,7 @@
 #ifndef _SPTAG_SPANN_EXTRAFILECONTROLLER_H_
 #define _SPTAG_SPANN_EXTRAFILECONTROLLER_H_
 #define USE_ASYNC_IO
+// #define USE_FILE_DEBUG
 #include "inc/Helper/KeyValueIO.h"
 #include "inc/Core/Common/Dataset.h"
 #include "inc/Core/VectorIndex.h"
@@ -314,8 +315,11 @@ namespace SPTAG::SPANN {
 
             #ifdef USE_ASYNC_IO
             static thread_local int id;
+            int m_maxId = 0;
+            std::queue<int> m_idQueue;
             std::vector<int> read_complete_vec;
             std::vector<int> write_complete_vec;
+            std::vector<int> write_submit_vec;
             #endif
 
             WriteCache* m_writeCache = nullptr;
