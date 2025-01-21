@@ -279,13 +279,15 @@ namespace SPTAG::SPANN {
                 #ifndef USE_ASYNC_IO
                 tbb::concurrent_queue<SubIoRequest *>* completed_sub_io_requests;
                 tbb::concurrent_queue<SubIoRequest *>* free_sub_io_requests;
-                #endif
-                void* app_buff;
                 void* io_buff;
                 bool is_read;
                 bool need_free;
+                #else
+                struct iocb myiocb;
+                #endif
                 AddressType real_size;
                 AddressType offset;
+                void* app_buff;
                 BlockController* ctrl;
                 int posting_id;
             };
@@ -318,6 +320,7 @@ namespace SPTAG::SPANN {
             int m_maxId = 0;
             std::queue<int> m_idQueue;
             std::vector<int> read_complete_vec;
+            std::vector<int> read_submit_vec;
             std::vector<int> write_complete_vec;
             std::vector<int> write_submit_vec;
             #endif
@@ -449,11 +452,15 @@ namespace SPTAG::SPANN {
                     sr.free_sub_io_requests = &(m_currIoContext.free_sub_io_requests);
                     #endif
                     sr.app_buff = nullptr;
-                    sr.io_buff = aligned_alloc(m_ssdFileIoAlignment, PageSize);
-                    if (sr.io_buff == nullptr) {
+                    auto buf_ptr = aligned_alloc(m_ssdFileIoAlignment, PageSize);
+                    if (buf_ptr == nullptr) {
                         fprintf(stderr, "FileIO::BlockController::Initialize failed: aligned_alloc failed\n");
                         return ErrorCode::Fail;
                     }
+                    sr.myiocb.aio_buf = reinterpret_cast<uint64_t>(buf_ptr);
+                    sr.myiocb.aio_fildes = fd;
+                    sr.myiocb.aio_data = reinterpret_cast<uintptr_t>(&sr);
+                    sr.myiocb.aio_nbytes = PageSize;
                     sr.ctrl = this;
                     m_currIoContext.free_sub_io_requests.push(&sr);
                 }
@@ -811,10 +818,12 @@ namespace SPTAG::SPANN {
         
         ErrorCode Save(std::string path) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save mapping To %s\n", path.c_str());
+            #ifndef USE_ASYNC_IO
             if (m_pBlockController.RemainWriteJobs()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "There are still write jobs in progress, wait for them to finish\n");
             }
             while (m_pBlockController.RemainWriteJobs());
+            #endif
             auto ptr = f_createIO();
             if (ptr == nullptr || !ptr->Initialize(path.c_str(), std::ios::binary | std::ios::out)) return ErrorCode::FailedCreateFile;
 
