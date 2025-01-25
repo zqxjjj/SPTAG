@@ -478,7 +478,7 @@ bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
     SubIoRequest* currSubIo;
     m_numInitCalled--;
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
+    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
     if (m_numInitCalled == 0) {
         m_fileIoThreadExiting = true;
         pthread_join(m_fileIoTid, NULL);

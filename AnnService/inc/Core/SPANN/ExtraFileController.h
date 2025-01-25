@@ -25,8 +25,8 @@ namespace SPTAG::SPANN {
             static char* filePath;
             static int fd;
 
-            // static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
-            static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 30G
+            static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
+            // static constexpr AddressType kSsdImplMaxNumBlocks = (180ULL << 30) >> PageSizeEx; // 30G
             static constexpr const char* kFileIoDepth = "SPFRESH_FILE_IO_DEPTH";
             static constexpr int kSsdFileIoDefaultIoDepth = 1024;
             static constexpr const char* kFileIoThreadNum = "SPFRESH_FILE_IO_THREAD_NUM";
