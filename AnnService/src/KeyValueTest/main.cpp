@@ -3,6 +3,7 @@
 
 #include "inc/Core/Common.h"
 #include "inc/Core/SPANN/ExtraFileController.h"
+#define CONFLICT_TEST
 
 using namespace SPTAG;
 
@@ -11,6 +12,8 @@ int main(int argc, char* argv[]) {
     int kv_num = 1000;
     int dataset_size = 10000;
     int iter_num = 1000;
+    int batch_num = 10;
+    int thread_num = 4;
     std::mutex error_mtx;
     std::vector<std::string> dataset(dataset_size);
     std::vector<int> values(kv_num);
@@ -37,12 +40,10 @@ int main(int argc, char* argv[]) {
             fileIO.Put(key, dataset[values[key]]);
         }
         // 读取数据
-        bool error = false;
         for (int key = 0; key < kv_num; key++) {
             std::string readValue;
             fileIO.Get(key, &readValue);
             if (dataset[values[key]] != readValue) {
-                error = true;
                 std::cout << "Error: key " << key << " value not match" << std::endl;
                 std::cout << "True value: ";
                 for (auto c : dataset[values[key]]) {
@@ -71,7 +72,7 @@ int main(int argc, char* argv[]) {
     // 多线程存取
     iter_num = 10;
     kv_num = 100000;
-    int thread_num = 4;
+    thread_num = 4;
     values.resize(kv_num);
     start = std::chrono::high_resolution_clock::now();
     for (int iter = 0; iter < iter_num; iter++) {
@@ -224,7 +225,7 @@ int main(int argc, char* argv[]) {
     fileIO.GetStat();
 
     // 多线程混合读写存取
-    int batch_num = 10;
+    batch_num = 10;
     iter_num = 100000;
     double read_rate = 0.5;
     values.resize(kv_num);
@@ -247,11 +248,13 @@ int main(int argc, char* argv[]) {
                     values[key] = rand() % dataset_size;
                     fileIO.Put(key, dataset[values[key]]);
                 }
-                if (rand() < RAND_MAX * read_rate) {
-                    is_read = true;
-                }
                 for (int j = 0; j < iter_num; j++) {
                     int key = thread_keys[i][rand() % num];
+                    if (rand() < RAND_MAX * read_rate) {
+                        is_read = true;
+                    } else {
+                        is_read = false;
+                    }
                     if (is_read) {
                         std::string readValue;
                         fileIO.Get(key, &readValue);
@@ -298,6 +301,134 @@ int main(int argc, char* argv[]) {
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Mix read write time: %d ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Mix read write IOPS: %fk\n", (double)batch_num * iter_num / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     fileIO.GetStat();
+#ifdef CONFLICT_TEST
+    // 冲突测试
+    batch_num = 10;
+    iter_num = 1000;
+    kv_num = 2048;
+    thread_num = 4;
+    values.resize(kv_num);
+    // start = std::chrono::high_resolution_clock::now();
+    for (int iter = 0; iter < batch_num; iter++) {
+        std::vector<std::thread> threads;
+        std::vector<bool> errors(thread_num);
+        // 随机生成一些数据
+        for (int i = 0; i < kv_num; i++) {
+            values[i] = rand() % dataset_size;
+        }
+        std::string init_str(PageSize, -1);
+        for (int i = 0; i < kv_num; i++) {
+            fileIO.Put(i, init_str);
+        }
+        for (int i = 0; i < thread_num; i++) {
+            threads.emplace_back([&fileIO, &errors, &error_mtx, &dataset, iter_num, kv_num, i]() {
+                fileIO.Initialize();
+                std::vector<std::string> readValues;
+                std::vector<int> keys;
+                std::vector<int> values(kv_num);
+                for (int i = 0; i < kv_num; i++) {
+                    values[i] = rand() % dataset.size();
+                }
+                for (int k = 0; k < iter_num; k++) {
+                    int key = rand() % kv_num;
+                    bool is_read = false;
+                    bool batch_read = false;
+                    if (rand() < RAND_MAX * 0.66) {
+                        is_read = true;
+                        if (rand() < RAND_MAX * 0.5) {
+                            batch_read = true;
+                        }
+                    }
+                    if (is_read && !batch_read) {
+                        std::string readValue;
+                        fileIO.Get(key, &readValue);
+                        if ((int)readValue[0] != i) {
+                            ;
+                        }
+                        else {
+                            readValue[0] = dataset[values[key]][0];
+                            if (readValue != dataset[values[key]]) {
+                                errors[i] = true;
+                                std::lock_guard<std::mutex> lock(error_mtx);
+                                std::cout << "Error: key " << key << " value not match" << std::endl;
+                                std::cout << "True value: ";
+                                std::cout << i << " ";
+                                for (int j = 1; j < PageSize; j++) {
+                                    std::cout << (int)dataset[values[key]][j] << " ";
+                                }
+                                std::cout << std::endl;
+                                std::cout << "Read value: ";
+                                readValue[0] = (char)i;
+                                for (auto c : readValue) {
+                                    std::cout << (int)c << " ";
+                                }
+                                std::cout << std::endl;
+                                return;
+                            }
+                        }
+                    } else if (is_read && batch_read) {
+                        std::vector<std::string> readValues;
+                        std::vector<int> keys;
+                        int num = 256;
+                        std::set<int> key_set;
+                        while (key_set.size() < num) {
+                            key_set.insert(rand() % kv_num);
+                        }
+                        keys.assign(key_set.begin(), key_set.end());
+                        fileIO.MultiGet(keys, &readValues);
+                        for (int j = 0; j < keys.size(); j++) {
+                            if ((int)readValues[j][0] != i) {
+                                ;
+                            }
+                            else {
+                                readValues[j][0] = dataset[values[keys[j]]][0];
+                                if (readValues[j] != dataset[values[keys[j]]]) {
+                                    errors[i] = true;
+                                    std::lock_guard<std::mutex> lock(error_mtx);
+                                    std::cout << "Error: key " << keys[j] << " value not match" << std::endl;
+                                    std::cout << "True value: ";
+                                    std::cout << i << " ";
+                                    for (int k = 1; k < PageSize; k++) {
+                                        std::cout << (int)dataset[values[keys[j]]][k] << " ";
+                                    }
+                                    std::cout << std::endl;
+                                    std::cout << "Read value: ";
+                                    readValues[j][0] = (char)i;
+                                    for (auto c : readValues[j]) {
+                                        std::cout << (int)c << " ";
+                                    }
+                                    std::cout << std::endl;
+                                    return;
+                                }
+                            }
+                        }
+                    } else {
+                        values[key] = rand() % dataset.size();
+                        std::string tmp_str(dataset[values[key]]);
+                        tmp_str[0] = (char)i;
+                        fileIO.Put(key, tmp_str);
+                    }
+                }
+                fileIO.ExitBlockController();
+            });
+        }
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        threads.clear();
+        for (int i = 0; i < thread_num; i++) {
+            if (errors[i]) {
+                std::cout << "Error in Conflict test iter " << iter << std::endl;
+                return 0;
+            }
+        }
+    }
+    // end = std::chrono::high_resolution_clock::now();
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Conflict test passed\n");
+    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Conflict test time: %d ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Conflict test IOPS: %fk\n", (double)iter_num * kv_num * 2 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    fileIO.GetStat();
+#endif
     std::cout << "Test passed" << std::endl;
     return 0;
 }

@@ -222,6 +222,7 @@ namespace SPTAG::SPANN {
             const char* fileIoUseLock = getenv(kFileIoUseLock);
             if(fileIoUseLock) {
                 if(strcmp(fileIoUseLock, "True") == 0) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: Using lock\n");
                     m_fileIoUseLock = true;
                     const char* fileIoLockSize = getenv(kFileIoLockSize);
                     if(fileIoLockSize) {
@@ -314,8 +315,12 @@ namespace SPTAG::SPANN {
 
         ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
             std::vector<AddressType*> blocks;
+            std::set<int> lock_keys;
             if (m_fileIoUseLock) {
-                // TODO: 这里是不是需要考虑哈希冲突的问题？感觉上不需要
+                // 这里要去重？
+                // for (SizeType key : keys) {
+                //     lock_keys.insert(hash(key));
+                // }
                 for (SizeType key : keys) {
                     m_rwMutex[hash(key)].lock_shared();
                 }
