@@ -1,4 +1,4 @@
- // Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) Microsoft Corporation. All rights reserved.
  // Licensed under the MIT License.
 
 #include <mpi.h>
@@ -49,6 +49,7 @@ public:
         AddOptionalOption(m_recoveriter, "-ri", "--recover", "Recover iteration.");
         AddOptionalOption(m_newp, "-np", "--newpenalty", "old penalty: 0, new penalty: 1");
         AddOptionalOption(m_hardcut, "-hc", "--hard", "soft: 0, hard: 1");
+        AddOptionalOption(m_minOverlapPortion, "-mo", "--minoverlap", "Minimum fraction of closure assignment in each cluster.");
     }
 
     ~PartitionOptions() {}
@@ -70,6 +71,7 @@ public:
     float m_closurefactor = 1.2f;
     int m_newp = 0;
     int m_hardcut = 0;
+    float m_minOverlapPortion = 0.0f;
     DistCalcMethod m_distMethod = DistCalcMethod::L2;
 
     std::string m_labels = "labels.bin";
@@ -265,6 +267,7 @@ inline float HardMultipleClustersAssign(const COMMON::Dataset<T>& data,
     SizeType subsize = (last - first - 1) / args._T + 1;
 
     SPTAG::Edge* items = new SPTAG::Edge[last - first];
+    std::vector<SizeType> closureCount(args._K, 0);
 
     auto func1 = [&](int tid)
     {
@@ -287,6 +290,7 @@ inline float HardMultipleClustersAssign(const COMMON::Dataset<T>& data,
                 items[i - first].distance = centerDist[clusternum].distance;
                 items[i - first].tonode = i;
                 iclusterDist[centerDist[clusternum].node] += centerDist[clusternum].distance;
+                closureCount[clusternum]++;
             }
             else {
                 items[i - first].node = MaxSize;
@@ -365,6 +369,32 @@ inline float HardMultipleClustersAssign(const COMMON::Dataset<T>& data,
             args.weightedCounts[k] += args.newWeightedCounts[i*args._K + k];
         }
     }
+
+    for (int k = 0; k < args._K; k++) {
+        float fraction = static_cast<float>(closureCount[k]) / (args.counts[k] + 1e-9f);
+        if (fraction < options.m_minOverlapPortion) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                "Cluster %d closure portion %f is below %f.\n",
+                k, fraction, options.m_minOverlapPortion);
+            // Add overlap in a best-first way until fraction >= minOverlapPortion
+            std::vector<SPTAG::Edge> candidates;
+            for (SizeType i = 0; i < last - first; i++) {
+                if (items[i].node == k && items[i].tonode < 0) {
+                    candidates.push_back(items[i]);
+                }
+            }
+            std::sort(candidates.begin(), candidates.end(), g_edgeComparer);
+            for (auto& candidate : candidates) {
+                if (fraction >= options.m_minOverlapPortion) break;
+                candidate.tonode = -candidate.tonode - 1;
+                label[candidate.tonode][clusternum] = (LabelType)(candidate.node);
+                args.newCounts[candidate.node]++;
+                args.newWeightedCounts[candidate.node] += weights[indices[candidate.tonode]];
+                fraction = static_cast<float>(++closureCount[k]) / (args.counts[k] + 1e-9f);
+            }
+        }
+    }
+
     return currDist;
 }
 
