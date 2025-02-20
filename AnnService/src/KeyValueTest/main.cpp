@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
         }
     }
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Data generated\n");
-    SPANN::FileIO fileIO("/nvme0n1/lml/pbfile", 1024 * 1024, std::numeric_limits<SizeType>::max(), max_blocks, 1024, 64, false);
+    SPANN::FileIO fileIO("/nvme0n1/lml/pbfile", 1024 * 1024, std::numeric_limits<SizeType>::max(), max_blocks * 2, 1024, 64, false);
 
     // 单线程存取
     auto start = std::chrono::high_resolution_clock::now();
@@ -244,6 +244,7 @@ int main(int argc, char* argv[]) {
                 int num = thread_keys[i].size();
                 int read_count = 0, write_count = 0;
                 bool is_read = false;
+                bool is_merge = false;
                 for (auto key : thread_keys[i]) {
                     values[key] = rand() % dataset_size;
                     fileIO.Put(key, dataset[values[key]]);
@@ -254,6 +255,11 @@ int main(int argc, char* argv[]) {
                         is_read = true;
                     } else {
                         is_read = false;
+                        if (rand() < RAND_MAX * 0.5) {
+                            is_merge = true;
+                        } else {
+                            is_merge = false;
+                        }
                     }
                     if (is_read) {
                         std::string readValue;
@@ -276,6 +282,34 @@ int main(int argc, char* argv[]) {
                             return;
                         }
                         read_count++;
+                    } else if (is_merge) {
+                        std::string mergeValue = "";
+                        int size = rand() % (max_blocks << 12);
+                        for (int k = 0; k < size; k++) {
+                            mergeValue += (char)(rand() % 256);
+                        }
+                        fileIO.Merge(key, mergeValue);
+                        write_count++; read_count++;
+                        std::string readValue;
+                        fileIO.Get(key, &readValue);
+                        if (readValue != dataset[values[key]] + mergeValue) {
+                            errors[i] = true;
+                            std::lock_guard<std::mutex> lock(error_mtx);
+                            std::cout << "Error: key " << key << " value not match" << std::endl;
+                            std::cout << "True value: ";
+                            for (auto c : mergeValue) {
+                                std::cout << (int)c << " ";
+                            }
+                            std::cout << std::endl;
+                            std::cout << "Read value: ";
+                            for (auto c : readValue) {
+                                std::cout << (int)c << " ";
+                            }
+                            std::cout << std::endl;
+                            return;
+                        }
+                        fileIO.Put(key, dataset[values[key]]);
+                        write_count++; read_count++;
                     } else {
                         values[key] = rand() % dataset_size; 
                         fileIO.Put(key, dataset[values[key]]);
