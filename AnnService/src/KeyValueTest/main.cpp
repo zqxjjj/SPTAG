@@ -14,9 +14,13 @@ int main(int argc, char* argv[]) {
     int iter_num = 1000;
     int batch_num = 10;
     int thread_num = 4;
+    int timeout_times = 0;
+    double read_rate = 0.5;
     std::mutex error_mtx;
     std::vector<std::string> dataset(dataset_size);
     std::vector<int> values(kv_num);
+    std::chrono::high_resolution_clock::time_point start, end;
+    std::chrono::microseconds timeout;
     
     for (int i = 0; i < dataset_size; i++) {
         int size = rand() % (max_blocks << 12);
@@ -28,8 +32,21 @@ int main(int argc, char* argv[]) {
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Data generated\n");
     SPANN::FileIO fileIO("/nvme0n1/lml/pbfile", 1024 * 1024, std::numeric_limits<SizeType>::max(), max_blocks * 2, 1024, 64, false);
 
+
+    bool single_thread_test     = false;
+    bool multi_thread_test      = false;
+    bool multi_get_test         = false;
+    bool mixed_read_write_test  = false;
+    bool timeout_test           = true;
+    bool conflict_test          = false;
+
+
     // 单线程存取
-    auto start = std::chrono::high_resolution_clock::now();
+SingleThreadTest:
+    if (!single_thread_test) {
+        goto MultiThreadTest;
+    }
+    start = std::chrono::high_resolution_clock::now();
     for (int iter = 0; iter < iter_num; iter++) {
         // 随机生成一些数据
         for (int i = 0; i < kv_num; i++) {
@@ -63,13 +80,17 @@ int main(int argc, char* argv[]) {
         //     return 0;
         // }
     }
-    auto end = std::chrono::high_resolution_clock::now();
+    end = std::chrono::high_resolution_clock::now();
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Single thread test passed\n");
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Single thread time: %d ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Single thread IOPS: %fk\n", (double)iter_num * kv_num * 2 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     fileIO.GetStat();
 
     // 多线程存取
+MultiThreadTest:
+    if (!multi_thread_test) {
+        goto MultiGetTest;
+    }
     iter_num = 10;
     kv_num = 100000;
     thread_num = 4;
@@ -152,6 +173,10 @@ int main(int argc, char* argv[]) {
     fileIO.GetStat();
 
     // MultiGet测试
+MultiGetTest:
+    if (!multi_get_test) {
+        goto MixReadWriteTest;
+    }
     iter_num = 100;
     kv_num = 100000;
     thread_num = 4;
@@ -225,9 +250,13 @@ int main(int argc, char* argv[]) {
     fileIO.GetStat();
 
     // 多线程混合读写存取
+MixReadWriteTest:
+    if (!mixed_read_write_test) {
+        goto TimeoutTest;
+    }
     batch_num = 10;
     iter_num = 100000;
-    double read_rate = 0.5;
+    read_rate = 0.5;
     values.resize(kv_num);
     start = std::chrono::high_resolution_clock::now();
     for (int batch = 0; batch < batch_num; batch++) {
@@ -335,8 +364,61 @@ int main(int argc, char* argv[]) {
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Mix read write time: %d ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Mix read write IOPS: %fk\n", (double)batch_num * iter_num / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     fileIO.GetStat();
+
+    // 超时测试
+TimeoutTest:
+    if (!timeout_test) {
+        goto ConflictTest;
+    }
+    batch_num = 10;
+    timeout = std::chrono::microseconds(0);
+    iter_num = 50;
+    kv_num = 10;
+    values.resize(kv_num);
+    for (int iter = 0; iter < iter_num; iter++) {
+        for (int i = 0; i < kv_num; i++) {
+            values[i] = rand() % dataset_size;
+            fileIO.Put(i, dataset[values[i]]);
+        }
+        for (int key = 0; key < kv_num; key++) {
+            std::string readValue;
+            auto result = fileIO.Get(key, &readValue, timeout);
+            if (result == ErrorCode::Fail) {
+                timeout_times++;
+            }
+        }
+    }
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Timeout times: %d\n", timeout_times);
+    iter_num = 10;
+    kv_num = 1000;
+    values.resize(kv_num);
+    for (int iter = 0; iter < iter_num; iter++) {
+        for (int i = 0; i < kv_num; i++) {
+            values[i] = rand() % dataset_size;
+            fileIO.Put(i, dataset[values[i]]);
+        }
+        for (int key = 0; key < kv_num; key++) {
+            std::string readValue;
+            auto result = fileIO.Get(key, &readValue);
+            if (result == ErrorCode::Fail) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error while get key %d\n", key);
+                return 0;
+            }
+            if (dataset[values[key]] != readValue) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error: key %d value not match\n", key);
+                return 0;
+            }
+        }
+    }
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Timeout test passed\n");
+    fileIO.GetStat();
+
 #ifdef CONFLICT_TEST
     // 冲突测试
+ConflictTest:
+    if (!conflict_test) {
+        goto End;
+    }
     batch_num = 10;
     iter_num = 1000;
     kv_num = 2048;
@@ -463,6 +545,7 @@ int main(int argc, char* argv[]) {
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Conflict test IOPS: %fk\n", (double)iter_num * kv_num * 2 / std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     fileIO.GetStat();
 #endif
+End:
     std::cout << "Test passed" << std::endl;
     return 0;
 }

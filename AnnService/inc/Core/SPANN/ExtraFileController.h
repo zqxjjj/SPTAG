@@ -25,7 +25,7 @@ namespace SPTAG::SPANN {
             static char* filePath;
             static int fd;
 
-            static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
+            static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 1G
             // static constexpr AddressType kSsdImplMaxNumBlocks = (180ULL << 30) >> PageSizeEx; // 30G
             static constexpr const char* kFileIoDepth = "SPFRESH_FILE_IO_DEPTH";
             static constexpr int kSsdFileIoDefaultIoDepth = 1024;
@@ -307,6 +307,31 @@ namespace SPTAG::SPANN {
             //     return ErrorCode::Success;
             // }
             auto result = m_pBlockController.ReadBlocks((AddressType*)At(key), value);
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].unlock_shared();
+            }
+            return result ? ErrorCode::Success : ErrorCode::Fail;
+        }
+
+        ErrorCode Get(SizeType key, std::string* value, const std::chrono::microseconds &timeout) {
+            if (m_fileIoUseLock) {
+                m_rwMutex[hash(key)].lock_shared();
+            }
+            SizeType r;
+            if (m_fileIoUseLock) {
+                m_updateMutex.lock_shared();
+                r = m_pBlockMapping.R();
+                m_updateMutex.unlock_shared();
+            }
+            else {
+                r = m_pBlockMapping.R();
+            }
+            if (key >= r) return ErrorCode::Fail;
+            
+            // if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) {
+            //     return ErrorCode::Success;
+            // }
+            auto result = m_pBlockController.ReadBlocks((AddressType*)At(key), value, timeout);
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock_shared();
             }
