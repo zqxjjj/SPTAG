@@ -338,6 +338,10 @@ namespace SPTAG::SPANN {
             return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
+        ErrorCode Get(const std::string& key, std::string* value) override {
+            return Get(std::stoi(key), value);
+        }
+
         ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
             std::vector<AddressType*> blocks;
             std::set<int> lock_keys;
@@ -373,6 +377,14 @@ namespace SPTAG::SPANN {
                 }
             }
             return result ? ErrorCode::Success : ErrorCode::Fail;
+        }
+
+        ErrorCode MultiGet(const std::vector<std::string>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) override {
+            std::vector<SizeType> int_keys;
+            for (const auto& key : keys) {
+                int_keys.push_back(std::stoi(key));
+            }
+            return MultiGet(int_keys, values, timeout);
         }
 
         ErrorCode Put(SizeType key, const std::string& value) override {
@@ -445,6 +457,10 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
 
+        ErrorCode Put(const std::string &key, const std::string& value) override {
+            return Put(std::stoi(key), value);
+        }
+
         ErrorCode Merge(SizeType key, const std::string& value) {
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].lock();
@@ -511,6 +527,10 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
 
+        ErrorCode Merge(const std::string &key, const std::string& value) {
+            return Merge(std::stoi(key), value);
+        }
+
         ErrorCode Delete(SizeType key) override {
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].lock();
@@ -542,6 +562,10 @@ namespace SPTAG::SPANN {
                 m_rwMutex[hash(key)].unlock();
             }
             return ErrorCode::Success;
+        }
+
+        ErrorCode Delete(const std::string &key) {
+            return Delete(std::stoi(key));
         }
 
         void ForceCompaction() {
