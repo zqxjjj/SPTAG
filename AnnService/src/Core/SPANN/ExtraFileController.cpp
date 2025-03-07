@@ -161,9 +161,11 @@ bool FileIO::BlockController::Initialize(int batchSize) {
         sr.ctrl = this;
         m_currIoContext.free_sub_io_requests.push(&sr);
     }
+    iocp = 0;
     auto ret = syscall(__NR_io_setup, m_ssdFileIoDepth, &iocp);
     if (ret < 0) {
-        fprintf(stderr, "FileIO::BlockController::Initialize failed: io_setup failed\n");
+        fprintf(stderr, "FileIO::BlockController::Initialize io_setup failed: %s\n", strerror(errno));
+        fprintf(stderr, "m_ssdFileIoDepth = %d, iocp = %p\n", m_ssdFileIoDepth, &iocp);
         return false;
     }
 #ifdef USE_FILE_DEBUG
