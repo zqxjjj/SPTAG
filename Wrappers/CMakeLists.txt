@@ -92,7 +92,7 @@ if (JNI_FOUND)
 
     execute_process(COMMAND swig -java -c++ -I${PROJECT_SOURCE_DIR}/Wrappers/inc -o ${PROJECT_SOURCE_DIR}/Wrappers/inc/CoreInterface_jwrap.cpp ${PROJECT_SOURCE_DIR}/Wrappers/inc/JavaCore.i)
     execute_process(COMMAND swig -java -c++ -I${PROJECT_SOURCE_DIR}/Wrappers/inc -o ${PROJECT_SOURCE_DIR}/Wrappers/inc/ClientInterface_jwrap.cpp ${PROJECT_SOURCE_DIR}/Wrappers/inc/JavaClient.i)
-    execute_process(COMMAND swig -java -c++ -I${PROJECT_SOURCE_DIR}/Wrappers/inc -o ${PROJECT_SOURCE_DIR}/Wrappers/inc/FileIOInterface_jwrap.cpp ${PROJECT_SOURCE_DIR}/Wrappers/inc/JavaFileIO.i)
+    execute_process(COMMAND swig -java -package site.ycsb.fileiointerface -c++ -I${PROJECT_SOURCE_DIR}/Wrappers/inc -o ${PROJECT_SOURCE_DIR}/Wrappers/inc/FileIOInterface_jwrap.cpp ${PROJECT_SOURCE_DIR}/Wrappers/inc/JavaFileIO.i)
 
     include_directories(${JNI_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/AnnService ${PROJECT_SOURCE_DIR}/Wrappers)
 
@@ -109,7 +109,7 @@ if (JNI_FOUND)
     target_link_libraries(JAVASPTAGClient SPTAGLib ${JNI_LIBRARIES} ${Boost_LIBRARIES})
 
     file(GLOB FILEIO_HDR_FILES ${PROJECT_SOURCE_DIR}/Wrappers/inc/FileIOInterface.h)
-    file(GLOB FILEIO_SRC_FILES ${PROJECT_SOURCE_DIR}/Wrappers/src/FileIOInterface.cpp ${PROJECT_SOURCE_DIR}/Wrappers/inc/FileIOInterface_jwrap.cpp)
+    file(GLOB FILEIO_SRC_FILES ${PROJECT_SOURCE_DIR}/Wrappers/inc/FileIOInterface_jwrap.cpp)
     add_library (JAVASPTAGFileIO SHARED ${FILEIO_SRC_FILES} ${FILEIO_HDR_FILES})
     set_target_properties(JAVASPTAGFileIO PROPERTIES SUFFIX ${JAVA_SUFFIX})
     target_link_libraries(JAVASPTAGFileIO SPTAGLib ${JNI_LIBRARIES})

@@ -8,13 +8,8 @@
 %include <stdint.i>
 %include "std_string.i"
 %include "std_vector.i"
-%shared_ptr(FileIOInterface)
+// %shared_ptr(FileIOInterface)
 %include "JavaCommon.i"
-
-%{
-#define SWIG_FILE_WITH_INIT
-%}
-
 
 %include "../../AnnService/inc/Helper/KeyValueIO.h"
 %include "../../AnnService/inc/Core/SPANN/ExtraFileController.h"
