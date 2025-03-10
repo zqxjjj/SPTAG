@@ -6,6 +6,7 @@
 typedef std::int64_t AddressType;
 typedef std::int32_t SizeType;
 typedef SPTAG::ErrorCode ErrorCode;
+typedef SPTAG::ByteArray ByteArray;
 class FileIOInterface {
 public:
     FileIOInterface(const char* filePath, SizeType blockSize, SizeType capacity, SizeType postingBlocks, SizeType bufferSize = 1024, int batchSize = 64, bool recovery = false, int compactionThreads = 1) {
@@ -14,6 +15,19 @@ public:
 
     void ShutDown() {
         m_fileIO->ShutDown();
+    }
+
+    ByteArray GetByteArray(SizeType key) {
+        ByteArray value;
+        ErrorCode result = m_fileIO->Get(key, value);
+        if (result != ErrorCode::Success) {
+            return ByteArray::c_empty;
+        }
+        return value;
+    }
+
+    bool Get(SizeType key, std::string& value) {
+        return true;
     }
 
     std::string Get(SizeType key) {
@@ -43,6 +57,10 @@ public:
     }
 
     bool Put(SizeType key, const std::string& value) {
+        return m_fileIO->Put(key, value) == ErrorCode::Success;
+    }
+
+    bool Put(SizeType key, ByteArray value) {
         return m_fileIO->Put(key, value) == ErrorCode::Success;
     }
 
