@@ -242,17 +242,6 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
         for (int i = 0; i < d; i++) {
             auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            // bool found = false;
-            // for (auto &sr : m_currIoContext.sub_io_requests) {
-            //     if (req == &sr) {
-            //         found = true;
-            //         break;
-            //     }
-            // }
-            // if (!found) {
-            //     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: req not found\n");
-            //     return false;
-            // }
             req->app_buff = nullptr;
             m_currIoContext.free_sub_io_requests.push(req);
         }
@@ -303,17 +292,6 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
             auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
             memcpy(req->app_buff, reinterpret_cast<void *>(req->myiocb.aio_buf), req->real_size);
             req->app_buff = nullptr;
-            bool found = false;
-            for (auto &sr : m_currIoContext.sub_io_requests) {
-                if (req == &sr) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: req not found\n");
-                return false;
-            }
             m_currIoContext.free_sub_io_requests.push(req);
         }
         totalDone += d;
@@ -345,17 +323,6 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
         auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
         for (int i = 0; i < d; i++) {
             auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            // bool found = false;
-            // for (auto &sr : m_currIoContext.sub_io_requests) {
-            //     if (req == &sr) {
-            //         found = true;
-            //         break;
-            //     }
-            // }
-            // if (!found) {
-            //     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: req not found\n");
-            //     return false;
-            // }
             req->app_buff = nullptr;
             m_currIoContext.free_sub_io_requests.push(req);
         }
@@ -406,17 +373,6 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
             auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
             memcpy(req->app_buff, reinterpret_cast<void *>(req->myiocb.aio_buf), req->real_size);
             req->app_buff = nullptr;
-            bool found = false;
-            for (auto &sr : m_currIoContext.sub_io_requests) {
-                if (req == &sr) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: req not found\n");
-                return false;
-            }
             m_currIoContext.free_sub_io_requests.push(req);
         }
         totalDone += d;
