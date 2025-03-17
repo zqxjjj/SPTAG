@@ -48,6 +48,18 @@ public:
         return value;
     }
 
+    std::vector<ByteArray> Scan(const SizeType start_key, const int record_count) {
+        std::vector<ByteArray> values;
+        auto result = m_fileIO->Scan(start_key, record_count, values);
+        if (result != ErrorCode::Success) {
+            for (auto ba : values) {
+                delete[] ba.Data();
+            }
+            return std::vector<ByteArray>(0);
+        }
+        return values;
+    }
+
     bool MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
         return m_fileIO->MultiGet(keys, values, timeout) == ErrorCode::Success;
     }

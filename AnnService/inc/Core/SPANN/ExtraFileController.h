@@ -74,6 +74,9 @@ namespace SPTAG::SPANN {
             std::vector<int> read_submit_vec;
             std::vector<int> write_complete_vec;
             std::vector<int> write_submit_vec;
+            std::vector<int64_t> read_bytes_vec;
+            std::vector<int64_t> write_bytes_vec;
+            std::vector<int64_t> read_blocks_time_vec;
 
             std::mutex m_uniqueResourceMutex;
 
@@ -87,6 +90,7 @@ namespace SPTAG::SPANN {
             int m_batchSize;
             static std::atomic<int> m_ioCompleteCount;
             int m_preIOCompleteCount = 0;
+            int64_t m_preIOBytes = 0;
             std::chrono::time_point<std::chrono::high_resolution_clock> m_preTime = std::chrono::high_resolution_clock::now();
 
             static void* InitializeFileIo(void* args);
@@ -116,6 +120,8 @@ namespace SPTAG::SPANN {
             bool ReadBlocks(AddressType* p_data, ByteArray& p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
 
             bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
+
+            bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<ByteArray>& p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
 
             bool WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value);
 
@@ -435,6 +441,34 @@ namespace SPTAG::SPANN {
                 int_keys.push_back(std::stoi(key));
             }
             return MultiGet(int_keys, values, timeout);
+        }
+
+        ErrorCode Scan(const SizeType start_key, const int record_count, std::vector<ByteArray> &values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
+            std::vector<SizeType> keys;
+            std::vector<AddressType*> blocks;
+            SizeType curr_key = start_key;
+            while(keys.size() < record_count && curr_key < m_pBlockMapping.R()) {
+                if (m_fileIoUseLock) {
+                    m_rwMutex[hash(curr_key)].lock_shared();
+                }
+                if (At(curr_key) == 0xffffffffffffffff) {
+                    if (m_fileIoUseLock) {
+                        m_rwMutex[hash(curr_key)].unlock_shared();
+                    }
+                    curr_key++;
+                    continue;
+                }
+                keys.push_back(curr_key);
+                blocks.push_back((AddressType*)At(curr_key));
+                curr_key++;
+            }
+            auto result = m_pBlockController.ReadBlocks(blocks, values, timeout);
+            if (m_fileIoUseLock) {
+                for (auto key : keys) {
+                    m_rwMutex[hash(key)].unlock_shared();
+                }
+            }
+            return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
         ErrorCode Put(SizeType key, const std::string& value) override {
