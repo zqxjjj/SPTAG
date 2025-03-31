@@ -421,6 +421,10 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         AddressType* p_data_i = p_data[i];
         std::string* p_value = &((*p_values)[i]);
 
+        if (p_data_i == nullptr) {
+            continue;
+        }
+
         p_value->resize(p_data_i[0]);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
