@@ -222,106 +222,81 @@ namespace SPTAG::SPANN {
 
         class LRUCache {
             int capacity;   // Page Num
+            int size;
             std::list<SizeType> keys;  // Page Address
-            std::unordered_map<SizeType, std::pair<std::vector<void *>, std::list<SizeType>::iterator>> cache;    // Page Address -> Page Address in Cache
-            std::queue<void *> free_pages; // Free Page Address
+            std::unordered_map<SizeType, std::pair<std::string, std::list<SizeType>::iterator>> cache;    // Page Address -> Page Address in Cache
             std::mutex mu;
+            int64_t queries;
+            int64_t hits;
 
         public:
             LRUCache(int capacity) {
                 this->capacity = capacity;
-                for (int i = 0; i < capacity; i++) {
-                    free_pages.push((void *)malloc(PageSize));
-                }
+                this->size = 0;
+                this->queries = 0;
+                this->hits = 0;
             }
 
-            ~LRUCache() {
-                while (!free_pages.empty()) {
-                    free(free_pages.front());
-                    free_pages.pop();
-                }
-            }
-
-            bool get(SizeType key, void* value, AddressType size) {
+            bool get(SizeType key, void* value) {
                 mu.lock();
+                queries++;
                 auto it = cache.find(key);
                 if (it == cache.end()) {
                     mu.unlock();
                     return false;  // 如果键不存在，返回 -1
                 }
                 // 更新访问顺序，将该键移动到链表头部
-                AddressType offset = 0;
-                for (auto addr : it->second.first) {
-                    auto actual_size = size - offset < PageSize ? size - offset : PageSize;
-                    memcpy(value + offset, addr, actual_size);
-                    offset += PageSize;
-                }
+                memcpy(value, it->second.first.data(), it->second.first.size());
                 keys.splice(keys.begin(), keys, it->second.second);
                 it->second.second = keys.begin();
+                hits++;
                 mu.unlock();
                 return true;
             }
 
-            bool put(SizeType key, void* value, AddressType size) {
+            bool put(SizeType key, void* value, int put_size) {
                 mu.lock();
                 auto it = cache.find(key);
                 if (it != cache.end()) {
+                    if (put_size > capacity) {
+                        size -= it->second.first.size();
+                        keys.erase(it->second.second);
+                        cache.erase(it);
+                        mu.unlock();
+                        return false;
+                    }
                     auto keys_it = it->second.second;
                     keys.splice(keys.begin(), keys, keys_it);
                     it->second.second = keys.begin();
                     keys_it = keys.begin();
-                    auto delta_size = size - it->second.first.size() * PageSize;
-                    while (free_pages.size() * PageSize < delta_size && (keys.size() > 1)) {
+                    auto delta_size = put_size - it->second.first.size();
+                    while ((capacity - size) < delta_size && (keys.size() > 1)) {
                         auto last = keys.back();
                         auto it = cache.find(last);
-                        for (auto addr : it->second.first) {
-                            free_pages.push(addr);
-                        }
+                        size -= it->second.first.size();
                         cache.erase(it);
                         keys.pop_back();
                     }
-                    if (free_pages.size() * PageSize < delta_size) {
-                        mu.unlock();
-                        return false;
-                    }
-                    for (int i = 0; i < it->second.first.size(); i++) {
-                        auto real_size = size - i * PageSize < PageSize ? size - i * PageSize : PageSize;
-                        memcpy(it->second.first[i], value + i * PageSize, real_size);
-                    }
-                    for (int i = 0; i < delta_size / PageSize + (delta_size % PageSize == 0 ? 0 : 1); i++) {
-                        auto offset = it->second.first.size() * PageSize;
-                        it->second.first.push_back(free_pages.front());
-                        auto real_size = size - offset < PageSize ? size - offset : PageSize;
-                        memcpy(it->second.first.back(), value + offset, real_size);
-                        free_pages.pop();
-                    }
+                    it->second.first.resize(put_size);
+                    memcpy(it->second.first.data(), value, put_size);
+                    size += delta_size;
                     mu.unlock();
                     return true;
                 }
-                while (free_pages.size() * PageSize < size && (!keys.empty())) {
-                    auto last = keys.back();
-                    auto it = cache.find(last);
-                    for (auto addr : it->second.first) {
-                        free_pages.push(addr);
-                    }
-                    cache.erase(it);
-                    keys.pop_back();
-                }
-                if (free_pages.size() * PageSize < size) {
+                if (put_size > capacity) {
                     mu.unlock();
                     return false;
                 }
-                auto keys_it = keys.insert(keys.begin(), key);
-                std::pair<std::vector<void *>, std::list<SizeType>::iterator> value_pair;
-                value_pair.first.resize(size / PageSize + (size % PageSize == 0 ? 0 : 1));
-                for (int i = 0; i < value_pair.first.size(); i++) {
-                    value_pair.first[i] = free_pages.front();
-                    auto real_size = size - i * PageSize < PageSize ? size - i * PageSize : PageSize;
-                    memcpy(value_pair.first[i], value + i * PageSize, real_size);
-                    free_pages.pop();
+                while (put_size > (capacity - size) && (!keys.empty())) {
+                    auto last = keys.back();
+                    auto it = cache.find(last);
+                    size -= it->second.first.size();
+                    cache.erase(it);
+                    keys.pop_back();
                 }
-                value_pair.second = keys_it;
-                cache[key] = value_pair;
+                auto keys_it = keys.insert(keys.begin(), key);
+                cache.insert({key, {std::string((char*)value, put_size), keys_it}});
+                size += put_size;
                 mu.unlock();
                 return true;
             }
@@ -333,69 +308,48 @@ namespace SPTAG::SPANN {
                     mu.unlock();
                     return false;  // 如果键不存在，返回 false
                 }
-                for (auto addr : it->second.first) {
-                    free_pages.push(addr);
-                }
+                size -= it->second.first.size();
                 keys.erase(it->second.second);
                 cache.erase(it);
                 mu.unlock();
                 return true;
             }
 
-            bool merge(SizeType key, void* value, AddressType size, AddressType original_size) {
+            bool merge(SizeType key, void* value, AddressType merge_size) {
                 mu.lock();
+                // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "LRUCache: merge size: %lld\n", merge_size);
                 auto it = cache.find(key);
                 if (it == cache.end()) {
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "LRUCache: merge key not found\n");
                     mu.unlock();
                     return false;  // 如果键不存在，返回 false
                 }
-                if (original_size + size > capacity * PageSize) {
-                    for (auto addr : it->second.first) {
-                        free_pages.push(addr);
-                    }
+                if (merge_size + it->second.first.size() > capacity) {
+                    size -= it->second.first.size();
                     keys.erase(it->second.second);
                     cache.erase(it);
+                    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "LRUCache: merge size exceeded\n");
                     mu.unlock();
                     return false;
                 }
-                auto keys_it = it->second.second;
-                keys.splice(keys.begin(), keys, keys_it);
+                keys.splice(keys.begin(), keys, it->second.second);
                 it->second.second = keys.begin();
-                keys_it = keys.begin();
-
-                // 处理最后一个块没写满的情况
-                if (original_size % PageSize > 0) {
-                    auto rest_size = original_size % PageSize;
-                    memcpy(it->second.first.back() + rest_size, value, PageSize - rest_size);
-                    value += PageSize - rest_size;
-                    original_size += PageSize - rest_size;
-                    size -= PageSize - rest_size;
-                }
-
-                while (free_pages.size() * PageSize < size && (keys.size() > 1)) {
+                while((capacity - size) < merge_size && (keys.size() > 1)) {
                     auto last = keys.back();
                     auto it = cache.find(last);
-                    for (auto addr : it->second.first)
-                        free_pages.push(addr);
+                    size -= it->second.first.size();
                     cache.erase(it);
                     keys.pop_back();
                 }
-                
-                for (int i = 0; i < size / PageSize; i++) {
-                    it->second.first.push_back(free_pages.front());
-                    memcpy(it->second.first.back(), value, PageSize);
-                    free_pages.pop();
-                    value += PageSize;
-                    original_size += PageSize;
-                }
-                if (size % PageSize > 0) {
-                    it->second.first.push_back(free_pages.front());
-                    memcpy(it->second.first.back(), value, size % PageSize);
-                    free_pages.pop();
-                    original_size += size % PageSize;
-                }
+                it->second.first.append((char*)value, merge_size);
+                size += merge_size;
+                // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "LRUCache: merge success\n");
                 mu.unlock();
                 return true;
+            }
+            
+            std::pair<int64_t, int64_t> get_stat() {
+                return {queries, hits};
             }
         }; 
 
@@ -435,11 +389,11 @@ namespace SPTAG::SPANN {
                 }
             }
             if (m_fileIoUseCache) {
-                const char* fileIoCachePageNum = getenv(kFileIoCachePageNum);
-                if(fileIoCachePageNum) {
-                    m_pWriteCache = new LRUCache(atoi(fileIoCachePageNum));
+                const char* fileIoCacheSize = getenv(kFileIoCacheSize);
+                if(fileIoCacheSize) {
+                    m_pLRUCache = new LRUCache(atoi(fileIoCacheSize));
                 } else {
-                    m_pWriteCache = new LRUCache(kSsdFileIoDefaultCachePageNum);
+                    m_pLRUCache = new LRUCache(kSsdFileIoDefaultCacheSize);
                 }
             }
 
@@ -487,7 +441,7 @@ namespace SPTAG::SPANN {
             }
             m_pBlockController.ShutDown();
             if (m_fileIoUseCache) {
-                delete m_pWriteCache;
+                delete m_pLRUCache;
             }
             m_shutdownCalled = true;
         }
@@ -515,7 +469,7 @@ namespace SPTAG::SPANN {
             if (m_fileIoUseCache) {
                 auto size = ((AddressType*)At(key))[0];
                 std::uint8_t* outdata = new std::uint8_t[size];
-                if (m_pWriteCache->get(key, outdata, size)) {
+                if (m_pLRUCache->get(key, outdata)) {
                     value.Set(outdata, size, false);
                     if (m_fileIoUseLock) {
                         m_rwMutex[hash(key)].unlock_shared();
@@ -535,6 +489,9 @@ namespace SPTAG::SPANN {
             auto end_time = std::chrono::high_resolution_clock::now();
             read_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(end_time - begin_time).count();
             get_times_vec[id]++;
+            if (m_fileIoUseCache) {
+                m_pLRUCache->put(key, value.Data(), value.Length());
+            }
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock_shared();
             }
@@ -562,7 +519,7 @@ namespace SPTAG::SPANN {
             if (m_fileIoUseCache) {
                 auto size = ((AddressType*)At(key))[0];
                 value->resize(size);
-                if (m_pWriteCache->get(key, value->data(), size)) {
+                if (m_pLRUCache->get(key, value->data())) {
                     if (m_fileIoUseLock) {
                         m_rwMutex[hash(key)].unlock_shared();
                     }
@@ -607,7 +564,7 @@ namespace SPTAG::SPANN {
             if (m_fileIoUseCache) {
                 auto size = ((AddressType*)At(key))[0];
                 value->resize(size);
-                if (m_pWriteCache->get(key, value->data(), size)) {
+                if (m_pLRUCache->get(key, value->data())) {
                     if (m_fileIoUseLock) {
                         m_rwMutex[hash(key)].unlock_shared();
                     }
@@ -666,7 +623,7 @@ namespace SPTAG::SPANN {
                     if (m_fileIoUseCache) {
                         auto size = ((AddressType*)At(key))[0];
                         (*values)[i].resize(size);
-                        if (m_pWriteCache->get(key, (*values)[i].data(), size)) {
+                        if (m_pLRUCache->get(key, (*values)[i].data())) {
                             blocks.push_back(nullptr);
                         }
                         else {
@@ -758,7 +715,7 @@ namespace SPTAG::SPANN {
             }
 
             if (m_fileIoUseCache) {
-                m_pWriteCache->put(key, (void *)(value.data()), value.size());
+                m_pLRUCache->put(key, (void *)(value.data()), value.size());
             }
 
             // 如果这个key还没有分配过Mapping块，就分配一组
@@ -833,7 +790,7 @@ namespace SPTAG::SPANN {
             }
 
             if (m_fileIoUseCache) {
-                m_pWriteCache->put(key, (void *)(value.Data()), value.Length());
+                m_pLRUCache->put(key, (void *)(value.Data()), value.Length());
             }
 
             // 如果这个key还没有分配过Mapping块，就分配一组
@@ -906,7 +863,7 @@ namespace SPTAG::SPANN {
             int64_t* postingSize = (int64_t*)At(key);
 
             if (m_fileIoUseCache) {
-                m_pWriteCache->merge(key, (void *)(value.data()), value.size(), *postingSize);
+                m_pLRUCache->merge(key, (void *)(value.data()), value.size());
             }
 
             auto newSize = *postingSize + value.size();
@@ -973,7 +930,7 @@ namespace SPTAG::SPANN {
             if (key >= r) return ErrorCode::Fail;
 
             if (m_fileIoUseCache) {
-                m_pWriteCache->del(key);
+                m_pLRUCache->del(key);
             }
 
             int64_t* postingSize = (int64_t*)At(key);
@@ -1019,6 +976,10 @@ namespace SPTAG::SPANN {
             double average_get_time = (double)get_time / get_times;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Get times: %llu, get time: %llu us, read time: %llu us\n", get_times, get_time, read_time);
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Average read time: %lf us, average get time: %lf us\n", average_read_time, average_get_time);
+            if (m_fileIoUseCache) {
+                auto cache_stat = m_pLRUCache->get_stat();
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Cache queries: %lld, Cache hits: %lld, Hit rates: %lf\n", cache_stat.first, cache_stat.second, cache_stat.second == 0 ? 0 : (double)cache_stat.second / cache_stat.first);
+            }
             m_pBlockController.IOStatistics();
         }
 
@@ -1102,8 +1063,8 @@ namespace SPTAG::SPANN {
         static constexpr int kFileIoDefaultLockSize = 1024;
         static constexpr const char* kFileIoUseCache = "SPFRESH_FILE_IO_USE_CACHE";
         static constexpr bool kFileIoDefaultUseCache = false;
-        static constexpr const char* kFileIoCachePageNum = "SPFRESH_FILE_IO_CACHE_PAGE_NUM";
-        static constexpr int kSsdFileIoDefaultCachePageNum = 2048;
+        static constexpr const char* kFileIoCacheSize = "SPFRESH_FILE_IO_CACHE_SIZE";
+        static constexpr int kSsdFileIoDefaultCacheSize = 8192 << 10;
 
         static thread_local int id;
         int m_maxId = 0;
@@ -1124,7 +1085,7 @@ namespace SPTAG::SPANN {
 
         std::shared_ptr<Helper::ThreadPool> m_compactionThreadPool;
         BlockController m_pBlockController;
-        LRUCache *m_pWriteCache;
+        LRUCache *m_pLRUCache;
 
         bool m_shutdownCalled;
         std::shared_mutex m_updateMutex;
