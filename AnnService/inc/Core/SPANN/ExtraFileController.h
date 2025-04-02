@@ -91,6 +91,9 @@ namespace SPTAG::SPANN {
             int64_t m_preIOBytes = 0;
             std::chrono::time_point<std::chrono::high_resolution_clock> m_preTime = std::chrono::high_resolution_clock::now();
 
+            std::atomic<int64_t> m_batchReadTimes;
+            std::atomic<int64_t> m_batchReadTimeouts;
+
             static void* InitializeFileIo(void* args);
 
             static void* IoStatisticsThread(void* args) {
@@ -353,6 +356,56 @@ namespace SPTAG::SPANN {
             }
         }; 
 
+        class ShardedLRUCache {
+            int shards;
+            std::vector<LRUCache*> caches;
+            SizeType hash(SizeType key) const {
+                return key % shards;
+            }
+        public:
+            ShardedLRUCache(int shards, int capacity) : shards(shards) {
+                caches.resize(shards);
+                for (int i = 0; i < shards; i++) {
+                    caches[i] = new LRUCache(capacity / shards);
+                }
+                if (capacity % shards != 0) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "LRUCache: capacity is not divisible by shards\n");
+                }
+            }
+
+            ~ShardedLRUCache() {
+                for (int i = 0; i < shards; i++) {
+                    delete caches[i];
+                }
+            }
+
+            bool get(SizeType key, void* value) {
+                return caches[hash(key)]->get(key, value);
+            }
+
+            bool put(SizeType key, void* value, SizeType put_size) {
+                return caches[hash(key)]->put(key, value, put_size);
+            }
+
+            bool del(SizeType key) {
+                return caches[hash(key)]->del(key);
+            }
+
+            bool merge(SizeType key, void* value, AddressType merge_size) {
+                return caches[hash(key)]->merge(key, value, merge_size);
+            }
+
+            std::pair<int64_t, int64_t> get_stat() {
+                int64_t queries = 0, hits = 0;
+                for (int i = 0; i < shards; i++) {
+                    auto stat = caches[i]->get_stat();
+                    queries += stat.first;
+                    hits += stat.second;
+                }
+                return {queries, hits};
+            }
+        };
+
     public:
         FileIO(const char* filePath, SizeType blockSize, SizeType capacity, SizeType postingBlocks, SizeType bufferSize = 1024, int batchSize = 64, bool recovery = false, int compactionThreads = 1) {
             // TODO: 后面还得再看看，可能需要修改
@@ -390,11 +443,16 @@ namespace SPTAG::SPANN {
             }
             if (m_fileIoUseCache) {
                 const char* fileIoCacheSize = getenv(kFileIoCacheSize);
+                const char* fileIoCacheShards = getenv(kFileIoCacheShards);
+                int capacity = kSsdFileIoDefaultCacheSize;
+                int shards = kSsdFileIoDefaultCacheShards;
                 if(fileIoCacheSize) {
-                    m_pLRUCache = new LRUCache(atoi(fileIoCacheSize));
-                } else {
-                    m_pLRUCache = new LRUCache(kSsdFileIoDefaultCacheSize);
+                    capacity = atoi(fileIoCacheSize);
+                } 
+                if(fileIoCacheShards) {
+                    shards = atoi(fileIoCacheShards);
                 }
+                m_pShardedLRUCache = new ShardedLRUCache(shards, capacity);
             }
 
             if (recovery) {
@@ -441,7 +499,7 @@ namespace SPTAG::SPANN {
             }
             m_pBlockController.ShutDown();
             if (m_fileIoUseCache) {
-                delete m_pLRUCache;
+                delete m_pShardedLRUCache;
             }
             m_shutdownCalled = true;
         }
@@ -469,7 +527,7 @@ namespace SPTAG::SPANN {
             if (m_fileIoUseCache) {
                 auto size = ((AddressType*)At(key))[0];
                 std::uint8_t* outdata = new std::uint8_t[size];
-                if (m_pLRUCache->get(key, outdata)) {
+                if (m_pShardedLRUCache->get(key, outdata)) {
                     value.Set(outdata, size, false);
                     if (m_fileIoUseLock) {
                         m_rwMutex[hash(key)].unlock_shared();
@@ -490,7 +548,7 @@ namespace SPTAG::SPANN {
             read_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(end_time - begin_time).count();
             get_times_vec[id]++;
             if (m_fileIoUseCache) {
-                m_pLRUCache->put(key, value.Data(), value.Length());
+                m_pShardedLRUCache->put(key, value.Data(), value.Length());
             }
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock_shared();
@@ -519,7 +577,7 @@ namespace SPTAG::SPANN {
             if (m_fileIoUseCache) {
                 auto size = ((AddressType*)At(key))[0];
                 value->resize(size);
-                if (m_pLRUCache->get(key, value->data())) {
+                if (m_pShardedLRUCache->get(key, value->data())) {
                     if (m_fileIoUseLock) {
                         m_rwMutex[hash(key)].unlock_shared();
                     }
@@ -564,7 +622,7 @@ namespace SPTAG::SPANN {
             if (m_fileIoUseCache) {
                 auto size = ((AddressType*)At(key))[0];
                 value->resize(size);
-                if (m_pLRUCache->get(key, value->data())) {
+                if (m_pShardedLRUCache->get(key, value->data())) {
                     if (m_fileIoUseLock) {
                         m_rwMutex[hash(key)].unlock_shared();
                     }
@@ -623,7 +681,7 @@ namespace SPTAG::SPANN {
                     if (m_fileIoUseCache) {
                         auto size = ((AddressType*)At(key))[0];
                         (*values)[i].resize(size);
-                        if (m_pLRUCache->get(key, (*values)[i].data())) {
+                        if (m_pShardedLRUCache->get(key, (*values)[i].data())) {
                             blocks.push_back(nullptr);
                         }
                         else {
@@ -715,7 +773,7 @@ namespace SPTAG::SPANN {
             }
 
             if (m_fileIoUseCache) {
-                m_pLRUCache->put(key, (void *)(value.data()), value.size());
+                m_pShardedLRUCache->put(key, (void *)(value.data()), value.size());
             }
 
             // 如果这个key还没有分配过Mapping块，就分配一组
@@ -790,7 +848,7 @@ namespace SPTAG::SPANN {
             }
 
             if (m_fileIoUseCache) {
-                m_pLRUCache->put(key, (void *)(value.Data()), value.Length());
+                m_pShardedLRUCache->put(key, (void *)(value.Data()), value.Length());
             }
 
             // 如果这个key还没有分配过Mapping块，就分配一组
@@ -863,7 +921,7 @@ namespace SPTAG::SPANN {
             int64_t* postingSize = (int64_t*)At(key);
 
             if (m_fileIoUseCache) {
-                m_pLRUCache->merge(key, (void *)(value.data()), value.size());
+                m_pShardedLRUCache->merge(key, (void *)(value.data()), value.size());
             }
 
             auto newSize = *postingSize + value.size();
@@ -930,7 +988,7 @@ namespace SPTAG::SPANN {
             if (key >= r) return ErrorCode::Fail;
 
             if (m_fileIoUseCache) {
-                m_pLRUCache->del(key);
+                m_pShardedLRUCache->del(key);
             }
 
             int64_t* postingSize = (int64_t*)At(key);
@@ -977,7 +1035,7 @@ namespace SPTAG::SPANN {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Get times: %llu, get time: %llu us, read time: %llu us\n", get_times, get_time, read_time);
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Average read time: %lf us, average get time: %lf us\n", average_read_time, average_get_time);
             if (m_fileIoUseCache) {
-                auto cache_stat = m_pLRUCache->get_stat();
+                auto cache_stat = m_pShardedLRUCache->get_stat();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Cache queries: %lld, Cache hits: %lld, Hit rates: %lf\n", cache_stat.first, cache_stat.second, cache_stat.second == 0 ? 0 : (double)cache_stat.second / cache_stat.first);
             }
             m_pBlockController.IOStatistics();
@@ -1065,6 +1123,8 @@ namespace SPTAG::SPANN {
         static constexpr bool kFileIoDefaultUseCache = false;
         static constexpr const char* kFileIoCacheSize = "SPFRESH_FILE_IO_CACHE_SIZE";
         static constexpr int kSsdFileIoDefaultCacheSize = 8192 << 10;
+        static constexpr const char* kFileIoCacheShards = "SPFRESH_FILE_IO_CACHE_SHARDS";
+        static constexpr int kSsdFileIoDefaultCacheShards = 4;
 
         static thread_local int id;
         int m_maxId = 0;
@@ -1085,7 +1145,7 @@ namespace SPTAG::SPANN {
 
         std::shared_ptr<Helper::ThreadPool> m_compactionThreadPool;
         BlockController m_pBlockController;
-        LRUCache *m_pLRUCache;
+        ShardedLRUCache *m_pShardedLRUCache;
 
         bool m_shutdownCalled;
         std::shared_mutex m_updateMutex;

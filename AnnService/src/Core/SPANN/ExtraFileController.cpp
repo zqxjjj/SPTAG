@@ -100,6 +100,9 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
     const char* fileIoAlignment = getenv(kFileIoAlignment);
     if (fileIoAlignment) ctrl->m_ssdFileIoAlignment = atoi(fileIoAlignment);
 
+    ctrl->m_batchReadTimes = 0;
+    ctrl->m_batchReadTimeouts = 0;
+
     if(ctrl->m_fileIoThreadStartFailed == false) {
         ctrl->m_fileIoThreadReady = true;
         // std::lock_guard<std::mutex> lock(ctrl->m_uniqueResourceMutex);
@@ -270,6 +273,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         currSubIo->real_size = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
         currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
         currSubIo->myiocb.aio_offset = p_data[dataIdx] * PageSize;
+        currSubIo->myiocb.aio_nbytes = PageSize;
         iocbs[i] = &(currSubIo->myiocb);
         currOffset += PageSize;
         dataIdx++;
@@ -410,6 +414,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     fsync(debug_fd);
 #endif
     auto t1 = std::chrono::high_resolution_clock::now();
+    m_batchReadTimes++;
     p_values->resize(p_data.size());
     const int batch_size = m_batchSize;
     std::vector<struct iocb*> iocbs(batch_size);
@@ -472,6 +477,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             currSubIo->posting_id = subIoRequests[currSubIoIdx].posting_id;
             currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
             currSubIo->myiocb.aio_offset = subIoRequests[currSubIoIdx].offset;
+            currSubIo->myiocb.aio_nbytes = PageSize;
             iocbs[i] = &(currSubIo->myiocb);
             currSubIoIdx++;
         }
@@ -501,11 +507,16 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         }
     }
 
+    bool is_timeout = false;
     for (int i = 0; i < subIoRequestCount.size(); i++) {
         if (subIoRequestCount[i] != 0) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks (batch) : timeout\n");
+            // SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks (batch) : timeout\n");
             (*p_values)[i].clear();
+            is_timeout = true;
         }
+    }
+    if (is_timeout) {
+        m_batchReadTimeouts++;
     }
     return true;
 }
@@ -569,6 +580,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             currSubIo->posting_id = subIoRequests[currSubIoIdx].posting_id;
             currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
             currSubIo->myiocb.aio_offset = subIoRequests[currSubIoIdx].offset;
+            currSubIo->myiocb.aio_nbytes = PageSize;
             iocbs[i] = &(currSubIo->myiocb);
             currSubIoIdx++;
         }
@@ -645,6 +657,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         memcpy(reinterpret_cast<void *>(currSubIo->myiocb.aio_buf), currSubIo->app_buff, currSubIo->real_size);
         currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PWRITE;
         currSubIo->myiocb.aio_offset = p_data[currBlockIdx] * PageSize;
+        currSubIo->myiocb.aio_nbytes = PageSize;
         iocbs[i] = &(currSubIo->myiocb);
         currBlockIdx++;
     }
@@ -698,7 +711,8 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         m_currIoContext.free_sub_io_requests.pop();
         currSubIo->app_buff = (void*)p_value.Data() + currBlockIdx * PageSize;
         currSubIo->real_size = (PageSize * (currBlockIdx + 1)) > totalSize ? (totalSize - currBlockIdx * PageSize) : PageSize;
-        currSubIo->myiocb.aio_nbytes = ((currSubIo->real_size - 1) / 512 + 1) * 512;
+        // currSubIo->myiocb.aio_nbytes = ((currSubIo->real_size - 1) / 512 + 1) * 512;
+        currSubIo->myiocb.aio_nbytes = PageSize;
         write_bytes_vec[id] += currSubIo->myiocb.aio_nbytes;
         memcpy(reinterpret_cast<void *>(currSubIo->myiocb.aio_buf), currSubIo->app_buff, currSubIo->real_size);
         currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PWRITE;
@@ -781,6 +795,7 @@ bool FileIO::BlockController::IOStatistics() {
     std::cout << "Read Bytes Count: " << read_bytes_count << " Write Bytes Count: " << write_bytes_count << std::endl;
     std::cout << "Remain free IO requests: " << m_currIoContext.free_sub_io_requests.size() << std::endl;
     std::cout << "Read Blocks Time: " << read_blocks_time << "ns" << std::endl;
+    std::cout << "Batch Read Times: " << m_batchReadTimes.load() << " Batch Read Timeouts: " << m_batchReadTimeouts.load() << std::endl;
     return true;
 }
 
