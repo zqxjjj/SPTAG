@@ -786,8 +786,8 @@ bool FileIO::BlockController::IOStatistics() {
     m_preTime = currTime;
 
     double currIOPS = (double)diffIOCount * 1000 / duration.count();
-    // double currBandWidth = (double)diffIOCount * PageSize / 1024 * 1000 / 1024 * 1000 / duration.count();
-    double currBandWidth = (double)diffBytesCount / 1024 * 1000 / 1024 * 1000 / duration.count();
+    double currBandWidth = (double)diffIOCount * PageSize / 1024 * 1000 / 1024 * 1000 / duration.count();
+    // double currBandWidth = (double)diffBytesCount / 1024 * 1000 / 1024 * 1000 / duration.count();
 
     std::cout << "Diff IO Count: " << diffIOCount << " Time: " << duration.count() << "us" << std::endl;
     std::cout << "IOPS: " << currIOPS << "k Bandwidth: " << currBandWidth << "MB/s" << std::endl;
