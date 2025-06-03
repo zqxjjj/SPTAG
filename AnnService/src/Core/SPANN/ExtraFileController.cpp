@@ -95,6 +95,7 @@ void* FileIO::BlockController::InitializeFileIo(void* args) {
             }
         }
     }
+
     const char* fileIoDepth = getenv(kFileIoDepth);
     if (fileIoDepth) ctrl->m_ssdFileIoDepth = atoi(fileIoDepth);
     const char* fileIoThreadNum = getenv(kFileIoThreadNum);
@@ -121,16 +122,44 @@ bool FileIO::BlockController::Initialize(int batchSize) {
     if(m_numInitCalled == 1) {
         m_batchSize = batchSize;
         m_startTime = std::chrono::high_resolution_clock::now();
-        for(AddressType i = 0; i < kSsdImplMaxNumBlocks; i++) {
-            m_blockAddresses.push(i);
-        }
         pthread_create(&m_fileIoTid, NULL, &InitializeFileIo, this);
         while(!m_fileIoThreadReady && !m_fileIoThreadStartFailed);
         if(m_fileIoThreadStartFailed) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
             return false;
         }
+
+        std::string blockfile = std::string(filePath) + "_blockpool";
+        if (!fileexists(blockfile.c_str())) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize blockpool\n");
+            for(AddressType i = 0; i < kSsdImplMaxNumBlocks; i++) {
+                m_blockAddresses.push(i);
+            }
+        } else {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Load blockpool from %s\n", blockfile.c_str());
+            auto ptr = f_createIO();
+            if (ptr == nullptr || !ptr->Initialize(blockfile.c_str(), std::ios::binary | std::ios::in)) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot open the blockpool file: %s\n", blockfile.c_str());
+		return false;
+            }
+            int blocks;
+            if (ptr->ReadBinary(sizeof(SizeType), (char*)&blocks) != sizeof(SizeType)) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot read block number!\n");
+	        return false;
+            }
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Reading %d blocks to pool\n", blocks);
+            AddressType currBlockAddress = 0;
+            for (int i = 0; i < blocks; i++) {
+                if (ptr->ReadBinary(sizeof(AddressType), (char*)&(currBlockAddress)) != sizeof(AddressType)) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot read address[%d]!\n", i);
+		        return false;
+                }
+                m_blockAddresses.push(currBlockAddress);
+	    }
+	}
     }
+
+
     if (m_idQueue.empty()) {
         id = m_maxId;
         m_maxId++;
@@ -824,6 +853,7 @@ bool FileIO::BlockController::ShutDown() {
     if (m_numInitCalled == 0) {
         m_fileIoThreadExiting = true;
         pthread_join(m_fileIoTid, NULL);
+        Checkpoint(filePath);
         while (!m_blockAddresses.empty()) {
             AddressType currBlockAddress;
             m_blockAddresses.try_pop(currBlockAddress);
