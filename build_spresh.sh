@@ -187,6 +187,8 @@ cd ..
 fi
 
 if [ "$1" == "build_index" ]; then
+sudo rm -rf /mnt_ssd/data1/cheqi/tmp/*
+sudo rm -rf /mnt_ssd/data2/cheqi/tmp/*
 echo "[Base]
 ValueType=$datatype
 DistCalcMethod=L2
@@ -213,7 +215,7 @@ IndexDirectory=store_${dataset}${testscale}/
 HeadIndexFolder=head_index
 
 [SelectHead]
-isExecute=true
+isExecute=false
 TreeNumber=1
 BKTKmeansK=32
 BKTLeafSize=8
@@ -232,7 +234,7 @@ RecursiveCheckSmallCluster=true
 PrintSizeCount=true
 
 [BuildHead]
-isExecute=true
+isExecute=false
 NumberOfThreads=16
 
 [BuildSSDIndex]
@@ -243,8 +245,45 @@ NumberOfThreads=16
 ReplicaCount=8
 PostingPageLimit=4
 OutputEmptyReplicaID=1
-TmpDir=store_${dataset}${testscale}/tmpdir" > build_SPANN_store_${dataset}${testscale}.ini
-./ssdserving build_SPANN_store_${dataset}${testscale}.ini
+TmpDir=store_${dataset}${testscale}/tmpdir
+UseSPDK=false
+UseKV=false
+UseFileIO=true
+SpdkBatchSize=64
+ExcludeHead=false
+UseDirectIO=false
+ResultNum=10
+SearchInternalResultNum=64
+SearchThreadNum=2
+SearchTimes=1
+Update=true
+SteadyState=true
+Days=100
+InsertThreadNum=1
+AppendThreadNum=1
+ReassignThreadNum=0
+TruthFilePrefix=${dataset}1b/
+FullVectorPath=${dataset}1b/$dataset.$updateto.bin
+DisableReassign=false
+ReassignK=64
+LatencyLimit=50.0
+CalTruth=true
+SearchPostingPageLimit=4
+MaxDistRatio=1000000
+SearchDuringUpdate=true
+MergeThreshold=10
+UpdateFilePrefix=${dataset}1b/${dataset}${testscale}_update_trace
+DeleteQPS=800
+ShowUpdateProgress=false
+Sampling=4
+BufferLength=6
+InPlace=true
+LoadAllVectors=true
+PersistentBufferPath=/mnt_ssd/data1/cheqi/tmp/bf
+SsdInfoFile=/mnt_ssd/data1/cheqi/tmp/postingSizeRecords
+SpdkMappingPath=/mnt_ssd/data2/cheqi/tmp/spdkmapping
+EndVectorNum=2000000" > build_SPANN_store_${dataset}${testscale}.ini
+SPFRESH_FILE_IO_PATH=/mnt_ssd/data2/cheqi/tmp/test_filepostings ./ssdserving build_SPANN_store_${dataset}${testscale}.ini
 echo "[Index]
 IndexAlgoType=SPANN
 ValueType=$datatype
@@ -375,6 +414,9 @@ ShowUpdateProgress=false
 Sampling=4
 BufferLength=6
 InPlace=true
+PersistentBufferPath=/mnt_ssd/data1/cheqi/tmp/bf
+SsdInfoFile=/mnt_ssd/data1/cheqi/tmp/postingSizeRecords
+SpdkMappingPath=/mnt_ssd/data2/cheqi/tmp/spdkmapping
 SearchResult=${dataset}1b/result_spfresh_balance
 EndVectorNum=2000000" > store_${dataset}${testscale}/indexloader.ini
 fi
@@ -519,12 +561,12 @@ BufferLength=6
 InPlace=true
 SearchResult=${dataset}1b/result_spfresh_balance
 LoadAllVectors=true
-PersistentBufferPath=test_pbfile
-SsdInfoFile=test_ssdinfo
-SpdkMappingPath=test_spdkmapping
+PersistentBufferPath=/mnt_ssd/data1/cheqi/tmp/bf
+SsdInfoFile=/mnt_ssd/data1/cheqi/tmp/postingSizeRecords
+SpdkMappingPath=/mnt_ssd/data2/cheqi/tmp/spdkmapping
 EndVectorNum=2000000" > store_${dataset}${testscale}/indexloader.ini
 
-PCI_ALLOWED="1462:00:00.0" SPFRESH_SPDK_USE_SSD_IMPL=1 SPFRESH_SPDK_CONF=../bdev.json SPFRESH_SPDK_BDEV=Nvme0n1 SPFRESH_FILE_IO_PATH=testfile SPFRESH_FILE_IO_USE_CACHE=False SPFRESH_FILE_IO_THREAD_NUM=16 SPFRESH_FILE_IO_USE_LOCK=False SPFRESH_FILE_IO_LOCK_SIZE=262144 sudo -E ./spfresh store_${dataset}${testscale} |tee log_spfresh.log
+PCI_ALLOWED="1462:00:00.0" SPFRESH_SPDK_USE_SSD_IMPL=1 SPFRESH_SPDK_CONF=../bdev.json SPFRESH_SPDK_BDEV=Nvme0n1 SPFRESH_FILE_IO_PATH=/mnt_ssd/data2/cheqi/tmp/test_filepostings SPFRESH_FILE_IO_USE_CACHE=False SPFRESH_FILE_IO_THREAD_NUM=16 SPFRESH_FILE_IO_USE_LOCK=False SPFRESH_FILE_IO_LOCK_SIZE=262144 sudo -E ./spfresh store_${dataset}${testscale} |tee log_spfresh.log
 fi
 
 if [ "$1" == "plot_result" ]; then
