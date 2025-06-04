@@ -196,4 +196,8 @@ DefineSSDParameter(m_disableReassign, bool, false, "DisableReassign")
 DefineSSDParameter(m_searchDuringUpdate, bool, false, "SearchDuringUpdate")
 DefineSSDParameter(m_reassignK, int, 0, "ReassignK")
 DefineSSDParameter(m_recovery, bool, false, "Recovery")
+
+// Iterative
+DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch")
+
 #endif

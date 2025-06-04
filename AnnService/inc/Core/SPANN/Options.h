@@ -180,6 +180,9 @@ namespace SPTAG {
             int m_bufferLength;
 
 
+            // Iterative
+            int m_headBatch;
+
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \
                 VarName = DefaultValue; \
