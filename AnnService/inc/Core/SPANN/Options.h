@@ -179,7 +179,6 @@ namespace SPTAG {
             bool m_stressTest;
             int m_bufferLength;
 
-
             // Iterative
             int m_headBatch;
 

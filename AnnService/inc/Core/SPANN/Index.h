@@ -13,6 +13,9 @@
 #include "inc/Core/Common/QueryResultSet.h"
 #include "inc/Core/Common/BKTree.h"
 #include "inc/Core/Common/WorkSpacePool.h"
+#include "inc/Core/Common/FineGrainedLock.h"
+#include "inc/Core/Common/VersionLabel.h"
+#include "inc/Core/Common/PostingSizeRecord.h"
 
 #include "inc/Core/Common/Labelset.h"
 #include "inc/Helper/SimpleIniReader.h"
@@ -40,7 +43,75 @@ namespace SPTAG
     namespace SPANN
     {
         template<typename T>
-	class SPANNResultIterator;
+	    class SPANNResultIterator;
+
+        struct IndexStat {
+            std::atomic_uint32_t m_headMiss{ 0 };
+            uint32_t m_appendTaskNum{ 0 };
+            uint32_t m_splitNum{ 0 };
+            uint32_t m_theSameHeadNum{ 0 };
+            uint32_t m_reAssignNum{ 0 };
+            uint32_t m_garbageNum{ 0 };
+            uint64_t m_reAssignScanNum{ 0 };
+
+            //Split
+            double m_splitCost{ 0 };
+            double m_clusteringCost{ 0 };
+            double m_updateHeadCost{ 0 };
+            double m_reassignScanCost{ 0 };
+            double m_reassignScanIOCost{ 0 };
+
+            // Append
+            double m_appendCost{ 0 };
+            double m_appendIOCost{ 0 };
+
+            // reAssign
+            double m_reAssignCost{ 0 };
+            double m_selectCost{ 0 };
+            double m_reAssignAppendCost{ 0 };
+
+            // GC
+            double m_garbageCost{ 0 };
+
+            void PrintStat(int finishedInsert) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "After %d insertion, head vectors split %d times, head missing %d times, same head %d times, reassign %d times, reassign scan %ld times, garbage collection %d times\n", 
+                    finishedInsert, m_splitNum, m_headMiss.load(), m_theSameHeadNum, m_reAssignNum, m_reAssignScanNum, m_garbageNum);
+
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AppendTaskNum: %d, TotalCost: %.3lf us, PerCost: %.3lf us\n", m_appendTaskNum, m_appendCost, m_appendCost / m_appendTaskNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AppendTaskNum: %d, AppendIO TotalCost: %.3lf us, PerCost: %.3lf us\n", m_appendTaskNum, m_appendIOCost, m_appendIOCost / m_appendTaskNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SplitNum: %d, TotalCost: %.3lf ms, PerCost: %.3lf ms\n", m_splitNum, m_splitCost, m_splitCost / m_splitNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SplitNum: %d, Clustering TotalCost: %.3lf us, PerCost: %.3lf us\n", m_splitNum, m_clusteringCost, m_clusteringCost / m_splitNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SplitNum: %d, UpdateHead TotalCost: %.3lf ms, PerCost: %.3lf ms\n", m_splitNum, m_updateHeadCost, m_updateHeadCost / m_splitNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SplitNum: %d, ReassignScan TotalCost: %.3lf ms, PerCost: %.3lf ms\n", m_splitNum, m_reassignScanCost, m_reassignScanCost / m_splitNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SplitNum: %d, ReassignScanIO TotalCost: %.3lf ms, PerCost: %.3lf ms\n", m_splitNum, m_reassignScanIOCost, m_reassignScanIOCost / m_splitNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "GCNum: %d, TotalCost: %.3lf us, PerCost: %.3lf us\n", m_garbageNum, m_garbageCost, m_garbageCost / m_garbageNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ReassignNum: %d, TotalCost: %.3lf us, PerCost: %.3lf us\n", m_reAssignNum, m_reAssignCost, m_reAssignCost / m_reAssignNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ReassignNum: %d, Select TotalCost: %.3lf us, PerCost: %.3lf us\n", m_reAssignNum, m_selectCost, m_selectCost / m_reAssignNum);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ReassignNum: %d, ReassignAppend TotalCost: %.3lf us, PerCost: %.3lf us\n", m_reAssignNum, m_reAssignAppendCost, m_reAssignAppendCost / m_reAssignNum);
+            }
+
+            void ResetStat()
+            {
+                m_splitNum = 0;
+                m_headMiss = 0;
+                m_theSameHeadNum = 0;
+                m_reAssignNum = 0;
+                m_reAssignScanNum = 0;
+                m_garbageNum = 0;
+                m_appendTaskNum = 0;
+                m_splitCost = 0;
+                m_clusteringCost = 0;
+                m_garbageCost = 0;
+                m_updateHeadCost = 0;
+                m_reassignScanCost = 0;
+                m_reassignScanIOCost = 0;
+                m_appendCost = 0;
+                m_appendIOCost = 0;
+                m_reAssignCost = 0;
+                m_selectCost = 0;
+                m_reAssignAppendCost = 0;
+            }
+        };
 
         template<typename T>
         class Index : public VectorIndex

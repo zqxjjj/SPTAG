@@ -846,7 +846,7 @@ bool FileIO::BlockController::ShutDown() {
             m_blockAddresses.try_pop(currBlockAddress);
         }
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Close file handler\n");
-	fd_to_id_iocp.erase(accessor);
+	    fd_to_id_iocp.erase(accessor);
         close(fd);
     }
     m_idQueue.push(id);

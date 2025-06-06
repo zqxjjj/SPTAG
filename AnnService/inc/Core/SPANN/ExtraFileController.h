@@ -184,14 +184,14 @@ namespace SPTAG::SPANN {
                 m_numInitCalled++;
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO Recovery: Loading block pool\n");
                 ErrorCode ret = LoadBlockPool(prefix, false);
-		if (ErrorCode::Success != ret) return ret;
+		        if (ErrorCode::Success != ret) return ret;
 
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO Recovery: Initializing FileIO\n");
                 
                 if (m_numInitCalled == 1) {
                     m_batchSize = batchSize;
                     //pthread_create(&m_fileIoTid, NULL, &InitializeFileIo, this);
-		    InitializeFileIo();
+		            InitializeFileIo();
                     while(!m_fileIoThreadReady && !m_fileIoThreadStartFailed);
                     if (m_fileIoThreadStartFailed) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
@@ -1098,7 +1098,7 @@ namespace SPTAG::SPANN {
         bool Initialize(bool debug = false) override {
             if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize FileIO for new threads\n");
             m_freeIdMutex.lock();
-	    if (id < 0) {
+	        if (id < 0) {
                 if (m_freeId.empty()) {
                     id = m_maxId++;
                 }
@@ -1106,9 +1106,9 @@ namespace SPTAG::SPANN {
                     id = m_freeId.front();
                     m_freeId.pop();
                 }
-	    } else {
+	        } else {
                 if (id > m_maxId) m_maxId = id + 1;
-	    }
+	        }
             while(read_time_vec.size() < m_maxId) read_time_vec.push_back(0);
             while(get_time_vec.size() < m_maxId) get_time_vec.push_back(0);
             while(get_times_vec.size() < m_maxId) get_times_vec.push_back(0);
