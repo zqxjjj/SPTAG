@@ -43,7 +43,7 @@ namespace SPTAG::SPANN
             tbb::concurrent_queue<AddressType> m_blockAddresses;
             tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
 
-	    std::string m_filePath;
+	        std::string m_filePath;
             bool m_useSsdImpl = false;
             const char* m_ssdSpdkBdevName = nullptr;
             pthread_t m_ssdSpdkTid;
@@ -179,7 +179,7 @@ namespace SPTAG::SPANN
                 std::lock_guard<std::mutex> lock(m_initMutex);
                 m_numInitCalled++;
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK Recovery: Loading block pool\n");
-		ErrorCode ret = LoadBlockPool(prefix, false);
+		        ErrorCode ret = LoadBlockPool(prefix, false);
                 if (ret != ErrorCode::Success) return ret;
 
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK Recovery: Initializing SPDK\n");

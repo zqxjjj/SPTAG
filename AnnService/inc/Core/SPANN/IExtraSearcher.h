@@ -297,7 +297,7 @@ namespace SPTAG {
 
             virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace,
                 QueryResult& p_queryResults,
-		std::shared_ptr<VectorIndex>& p_index) = 0;
+                std::shared_ptr<VectorIndex>& p_index) = 0;
 
             virtual bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, 
                 std::shared_ptr<VectorIndex> p_index, 

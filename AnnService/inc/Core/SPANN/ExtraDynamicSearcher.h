@@ -1236,14 +1236,17 @@ namespace SPTAG::SPANN {
                 //m_reassignThreadPool->initSPDK(m_opt->m_reassignThreadNum, this);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: finish initialization\n");
 
-#ifdef ROCKSDB
                 if (m_opt->m_enableWAL) {
                     std::string p_persistenWAL = m_opt->m_persistentBufferPath + "_WAL";
                     std::shared_ptr<Helper::KeyValueIO> pdb;
+#ifdef ROCKSDB
                     pdb.reset(new RocksDBIO(p_persistenWAL.c_str(), false, false));
                     m_wal.reset(new PersistentBuffer(pdb));
-                } 
+#else
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPFresh: Wal only support RocksDB!\n");
+                    exit(1);
 #endif
+                } 
             }
 
             /** recover the previous WAL **/

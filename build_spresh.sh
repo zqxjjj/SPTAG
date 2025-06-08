@@ -215,7 +215,7 @@ IndexDirectory=store_${dataset}${testscale}/
 HeadIndexFolder=head_index
 
 [SelectHead]
-isExecute=false
+isExecute=true
 TreeNumber=1
 BKTKmeansK=32
 BKTLeafSize=8
@@ -234,7 +234,7 @@ RecursiveCheckSmallCluster=true
 PrintSizeCount=true
 
 [BuildHead]
-isExecute=false
+isExecute=true
 NumberOfThreads=16
 
 [BuildSSDIndex]

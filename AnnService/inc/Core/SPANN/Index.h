@@ -13,6 +13,9 @@
 #include "inc/Core/Common/QueryResultSet.h"
 #include "inc/Core/Common/BKTree.h"
 #include "inc/Core/Common/WorkSpacePool.h"
+#include "inc/Core/Common/FineGrainedLock.h"
+#include "inc/Core/Common/VersionLabel.h"
+#include "inc/Core/Common/PostingSizeRecord.h"
 
 #include "inc/Core/Common/Labelset.h"
 #include "inc/Helper/SimpleIniReader.h"
@@ -40,7 +43,7 @@ namespace SPTAG
     namespace SPANN
     {
         template<typename T>
-	class SPANNResultIterator;
+	    class SPANNResultIterator;
 
         template<typename T>
         class Index : public VectorIndex
