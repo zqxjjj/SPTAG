@@ -4,21 +4,22 @@
 #ifndef _SPTAG_VECTORINDEX_H_
 #define _SPTAG_VECTORINDEX_H_
 
+#include <unordered_set>
 #include "Common.h"
 #include "Common/WorkSpace.h"
+#include "inc/Helper/DiskIO.h"
 #include "SearchQuery.h"
 #include "VectorSet.h"
 #include "MetadataSet.h"
 #include "inc/Helper/SimpleIniReader.h"
-#include <unordered_set>
 #include "inc/Core/Common/IQuantizer.h"
-#include "inc/Core/Common/WorkSpace.h"
 
 class ResultIterator;
 
 namespace SPTAG
 {
 
+extern std::shared_ptr<Helper::DiskIO>(*f_createIO)();
 class IAbortOperation
 {
 public:

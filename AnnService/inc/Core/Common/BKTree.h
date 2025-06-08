@@ -37,7 +37,7 @@ namespace SPTAG
             int _DK;
             DimensionType _D;
             DimensionType _RD;
-            int _T;
+            int _TH;
             DistCalcMethod _M;
             T* centers;
             T* newTCenters;
@@ -52,7 +52,7 @@ namespace SPTAG
             std::function<float(const T*, const T*, DimensionType)> fComputeDistance;
             const std::shared_ptr<IQuantizer>& m_pQuantizer;
 
-            KmeansArgs(int k, DimensionType dim, SizeType datasize, int threadnum, DistCalcMethod distMethod, const std::shared_ptr<IQuantizer>& quantizer = nullptr) : _K(k), _DK(k), _D(dim), _RD(dim), _T(threadnum), _M(distMethod), m_pQuantizer(quantizer){
+            KmeansArgs(int k, DimensionType dim, SizeType datasize, int threadnum, DistCalcMethod distMethod, const std::shared_ptr<IQuantizer>& quantizer = nullptr) : _K(k), _DK(k), _D(dim), _RD(dim), _TH(threadnum), _M(distMethod), m_pQuantizer(quantizer) {
                 if (m_pQuantizer) {
                     _RD = m_pQuantizer->ReconstructDim();
                     fComputeDistance = m_pQuantizer->DistanceCalcSelector<T>(distMethod);
@@ -64,13 +64,13 @@ namespace SPTAG
                 centers = (T*)ALIGN_ALLOC(sizeof(T) * _K * _D);
                 newTCenters = (T*)ALIGN_ALLOC(sizeof(T) * _K * _D);
                 counts = new SizeType[_K];
-                newCenters = new float[_T * _K * _RD];
-                newCounts = new SizeType[_T * _K];
+                newCenters = new float[_TH * _K * _RD];
+                newCounts = new SizeType[_TH * _K];
                 label = new int[datasize];
-                clusterIdx = new SizeType[_T * _K];
-                clusterDist = new float[_T * _K];
+                clusterIdx = new SizeType[_TH * _K];
+                clusterDist = new float[_TH * _K];
                 weightedCounts = new float[_K];
-                newWeightedCounts = new float[_T * _K];
+                newWeightedCounts = new float[_TH * _K];
             }
 
             ~KmeansArgs() {
@@ -87,16 +87,16 @@ namespace SPTAG
             }
 
             inline void ClearCounts() {
-                memset(newCounts, 0, sizeof(SizeType) * _T * _K);
-                memset(newWeightedCounts, 0, sizeof(float) * _T * _K);
+                memset(newCounts, 0, sizeof(SizeType) * _TH * _K);
+                memset(newWeightedCounts, 0, sizeof(float) * _TH * _K);
             }
 
             inline void ClearCenters() {
-                memset(newCenters, 0, sizeof(float) * _T * _K * _RD);
+                memset(newCenters, 0, sizeof(float) * _TH * _K * _RD);
             }
 
             inline void ClearDists(float dist) {
-                for (int i = 0; i < _T * _K; i++) {
+                for (int i = 0; i < _TH * _K; i++) {
                     clusterIdx[i] = -1;
                     clusterDist[i] = dist;
                 }
@@ -222,10 +222,10 @@ namespace SPTAG
             const SizeType first, const SizeType last, KmeansArgs<T>& args, 
             const bool updateCenters, float lambda) {
             float currDist = 0;
-            SizeType subsize = (last - first - 1) / args._T + 1;
+            SizeType subsize = (last - first - 1) / args._TH + 1;
 
-#pragma omp parallel for num_threads(args._T) shared(data, indices) reduction(+:currDist)
-            for (int tid = 0; tid < args._T; tid++)
+#pragma omp parallel for num_threads(args._TH) shared(data, indices) reduction(+:currDist)
+            for (int tid = 0; tid < args._TH; tid++)
             {
                 SizeType istart = first + tid * subsize;
                 SizeType iend = min(first + (tid + 1) * subsize, last);
@@ -277,7 +277,7 @@ namespace SPTAG
                 currDist += idist;
             }
 
-            for (int i = 1; i < args._T; i++) {
+            for (int i = 1; i < args._TH; i++) {
                 for (int k = 0; k < args._DK; k++) {
                     args.newCounts[k] += args.newCounts[i * args._K + k];
                     args.newWeightedCounts[k] += args.newWeightedCounts[i * args._K + k];
@@ -285,7 +285,7 @@ namespace SPTAG
             }
 
             if (updateCenters) {
-                for (int i = 1; i < args._T; i++) {
+                for (int i = 1; i < args._TH; i++) {
                     float* currCenter = args.newCenters + i*args._K*args._RD;
                     for (size_t j = 0; j < ((size_t)args._DK) * args._RD; j++) args.newCenters[j] += currCenter[j];
 
@@ -298,7 +298,7 @@ namespace SPTAG
                 }
             }
             else {
-                for (int i = 1; i < args._T; i++) {
+                for (int i = 1; i < args._TH; i++) {
                     for (int k = 0; k < args._DK; k++) {
                         if (args.clusterIdx[i*args._K + k] != -1 && args.clusterDist[i*args._K + k] <= args.clusterDist[k]) {
                             args.clusterDist[k] = args.clusterDist[i*args._K + k];
@@ -509,7 +509,8 @@ break;
                                    m_iSamples(other.m_iSamples),
                                    m_fBalanceFactor(other.m_fBalanceFactor),
                                    m_lock(new std::shared_timed_mutex),
-                                   m_pQuantizer(other.m_pQuantizer) {}
+                                   m_pQuantizer(other.m_pQuantizer),
+                                   m_bfs(0) {}
             ~BKTree() {}
 
             inline const BKTNode& operator[](SizeType index) const { return m_pTreeRoots[index]; }

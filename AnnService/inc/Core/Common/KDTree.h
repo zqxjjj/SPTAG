@@ -30,11 +30,11 @@ namespace SPTAG
         class KDTree
         {
         public:
-            KDTree() : m_iTreeNumber(2), m_numTopDimensionKDTSplit(5), m_iSamples(1000), m_lock(new std::shared_timed_mutex), m_pQuantizer(nullptr) {}
+            KDTree() : m_iTreeNumber(2), m_numTopDimensionKDTSplit(5), m_iSamples(1000), m_lock(new std::shared_timed_mutex), m_bOldVersion(false), m_pQuantizer(nullptr) {}
 
             KDTree(const KDTree& other) : m_iTreeNumber(other.m_iTreeNumber),
                 m_numTopDimensionKDTSplit(other.m_numTopDimensionKDTSplit),
-                m_iSamples(other.m_iSamples), m_lock(new std::shared_timed_mutex), m_pQuantizer(other.m_pQuantizer) {}
+                m_iSamples(other.m_iSamples), m_lock(new std::shared_timed_mutex), m_bOldVersion(other.m_bOldVersion), m_pQuantizer(other.m_pQuantizer) {}
             ~KDTree() {}
 
             inline const KDTNode& operator[](SizeType index) const { return m_pTreeRoots[index]; }

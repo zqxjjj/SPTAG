@@ -16,7 +16,7 @@ namespace SPTAG {
             inline int PutAssignment(std::string& assignment)
             {
                 int assignmentID = GetNewAssignmentID();
-                db->Put(assignmentID, assignment);
+                db->Put(assignmentID, assignment, MaxTimeout, nullptr);
                 return assignmentID;
             }
 

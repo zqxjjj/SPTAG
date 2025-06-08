@@ -98,9 +98,7 @@ namespace SPTAG {
             bool m_excludehead;
             int m_postingVectorLimit;
             std::string m_fullDeletedIDFile;
-            bool m_useKV;
-            bool m_useSPDK;
-            bool m_useFileIO;
+            Storage m_storage;
             std::string m_KVPath;
             std::string m_spdkMappingPath;
             std::string m_ssdInfoFile;
@@ -178,7 +176,7 @@ namespace SPTAG {
             int m_spdkBatchSize;
             bool m_stressTest;
             int m_bufferLength;
-
+            int m_maxFileSize;
 
             // Iterative
             int m_headBatch;

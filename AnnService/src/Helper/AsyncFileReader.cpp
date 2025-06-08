@@ -178,7 +178,7 @@ namespace SPTAG {
         void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>>& handlers, AsyncReadRequest* readRequests, int num)
         {
             if (handlers.size() == 1) {
-                handlers[0]->BatchReadFile(readRequests, num);
+                handlers[0]->BatchReadFile(readRequests, num, MaxTimeout);
             }
             else {
                 int currFileId = 0, currReqStart = 0;
@@ -187,13 +187,13 @@ namespace SPTAG {
 
                     int fileid = (readRequest->m_status >> 16);
                     if (fileid != currFileId) {
-                        handlers[currFileId]->BatchReadFile(readRequests + currReqStart, i - currReqStart);
+                        handlers[currFileId]->BatchReadFile(readRequests + currReqStart, i - currReqStart, MaxTimeout);
                         currFileId = fileid;
                         currReqStart = i;
                     }
                 }
                 if (currReqStart < num) {
-                    handlers[currFileId]->BatchReadFile(readRequests + currReqStart, num - currReqStart);
+                    handlers[currFileId]->BatchReadFile(readRequests + currReqStart, num - currReqStart, MaxTimeout);
                 }
             }
         }

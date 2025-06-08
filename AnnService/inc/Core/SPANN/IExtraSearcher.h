@@ -9,6 +9,7 @@
 #include "inc/Core/VectorIndex.h"
 #include "inc/Core/Common/VersionLabel.h"
 #include "inc/Helper/AsyncFileReader.h"
+#include "inc/Helper/VectorSetReader.h"
 
 #include <memory>
 #include <vector>
@@ -34,7 +35,11 @@ namespace SPTAG {
                 m_asyncLatency1(0),
                 m_asyncLatency2(0),
                 m_queueLatency(0),
-                m_sleepLatency(0)
+                m_sleepLatency(0),
+                m_compLatency(0),
+                m_diskReadLatency(0),
+                m_exSetUpLatency(0),
+                m_threadID(0)
             {
             }
 
@@ -152,40 +157,6 @@ namespace SPTAG {
             }
         };
 
-        template<typename T>
-        class PageBuffer
-        {
-        public:
-            PageBuffer()
-                : m_pageBufferSize(0)
-            {
-            }
-
-            void ReservePageBuffer(std::size_t p_size)
-            {
-                if (m_pageBufferSize < p_size)
-                {
-                    m_pageBufferSize = p_size;
-                    m_pageBuffer.reset(static_cast<T*>(PAGE_ALLOC(sizeof(T) * m_pageBufferSize)), [=](T* ptr) { PAGE_FREE(ptr); });
-                }
-            }
-
-            T* GetBuffer()
-            {
-                return m_pageBuffer.get();
-            }
-
-            std::size_t GetPageSize()
-            {
-                return m_pageBufferSize;
-            }
-
-        private:
-            std::shared_ptr<T> m_pageBuffer;
-
-            std::size_t m_pageBufferSize;
-        };
-
         struct ExtraWorkSpace : public SPTAG::COMMON::IWorkSpace
         {
             ExtraWorkSpace() {}
@@ -193,25 +164,12 @@ namespace SPTAG {
             ~ExtraWorkSpace() { g_spaceCount--; }
 
             ExtraWorkSpace(ExtraWorkSpace& other) {
-                Initialize(other.m_deduper.MaxCheck(), other.m_deduper.HashTableExponent(), (int)other.m_pageBuffers.size(), (int)(other.m_pageBuffers[0].GetPageSize()), other.m_enableDataCompression);
+                Initialize(other.m_deduper.MaxCheck(), other.m_deduper.HashTableExponent(), (int)other.m_pageBuffers.size(), (int)(other.m_pageBuffers[0].GetPageSize()), other.m_blockIO, other.m_enableDataCompression);
             }
 
-            void Initialize(int p_maxCheck, int p_hashExp, int p_internalResultNum, int p_maxPages, bool enableDataCompression) {
-                m_postingIDs.reserve(p_internalResultNum);
+            void Initialize(int p_maxCheck, int p_hashExp, int p_internalResultNum, int p_maxPages, bool p_blockIO, bool enableDataCompression) {
                 m_deduper.Init(p_maxCheck, p_hashExp);
-                m_processIocp.reset(p_internalResultNum);
-                m_pageBuffers.resize(p_internalResultNum);
-                for (int pi = 0; pi < p_internalResultNum; pi++) {
-                    m_pageBuffers[pi].ReservePageBuffer(p_maxPages);
-                }
-                m_diskRequests.resize(p_internalResultNum);
-                for (int pi = 0; pi < p_internalResultNum; pi++) {
-                    m_diskRequests[pi].m_extension = m_processIocp.handle();
-                }
-                m_enableDataCompression = enableDataCompression;
-                if (enableDataCompression) {
-                    m_decompressBuffer.ReservePageBuffer(p_maxPages);
-                }
+                Clear(p_internalResultNum, p_maxPages, p_blockIO, enableDataCompression);
                 m_spaceID = g_spaceCount++;
                 m_relaxedMono = false;
             }
@@ -221,24 +179,57 @@ namespace SPTAG {
                 int hashExp = va_arg(arg, int);
                 int internalResultNum = va_arg(arg, int);
                 int maxPages = va_arg(arg, int);
+                bool blockIo = bool(va_arg(arg, int));
                 bool enableDataCompression = bool(va_arg(arg, int));
-                Initialize(maxCheck, hashExp, internalResultNum, maxPages, enableDataCompression);
+                Initialize(maxCheck, hashExp, internalResultNum, maxPages, blockIo, enableDataCompression);
             }
 
-            void Clear(int p_internalResultNum, int p_maxPages, bool enableDataCompression) {
-                if (p_internalResultNum > m_pageBuffers.size()) {
+            void Clear(int p_internalResultNum, int p_maxPages, bool p_blockIO, bool enableDataCompression) {
+                if (p_internalResultNum > m_pageBuffers.size() || p_maxPages > m_pageBuffers[0].GetPageSize()) {
                     m_postingIDs.reserve(p_internalResultNum);
                     m_processIocp.reset(p_internalResultNum);
                     m_pageBuffers.resize(p_internalResultNum);
                     for (int pi = 0; pi < p_internalResultNum; pi++) {
                         m_pageBuffers[pi].ReservePageBuffer(p_maxPages);
                     }
-                    m_diskRequests.resize(p_internalResultNum);
-                    for (int pi = 0; pi < p_internalResultNum; pi++) {
-                        m_diskRequests[pi].m_extension = m_processIocp.handle();
+                    m_blockIO = p_blockIO;
+                    if (p_blockIO) {
+                        int numPages = (p_maxPages >> PageSizeEx);
+                        m_diskRequests.resize(p_internalResultNum * numPages);
+                        for (int pi = 0; pi < p_internalResultNum; pi++) {
+                            for (int pg = 0; pg < numPages; pg++) {
+                                int rid = pi * numPages + pg;
+                                auto& req = m_diskRequests[rid];
+                                req.m_extension = m_processIocp.handle();
+                                req.m_buffer = (char*)(m_pageBuffers[pi].GetBuffer() + ((std::uint64_t)pg << PageSizeEx));
+                                req.m_status = m_spaceID;
+#ifdef _MSC_VER
+                                memset(&(req.myres.m_col), 0, sizeof(OVERLAPPED));
+                                req.myres.m_col.m_data = (void*)(&req);
+#else
+                                memset(&(req.myiocb), 0, sizeof(struct iocb));
+                                req.myiocb.aio_buf = einterpret_cast<uint64_t>(req.m_buffer);
+                                req.myiocb.aio_data = reinterpret_cast<uintptr_t>(&req);
+#endif
+                            }
+                        }
                     }
-                } else if (p_maxPages > m_pageBuffers[0].GetPageSize()) {
-                    for (int pi = 0; pi < m_pageBuffers.size(); pi++) m_pageBuffers[pi].ReservePageBuffer(p_maxPages);
+                    else {
+                        m_diskRequests.resize(p_internalResultNum);
+                        for (int pi = 0; pi < p_internalResultNum; pi++) {
+                            auto& req = m_diskRequests[pi];
+                            req.m_extension = m_processIocp.handle();
+                            req.m_buffer = (char*)(m_pageBuffers[pi].GetBuffer());
+#ifdef _MSC_VER
+                            memset(&(req.myres.m_col), 0, sizeof(OVERLAPPED));
+                            req.myres.m_col.m_data = (void*)(&req);
+#else
+                            memset(&(req.myiocb), 0, sizeof(struct iocb));
+                            req.myiocb.aio_buf = einterpret_cast<uint64_t>(req.m_buffer);
+                            req.myiocb.aio_data = reinterpret_cast<uintptr_t>(&req);
+#endif
+                        }
+                    }
                 }
 
                 m_enableDataCompression = enableDataCompression;
@@ -255,24 +246,27 @@ namespace SPTAG {
 
             Helper::RequestQueue m_processIocp;
 
-            std::vector<PageBuffer<std::uint8_t>> m_pageBuffers;
+            std::vector<Helper::PageBuffer<std::uint8_t>> m_pageBuffers;
 
-            bool m_enableDataCompression;
-            PageBuffer<std::uint8_t> m_decompressBuffer;
+            bool m_blockIO = false;
+
+            bool m_enableDataCompression = false;
+
+            Helper::PageBuffer<std::uint8_t> m_decompressBuffer;
 
             std::vector<Helper::AsyncReadRequest> m_diskRequests;
 
-            int m_spaceID;
+            int m_spaceID = 0;
 
-            uint32_t m_pi;
+            uint32_t m_pi = 0;
 
-            int m_offset;
+            int m_offset = 0;
 
-            bool m_loadPosting;
+            bool m_loadPosting = false;
 
-            bool m_relaxedMono;
+            bool m_relaxedMono = false;
 
-            int m_loadedPostingNum;
+            int m_loadedPostingNum = 0;
 
             static std::atomic_int g_spaceCount;
         };
@@ -313,7 +307,7 @@ namespace SPTAG {
             
             virtual void RefineIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader,
                 std::shared_ptr<VectorIndex> p_index) { return; }
-            virtual ErrorCode AddIndex(std::shared_ptr<VectorSet>& p_vectorSet,
+            virtual ErrorCode AddIndex(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorSet>& p_vectorSet,
                 std::shared_ptr<VectorIndex> p_index, SizeType p_begin) { return ErrorCode::Undefined; }
             virtual ErrorCode DeleteIndex(SizeType p_id) { return ErrorCode::Undefined; }
 
@@ -323,11 +317,11 @@ namespace SPTAG {
             virtual void ForceCompaction() { return; }
 
             virtual bool CheckValidPosting(SizeType postingID) = 0;
-            virtual SizeType SearchVector(std::shared_ptr<VectorSet>& p_vectorSet,
+            virtual SizeType SearchVector(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorSet>& p_vectorSet,
                 std::shared_ptr<VectorIndex> p_index, int testNum = 64, SizeType VID = -1) { return -1; }
-            virtual void ForceGC(VectorIndex* p_index) { return; }
+            virtual void ForceGC(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index) { return; }
 
-            virtual void GetWritePosting(SizeType pid, std::string& posting, bool write = false) { return; }
+            virtual void GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) { return; }
 
             virtual bool Initialize() { return false; }
 

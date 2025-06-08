@@ -65,9 +65,6 @@ namespace SPTAG
             COMMON::VersionLabel m_versionMap;
 
         public:
-            static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
-
-        public:
             Index()
             {
                 m_workSpaceFactory = std::make_unique<SPTAG::COMMON::ThreadLocalWorkSpaceFactory<ExtraWorkSpace>>();
@@ -217,22 +214,34 @@ namespace SPTAG
             ErrorCode BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader);
 
         public:
-            bool AllFinished() { if (m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) return m_extraSearcher->AllFinished(); return true; }
+            bool AllFinished() { if (m_options.m_storage != Storage::STATIC) return m_extraSearcher->AllFinished(); return true; }
 
             void GetDBStat() { 
-                if (m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) m_extraSearcher->GetDBStats(); 
+                if (m_options.m_storage != Storage::STATIC) m_extraSearcher->GetDBStats();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current Vector Num: %d, Deleted: %d .\n", GetNumSamples(), GetNumDeleted());
             }
 
-            void GetIndexStat(int finishedInsert, bool cost, bool reset) { if (m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) m_extraSearcher->GetIndexStats(finishedInsert, cost, reset); }
+            void GetIndexStat(int finishedInsert, bool cost, bool reset) { if (m_options.m_storage != Storage::STATIC) m_extraSearcher->GetIndexStats(finishedInsert, cost, reset); }
             
-            void ForceCompaction() { if (m_options.m_useKV) m_extraSearcher->ForceCompaction(); }
+            void ForceCompaction() { if (m_options.m_storage == Storage::ROCKSDB) m_extraSearcher->ForceCompaction(); }
 
             void StopMerge() { m_options.m_inPlace = true; }
 
             void OpenMerge() { m_options.m_inPlace = false; }
 
-            void ForceGC() { m_extraSearcher->ForceGC(m_index.get()); }
+            void ForceGC() { 
+                auto workSpace = m_workSpaceFactory->GetWorkSpace();
+                if (!workSpace) {
+                    workSpace.reset(new ExtraWorkSpace());
+                    workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                }
+                else {
+                    workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                }
+                workSpace->m_deduper.clear();
+                workSpace->m_postingIDs.clear();
+                m_extraSearcher->ForceGC(workSpace.get(), m_index.get()); 
+            }
 
             bool Initialize() { return m_extraSearcher->Initialize(); }
 
@@ -263,7 +272,7 @@ namespace SPTAG
             }
 
             ErrorCode AddIndexSPFresh(const void *p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType* VID) {
-                if ((!m_options.m_useKV &&!m_options.m_useSPDK && !m_options.m_useFileIO) || m_extraSearcher == nullptr) {
+                if (m_options.m_storage == Storage::STATIC || m_extraSearcher == nullptr) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Only Support KV Extra Update\n");
                     return ErrorCode::Fail;
                 }
@@ -303,7 +312,17 @@ namespace SPTAG
                         GetEnumValueType<T>(), p_dimension, p_vectorNum));
                 }
 
-                return m_extraSearcher->AddIndex(vectorSet, m_index, begin);
+                auto workSpace = m_workSpaceFactory->GetWorkSpace();
+                if (!workSpace) {
+                    workSpace.reset(new ExtraWorkSpace());
+                    workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                }
+                else {
+                    workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                }
+                workSpace->m_deduper.clear();
+                workSpace->m_postingIDs.clear();
+                return m_extraSearcher->AddIndex(workSpace.get(), vectorSet, m_index, begin);
             }
         };
     } // namespace SPANN

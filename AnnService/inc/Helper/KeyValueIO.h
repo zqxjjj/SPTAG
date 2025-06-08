@@ -2,6 +2,8 @@
 #define _SPTAG_HELPER_KEYVALUEIO_H_
 
 #include "inc/Core/Common.h"
+#include "inc/Helper/DiskIO.h"
+#include <vector>
 #include <chrono>
 
 namespace SPTAG
@@ -16,19 +18,21 @@ namespace SPTAG
 
             virtual void ShutDown() = 0;
 
-            virtual ErrorCode Get(const std::string& key, std::string* value) { return ErrorCode::Undefined; }
+            virtual ErrorCode Get(const std::string& key, std::string* value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) { return ErrorCode::Undefined; }
 
-            virtual ErrorCode Get(SizeType key, std::string* value) = 0;
+            virtual ErrorCode Get(const SizeType key, std::string* value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) = 0;
 
-            virtual ErrorCode MultiGet(const std::vector<std::string>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) { return ErrorCode::Undefined; }
+            virtual ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<PageBuffer<std::uint8_t>>& values, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) = 0;
 
-            virtual ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) = 0;
+            virtual ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) = 0;
 
-            virtual ErrorCode Put(const std::string& key, const std::string& value) { return ErrorCode::Undefined; }
+            virtual ErrorCode MultiGet(const std::vector<std::string>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) { return ErrorCode::Undefined; }            
+ 
+            virtual ErrorCode Put(const std::string& key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) { return ErrorCode::Undefined; }
 
-            virtual ErrorCode Put(SizeType key, const std::string& value) = 0;
+            virtual ErrorCode Put(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) = 0;
 
-            virtual ErrorCode Merge(SizeType key, const std::string& value) = 0;
+            virtual ErrorCode Merge(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) = 0;
 
             virtual ErrorCode Delete(SizeType key) = 0;
 

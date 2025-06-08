@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 #include "inc/Core/MetadataSet.h"
-
+#include "inc/Core/VectorIndex.h"
 #include <string.h>
 #include <shared_mutex>
 

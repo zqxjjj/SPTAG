@@ -4,7 +4,7 @@
 #include "inc/Helper/VectorSetReaders/TxtReader.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/CommonHelper.h"
-
+#include "inc/Core/VectorIndex.h"
 #include <omp.h>
 
 using namespace SPTAG;

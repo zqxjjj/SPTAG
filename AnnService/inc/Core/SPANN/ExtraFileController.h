@@ -6,6 +6,8 @@
 #include "inc/Core/Common/Dataset.h"
 #include "inc/Core/VectorIndex.h"
 #include "inc/Helper/ThreadPool.h"
+#include "inc/Helper/AsyncFileReader.h"
+#include "inc/Core/SPANN/Options.h"
 #include <cstdlib>
 #include <memory>
 #include <atomic>
@@ -14,8 +16,6 @@
 #include <fcntl.h>
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_hash_map.h>
-#include <sys/syscall.h>
-#include <linux/aio_abi.h>
 #include <list>
 namespace SPTAG::SPANN {
     typedef std::int64_t AddressType;
@@ -23,78 +23,33 @@ namespace SPTAG::SPANN {
         class BlockController {
         private:
             char* m_filePath = nullptr;
-            int fd = -1;
-
-            static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
-            static constexpr const char* kFileIoDepth = "SPFRESH_FILE_IO_DEPTH";
-            static constexpr int kSsdFileIoDefaultIoDepth = 1024;
-            static constexpr const char* kFileIoThreadNum = "SPFRESH_FILE_IO_THREAD_NUM";
-            static constexpr int kSsdFileIoDefaultIoThreadNum = 64;
-            static constexpr const char* kFileIoAlignment = "SPFRESH_FILE_IO_ALIGNMENT";
-            static constexpr int kSsdFileIoDefaultAlignment = 4096;
+            std::shared_ptr <Helper::DiskIO> m_fileHandle = nullptr;
 
             tbb::concurrent_queue<AddressType> m_blockAddresses;
             tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
-            
-            pthread_t m_fileIoTid;
-            pthread_t m_ioStatisticsTid;
-            volatile bool m_fileIoThreadStartFailed = false;
-            volatile bool m_fileIoThreadReady = false;
-            volatile bool m_fileIoThreadExiting = false;
 
-            int m_ssdFileIoAlignment = kSsdFileIoDefaultAlignment;
-            int m_ssdFileIoDepth = kSsdFileIoDefaultIoDepth;
-            int m_ssdFileIoThreadNum = kSsdFileIoDefaultIoThreadNum;
-            struct SubIoRequest {
-                struct iocb myiocb;
-                AddressType real_size;
-                AddressType offset;
-                void* app_buff;
-                BlockController* ctrl;
-                int posting_id;
-            };
-            tbb::concurrent_queue<SubIoRequest *> m_submittedSubIoRequests;
-            struct IoContext {
-                std::vector<SubIoRequest> sub_io_requests;
-                std::queue<SubIoRequest *> free_sub_io_requests;
-            };
-            thread_local static struct IoContext m_currIoContext;
-            thread_local static tbb::concurrent_hash_map<int, std::pair<int, uint64_t>> fd_to_id_iocp;
             thread_local static int debug_fd;
-            std::chrono::high_resolution_clock::time_point m_startTime;
-
-            int m_maxId = 0;
-            std::queue<int> m_idQueue;
-            std::vector<int> read_complete_vec;
-            std::vector<int> read_submit_vec;
-            std::vector<int> write_complete_vec;
-            std::vector<int> write_submit_vec;
-            std::vector<int64_t> read_bytes_vec;
-            std::vector<int64_t> write_bytes_vec;
-            std::vector<int64_t> read_blocks_time_vec;
-
-            std::mutex m_uniqueResourceMutex;
-
-            std::unique_ptr<char[]> m_memBuffer;
+            
+            int64_t read_complete_vec = 0;
+            int64_t read_submit_vec = 0;
+            int64_t write_complete_vec = 0;
+            int64_t write_submit_vec = 0;
+            int64_t read_bytes_vec = 0;
+            int64_t write_bytes_vec = 0;
+            int64_t read_blocks_time_vec = 0;
 
             std::mutex m_initMutex;
             int m_numInitCalled = 0;
 
-            int m_batchSize;
-            static std::atomic<int> m_ioCompleteCount;
+            int m_batchSize = 64;
             int m_preIOCompleteCount = 0;
             int64_t m_preIOBytes = 0;
+
+            std::chrono::high_resolution_clock::time_point m_startTime;
             std::chrono::time_point<std::chrono::high_resolution_clock> m_preTime = std::chrono::high_resolution_clock::now();
 
-            std::atomic<int64_t> m_batchReadTimes;
-            std::atomic<int64_t> m_batchReadTimeouts;
-
-            void InitializeFileIo();
-
-            static void* IoStatisticsThread(void* args) {
-                //auto ctrl = static_cast<BlockController*>(args);
-                pthread_exit(NULL);
-            };
+            std::atomic<int64_t> m_batchReadTimes = 0;
+            std::atomic<int64_t> m_batchReadTimeouts = 0;
 
             // static void Start(void* args);
 
@@ -105,30 +60,26 @@ namespace SPTAG::SPANN {
             // static void Stop(void* args);
 
         public:
-            bool Initialize(std::string filePath, int batchSize);
+            bool Initialize(SPANN::Options& p_opt, bool p_recovery);
 
             bool GetBlocks(AddressType* p_data, int p_size);
 
             bool ReleaseBlocks(AddressType* p_data, int p_size);
 
-            bool ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
+            bool ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs);
 
-            bool ReadBlocks(AddressType* p_data, ByteArray& p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
+            bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs);
 
-            bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
+            bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs);
 
-            bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<ByteArray>& p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
-
-            bool WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value);
-
-            bool WriteBlocks(AddressType* p_data, int p_size, const ByteArray& p_value);
+            bool WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs);
 
             bool IOStatistics();
 
             bool ShutDown();
 
             int RemainBlocks() {
-                return m_blockAddresses.unsafe_size();
+                return (int)(m_blockAddresses.unsafe_size());
             };
 
             ErrorCode Checkpoint(std::string prefix) {
@@ -153,11 +104,11 @@ namespace SPTAG::SPANN {
                 return ErrorCode::Success;
             }
 
-	    ErrorCode LoadBlockPool(std::string prefix, bool allowinit) {
-	        std::string blockfile = prefix + "_blockpool";
+	        ErrorCode LoadBlockPool(std::string prefix, AddressType maxNumBlocks, bool allowinit) {
+	            std::string blockfile = prefix + "_blockpool";
                 if (allowinit && !fileexists(blockfile.c_str())) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize blockpool\n");
-                    for(AddressType i = 0; i < kSsdImplMaxNumBlocks; i++) {
+                    for(AddressType i = 0; i < maxNumBlocks; i++) {
                         m_blockAddresses.push(i);
                     }
                 } else {
@@ -165,77 +116,24 @@ namespace SPTAG::SPANN {
                     auto ptr = f_createIO();
                     if (ptr == nullptr || !ptr->Initialize(blockfile.c_str(), std::ios::binary | std::ios::in)) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot open the blockpool file: %s\n", blockfile.c_str());
-    		        return ErrorCode::Fail;
+    		            return ErrorCode::Fail;
                     }
                     int blocks;
-		    IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&blocks);
+		            IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&blocks);
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Reading %d blocks to pool\n", blocks);
                     AddressType currBlockAddress = 0;
                     for (int i = 0; i < blocks; i++) {
                         IOBINARY(ptr, ReadBinary, sizeof(AddressType), (char*)&(currBlockAddress));
                         m_blockAddresses.push(currBlockAddress);
-	            }    
+	                }    
     	        }
-		return ErrorCode::Success;
-	    }
-
-            ErrorCode Recovery(std::string prefix, int batchSize) {
-                std::lock_guard<std::mutex> lock(m_initMutex);
-                m_numInitCalled++;
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO Recovery: Loading block pool\n");
-                ErrorCode ret = LoadBlockPool(prefix, false);
-		if (ErrorCode::Success != ret) return ret;
-
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO Recovery: Initializing FileIO\n");
-                
-                if (m_numInitCalled == 1) {
-                    m_batchSize = batchSize;
-                    //pthread_create(&m_fileIoTid, NULL, &InitializeFileIo, this);
-		    InitializeFileIo();
-                    while(!m_fileIoThreadReady && !m_fileIoThreadStartFailed);
-                    if (m_fileIoThreadStartFailed) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
-                        return ErrorCode::Fail;
-                    }
-                }
-                // Create sub I/O request pool
-                m_currIoContext.sub_io_requests.resize(m_ssdFileIoDepth);
-                for (auto &sr : m_currIoContext.sub_io_requests) {
-                    sr.app_buff = nullptr;
-                    auto buf_ptr = aligned_alloc(m_ssdFileIoAlignment, PageSize);
-                    if (buf_ptr == nullptr) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed: aligned_alloc failed\n");
-                        return ErrorCode::Fail;
-                    }
-                    sr.myiocb.aio_buf = reinterpret_cast<uint64_t>(buf_ptr);
-                    sr.myiocb.aio_fildes = fd;
-                    sr.myiocb.aio_data = reinterpret_cast<uintptr_t>(&sr);
-                    sr.myiocb.aio_nbytes = PageSize;
-                    sr.ctrl = this;
-                    m_currIoContext.free_sub_io_requests.push(&sr);
-                }
-                return ErrorCode::Success;
-            }
-        };
-
-        class CompactionJob : public Helper::ThreadPool::Job
-        {
-        private:
-            FileIO* m_fileIO;
-
-        public:
-            CompactionJob(FileIO* fileIO): m_fileIO(fileIO) {}
-
-            ~CompactionJob() {}
-
-            inline void exec(IAbortOperation* p_abort) override {
-                m_fileIO->ForceCompaction();
-            }
+		        return ErrorCode::Success;
+	        }
         };
 
         class LRUCache {
             int capacity;   // Page Num
-            int size;
+            std::uint64_t size;
             std::list<SizeType> keys;  // Page Address
             std::unordered_map<SizeType, std::pair<std::string, std::list<SizeType>::iterator>> cache;    // Page Address -> Page Address in Cache
             std::mutex mu;
@@ -417,11 +315,10 @@ namespace SPTAG::SPANN {
         };
 
     public:
-        FileIO(const char* filePath, SizeType blockSize, SizeType capacity, SizeType postingBlocks, SizeType bufferSize = 1024, int batchSize = 64, bool recovery = false, int compactionThreads = 1) {
-            // TODO: 后面还得再看看，可能需要修改
-            m_mappingPath = std::string(filePath);
-            m_blockLimit = postingBlocks + 1;
-            m_bufferLimit = bufferSize;
+        FileIO(SPANN::Options& p_opt) {
+            m_mappingPath = p_opt.m_spdkMappingPath;
+            m_blockLimit = p_opt.m_postingPageLimit + p_opt.m_bufferLength + 1;
+            m_bufferLimit = 1024;
 
             const char* fileIoUseLock = getenv(kFileIoUseLock);
             if(fileIoUseLock) {
@@ -465,31 +362,27 @@ namespace SPTAG::SPANN {
                 m_pShardedLRUCache = new ShardedLRUCache(shards, capacity);
             }
 
-            if (recovery) {
-                m_mappingPath += "_blockmapping";
-                Load(m_mappingPath, blockSize, capacity);
-		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery load block mapping successfully!\n");
+            if (p_opt.m_recovery) {
+                Load(p_opt.m_persistentBufferPath + "_blockmapping", 1024 * 1024, MaxSize);
+		        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery load block mapping successfully!\n");
             } else if(fileexists(m_mappingPath.c_str())) {
-                Load(m_mappingPath, blockSize, capacity);
-		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully!\n");
+                Load(m_mappingPath, 1024 * 1024, MaxSize);
+		        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully!\n");
             } else {
-		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize block mapping successfully!\n");
-                m_pBlockMapping.Initialize(0, 1, blockSize, capacity);
+		        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize block mapping successfully!\n");
+                m_pBlockMapping.Initialize(0, 1, 1024 * 1024, MaxSize);
             }
-            for (int i = 0; i < bufferSize; i++) {
+            for (int i = 0; i < m_bufferLimit; i++) {
                 m_buffer.push((uintptr_t)(new AddressType[m_blockLimit]));
             }
             m_compactionThreadPool = std::make_shared<Helper::ThreadPool>();
-            m_compactionThreadPool->init(compactionThreads);
-            if (recovery) {
-                if (m_pBlockController.Recovery(std::string(filePath), batchSize) != ErrorCode::Success) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Recover FileIO!\n");
-                    exit(0);
-                }
-            } else if (!m_pBlockController.Initialize(std::string(filePath), batchSize)) {
+            m_compactionThreadPool->init(1);
+
+            if (!m_pBlockController.Initialize(p_opt, p_opt.m_recovery)) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize FileIO!\n");
                 exit(0);
             }
+
             m_shutdownCalled = false;
         }
 
@@ -520,58 +413,8 @@ namespace SPTAG::SPANN {
         inline uintptr_t& At(SizeType key) {
             return *(m_pBlockMapping[key]);
         }
-
-        ErrorCode Get(SizeType key, ByteArray& value) {
-            auto get_begin_time = std::chrono::high_resolution_clock::now();
-            if (m_fileIoUseLock) {
-                m_rwMutex[hash(key)].lock_shared();
-            }
-            SizeType r;
-            if (m_fileIoUseLock) {
-                m_updateMutex.lock_shared();
-                r = m_pBlockMapping.R();
-                m_updateMutex.unlock_shared();
-            }
-            else {
-                r = m_pBlockMapping.R();
-            }
-            if (key >= r) return ErrorCode::Fail;
-            
-            if (m_fileIoUseCache) {
-                auto size = ((AddressType*)At(key))[0];
-                std::uint8_t* outdata = new std::uint8_t[size];
-                if (m_pShardedLRUCache->get(key, outdata)) {
-                    value.Set(outdata, size, false);
-                    if (m_fileIoUseLock) {
-                        m_rwMutex[hash(key)].unlock_shared();
-                    }
-                    auto get_end_time = std::chrono::high_resolution_clock::now();
-                    get_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
-                    return ErrorCode::Success;
-                }
-                delete[] outdata;
-            }
-
-            // if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) {
-            //     return ErrorCode::Success;
-            // }
-            auto begin_time = std::chrono::high_resolution_clock::now();
-            auto result = m_pBlockController.ReadBlocks((AddressType*)At(key), value);
-            auto end_time = std::chrono::high_resolution_clock::now();
-            read_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(end_time - begin_time).count();
-            get_times_vec[id]++;
-            if (m_fileIoUseCache) {
-                m_pShardedLRUCache->put(key, value.Data(), value.Length());
-            }
-            if (m_fileIoUseLock) {
-                m_rwMutex[hash(key)].unlock_shared();
-            }
-            auto get_end_time = std::chrono::high_resolution_clock::now();
-            get_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
-            return result ? ErrorCode::Success : ErrorCode::Fail;
-        }
-
-        ErrorCode Get(SizeType key, std::string* value) override {
+        
+        ErrorCode Get(const SizeType key, std::string* value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             auto get_begin_time = std::chrono::high_resolution_clock::now();
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].lock_shared();
@@ -595,78 +438,89 @@ namespace SPTAG::SPANN {
                         m_rwMutex[hash(key)].unlock_shared();
                     }
                     auto get_end_time = std::chrono::high_resolution_clock::now();
-                    get_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
+                    get_time_vec += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
                     return ErrorCode::Success;
                 }
-            }   
+            }
+            
             
             // if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) {
             //     return ErrorCode::Success;
             // }
             auto begin_time = std::chrono::high_resolution_clock::now();
-            auto result = m_pBlockController.ReadBlocks((AddressType*)At(key), value);
+            auto result = m_pBlockController.ReadBlocks((AddressType*)At(key), value, timeout, reqs);
             auto end_time = std::chrono::high_resolution_clock::now();
-            read_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(end_time - begin_time).count();
-            get_times_vec[id]++;
+            read_time_vec += std::chrono::duration_cast<std::chrono::microseconds>(end_time - begin_time).count();
+            get_times_vec++;
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock_shared();
             }
             auto get_end_time = std::chrono::high_resolution_clock::now();
-            get_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
+            get_time_vec += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
             return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
-        ErrorCode Get(SizeType key, std::string* value, const std::chrono::microseconds &timeout) {
-            auto get_begin_time = std::chrono::high_resolution_clock::now();
+        ErrorCode Get(const std::string& key, std::string* value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
+            return Get(std::stoi(key), value, timeout, reqs);
+        }
+
+        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<Helper::PageBuffer<std::uint8_t>>& values,
+            const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
+            std::vector<AddressType*> blocks;
+            std::set<int> lock_keys;
             if (m_fileIoUseLock) {
-                m_rwMutex[hash(key)].lock_shared();
+                // 这里要去重？
+                // for (SizeType key : keys) {
+                //     lock_keys.insert(hash(key));
+                // }
+                for (SizeType key : keys) {
+                    m_rwMutex[hash(key)].lock_shared();
+                }
             }
             SizeType r;
-            if (m_fileIoUseLock) {
-                m_updateMutex.lock_shared();
-                r = m_pBlockMapping.R();
-                m_updateMutex.unlock_shared();
-            }
-            else {
-                r = m_pBlockMapping.R();
-            }
-            if (key >= r) return ErrorCode::Fail;
-
-            if (m_fileIoUseCache) {
-                auto size = ((AddressType*)At(key))[0];
-                value->resize(size);
-                if (m_pShardedLRUCache->get(key, value->data())) {
-                    if (m_fileIoUseLock) {
-                        m_rwMutex[hash(key)].unlock_shared();
+            int i = 0;
+            for (SizeType key : keys) {
+                if (m_fileIoUseLock) {
+                    m_updateMutex.lock_shared();
+                    r = m_pBlockMapping.R();
+                    m_updateMutex.unlock_shared();
+                }
+                else {
+                    r = m_pBlockMapping.R();
+                }
+                if (key < r) {
+                    if (m_fileIoUseCache) {
+                        auto size = ((AddressType*)At(key))[0];
+                        values[i].SetAvailableSize(size);
+                        if (m_pShardedLRUCache->get(key, values[i].GetBuffer())) {
+                            blocks.push_back(nullptr);
+                        }
+                        else {
+                            blocks.push_back((AddressType*)At(key));
+                        }
+                    } else {
+                        blocks.push_back((AddressType*)At(key));
                     }
-                    auto get_end_time = std::chrono::high_resolution_clock::now();
-                    get_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
-                    return ErrorCode::Success;
+                    
+                }
+                else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to read key:%d total key number:%d\n", key, r);
+                }
+                i++;
+            }
+            // if (m_pBlockController.ReadBlocks(blocks, values, timeout)) return ErrorCode::Success;
+            auto result = m_pBlockController.ReadBlocks(blocks, values, timeout, reqs);
+            if (m_fileIoUseLock) {
+                for (SizeType key : keys) {
+                    m_rwMutex[hash(key)].unlock_shared();
                 }
             }
-            
-            
-            // if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) {
-            //     return ErrorCode::Success;
-            // }
-            auto begin_time = std::chrono::high_resolution_clock::now();
-            auto result = m_pBlockController.ReadBlocks((AddressType*)At(key), value, timeout);
-            auto end_time = std::chrono::high_resolution_clock::now();
-            read_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(end_time - begin_time).count();
-            get_times_vec[id]++;
-            if (m_fileIoUseLock) {
-                m_rwMutex[hash(key)].unlock_shared();
-            }
-            auto get_end_time = std::chrono::high_resolution_clock::now();
-            get_time_vec[id] += std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
             return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
-        ErrorCode Get(const std::string& key, std::string* value) override {
-            return Get(std::stoi(key), value);
-        }
 
-        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
+        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values,
+            const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
             std::vector<AddressType*> blocks;
             std::set<int> lock_keys;
             if (m_fileIoUseLock) {
@@ -700,10 +554,11 @@ namespace SPTAG::SPANN {
                         else {
                             blocks.push_back((AddressType*)At(key));
                         }
-                    } else {
+                    }
+                    else {
                         blocks.push_back((AddressType*)At(key));
                     }
-                    
+
                 }
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to read key:%d total key number:%d\n", key, r);
@@ -711,7 +566,7 @@ namespace SPTAG::SPANN {
                 i++;
             }
             // if (m_pBlockController.ReadBlocks(blocks, values, timeout)) return ErrorCode::Success;
-            auto result = m_pBlockController.ReadBlocks(blocks, values, timeout);
+            auto result = m_pBlockController.ReadBlocks(blocks, values, timeout, reqs);
             if (m_fileIoUseLock) {
                 for (SizeType key : keys) {
                     m_rwMutex[hash(key)].unlock_shared();
@@ -720,15 +575,17 @@ namespace SPTAG::SPANN {
             return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
-        ErrorCode MultiGet(const std::vector<std::string>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) override {
+        ErrorCode MultiGet(const std::vector<std::string>& keys, std::vector<std::string>* values, 
+            const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             std::vector<SizeType> int_keys;
             for (const auto& key : keys) {
                 int_keys.push_back(std::stoi(key));
             }
-            return MultiGet(int_keys, values, timeout);
+            return MultiGet(int_keys, values, timeout, reqs);
         }
 
-        ErrorCode Scan(const SizeType start_key, const int record_count, std::vector<ByteArray> &values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
+        /*
+        ErrorCode Scan(const SizeType start_key, const int record_count, std::vector<ByteArray> &values, const std::chrono::microseconds &timeout = (std::chrono::microseconds::max)(), std::vector<Helper::AsyncReadRequest>* reqs = nullptr) {
             std::vector<SizeType> keys;
             std::vector<AddressType*> blocks;
             SizeType curr_key = start_key;
@@ -747,7 +604,7 @@ namespace SPTAG::SPANN {
                 blocks.push_back((AddressType*)At(curr_key));
                 curr_key++;
             }
-            auto result = m_pBlockController.ReadBlocks(blocks, values, timeout);
+            auto result = m_pBlockController.ReadBlocks(blocks, values, timeout, reqs);
             if (m_fileIoUseLock) {
                 for (auto key : keys) {
                     m_rwMutex[hash(key)].unlock_shared();
@@ -755,9 +612,10 @@ namespace SPTAG::SPANN {
             }
             return result ? ErrorCode::Success : ErrorCode::Fail;
         }
+        */
 
-        ErrorCode Put(SizeType key, const std::string& value) override {
-            int blocks = ((value.size() + PageSize - 1) >> PageSizeEx);
+        ErrorCode Put(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
+            int blocks = (int)(((value.size() + PageSize - 1) >> PageSizeEx));
             if (blocks >= m_blockLimit) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to put key:%d value:%lld since value too long!\n", key, value.size());
                 return ErrorCode::Fail;
@@ -776,7 +634,7 @@ namespace SPTAG::SPANN {
                 delta = key + 1 - m_pBlockMapping.R();
             }
             if (delta > 0) {
-                    // std::lock_guard<std::mutex> lock(m_updateMutex);
+                // std::lock_guard<std::mutex> lock(m_updateMutex);
                 m_updateMutex.lock();
                 delta = key + 1 - m_pBlockMapping.R();
                 if (delta > 0) {
@@ -786,7 +644,7 @@ namespace SPTAG::SPANN {
             }
 
             if (m_fileIoUseCache) {
-                m_pShardedLRUCache->put(key, (void *)(value.data()), value.size());
+                m_pShardedLRUCache->put(key, (void*)(value.data()), (SPTAG::SizeType)(value.size()));
             }
 
             // 如果这个key还没有分配过Mapping块，就分配一组
@@ -807,7 +665,7 @@ namespace SPTAG::SPANN {
             // postingSize小于0说明是新分配的Mapping块，直接获取磁盘块，写入数据
             if (*postingSize < 0) {
                 m_pBlockController.GetBlocks(postingSize + 1, blocks);
-                m_pBlockController.WriteBlocks(postingSize + 1, blocks, value);
+                m_pBlockController.WriteBlocks(postingSize + 1, blocks, value, timeout, reqs);
                 *postingSize = value.size();
             }
             else {
@@ -817,11 +675,11 @@ namespace SPTAG::SPANN {
                 // 获取一组新的磁盘块，直接写入数据
                 // 为保证Checkpoint的效果，这里必须分配新的块进行写入
                 m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks);
-                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value);
+                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value, timeout, reqs);
                 *((int64_t*)tmpblocks) = value.size();
 
                 // 释放原有的块
-                m_pBlockController.ReleaseBlocks(postingSize + 1, (*postingSize + PageSize -1) >> PageSizeEx);
+                m_pBlockController.ReleaseBlocks(postingSize + 1, (*postingSize + PageSize - 1) >> PageSizeEx);
                 At(key) = tmpblocks;
                 m_buffer.push((uintptr_t)postingSize);
             }
@@ -831,86 +689,11 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
 
-        ErrorCode Put(SizeType key, const ByteArray& value) {
-            int blocks = ((value.Length() + PageSize - 1) >> PageSizeEx);
-            if (blocks >= m_blockLimit) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to put key:%d value:%lld since value too long!\n", key, value.Length());
-                return ErrorCode::Fail;
-            }
-            // 计算是否需要更多的Mapping块
-            if (m_fileIoUseLock) {
-                m_rwMutex[hash(key)].lock();
-            }
-            int delta;
-            if (m_fileIoUseLock) {
-                m_updateMutex.lock_shared();
-                delta = key + 1 - m_pBlockMapping.R();
-                m_updateMutex.unlock_shared();
-            }
-            else {
-                delta = key + 1 - m_pBlockMapping.R();
-            }
-            if (delta > 0) {
-                    // std::lock_guard<std::mutex> lock(m_updateMutex);
-                m_updateMutex.lock();
-                delta = key + 1 - m_pBlockMapping.R();
-                if (delta > 0) {
-                    m_pBlockMapping.AddBatch(delta);
-                }
-                m_updateMutex.unlock();
-            }
-
-            if (m_fileIoUseCache) {
-                m_pShardedLRUCache->put(key, (void *)(value.Data()), value.Length());
-            }
-
-            // 如果这个key还没有分配过Mapping块，就分配一组
-            if (At(key) == 0xffffffffffffffff) {
-                // m_buffer里有多的块就直接用，没有就new一组
-                if (m_buffer.unsafe_size() > m_bufferLimit) {
-                    uintptr_t tmpblocks;
-                    while (!m_buffer.try_pop(tmpblocks));
-                    At(key) = tmpblocks;
-                }
-                else {
-                    At(key) = (uintptr_t)(new AddressType[m_blockLimit]);
-                }
-                // 块地址列表里的0号元素代表数据大小，将其设为-1
-                memset((AddressType*)At(key), -1, sizeof(AddressType) * m_blockLimit);
-            }
-            int64_t* postingSize = (int64_t*)At(key);
-            // postingSize小于0说明是新分配的Mapping块，直接获取磁盘块，写入数据
-            if (*postingSize < 0) {
-                m_pBlockController.GetBlocks(postingSize + 1, blocks);
-                m_pBlockController.WriteBlocks(postingSize + 1, blocks, value);
-                *postingSize = value.Length();
-            }
-            else {
-                uintptr_t tmpblocks;
-                // 从buffer里拿一组Mapping块，一会再还一组回去
-                while (!m_buffer.try_pop(tmpblocks));
-                // 获取一组新的磁盘块，直接写入数据
-                // 为保证Checkpoint的效果，这里必须分配新的块进行写入
-                m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks);
-                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value);
-                *((int64_t*)tmpblocks) = value.Length();
-
-                // 释放原有的块
-                m_pBlockController.ReleaseBlocks(postingSize + 1, (*postingSize + PageSize -1) >> PageSizeEx);
-                At(key) = tmpblocks;
-                m_buffer.push((uintptr_t)postingSize);
-            }
-            if (m_fileIoUseLock) {
-                m_rwMutex[hash(key)].unlock();
-            }
-            return ErrorCode::Success;
+        ErrorCode Put(const std::string &key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
+            return Put(std::stoi(key), value, timeout, reqs);
         }
 
-        ErrorCode Put(const std::string &key, const std::string& value) override {
-            return Put(std::stoi(key), value);
-        }
-
-        ErrorCode Merge(SizeType key, const std::string& value) {
+        ErrorCode Merge(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].lock();
             }
@@ -955,14 +738,14 @@ namespace SPTAG::SPANN {
             if (sizeInPage != 0) {
                 std::string newValue;
                 AddressType readreq[] = { sizeInPage, *(postingSize + 1 + oldblocks) };
-                m_pBlockController.ReadBlocks(readreq, &newValue);
+                m_pBlockController.ReadBlocks(readreq, &newValue, timeout, reqs);
                 newValue += value;
 
                 uintptr_t tmpblocks;
                 while (!m_buffer.try_pop(tmpblocks));
                 memcpy((AddressType*)tmpblocks, postingSize, sizeof(AddressType) * (oldblocks + 1));
                 m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks);
-                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks, newValue);
+                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks, newValue, timeout, reqs);
                 *((int64_t*)tmpblocks) = newSize;
 
                 // 这里也是为了保证Checkpoint，所以将原本没用满的块释放，分配一个新的
@@ -972,7 +755,7 @@ namespace SPTAG::SPANN {
             }
             else {  // 否则直接分配一组块接在后面
                 m_pBlockController.GetBlocks(postingSize + 1 + oldblocks, allocblocks);
-                m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value);
+                m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs);
                 *postingSize = newSize;
             }
             if (m_fileIoUseLock) {
@@ -981,8 +764,8 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
 
-        ErrorCode Merge(const std::string &key, const std::string& value) {
-            return Merge(std::stoi(key), value);
+        ErrorCode Merge(const std::string &key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
+            return Merge(std::stoi(key), value, timeout, reqs);
         }
 
         ErrorCode Delete(SizeType key) override {
@@ -1035,17 +818,9 @@ namespace SPTAG::SPANN {
             int remainGB = (long long)remainBlocks << PageSizeEx >> 30;
             // int remainGB = remainBlocks >> 20 << 2;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Remain %d blocks, totally %d GB\n", remainBlocks, remainGB);
-            uint64_t get_times = 0;
-            uint64_t get_time = 0;
-            uint64_t read_time = 0;
-            for (int i = 0; i < get_time_vec.size(); i++) {
-                get_times += get_times_vec[i];
-                get_time += get_time_vec[i];
-                read_time += read_time_vec[i];
-            }
-            double average_read_time = (double)read_time / get_times;
-            double average_get_time = (double)get_time / get_times;
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Get times: %llu, get time: %llu us, read time: %llu us\n", get_times, get_time, read_time);
+            double average_read_time = (double)read_time_vec / get_times_vec;
+            double average_get_time = (double)get_time_vec / get_times_vec;
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Get times: %llu, get time: %llu us, read time: %llu us\n", get_times_vec, get_time_vec, read_time_vec);
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Average read time: %lf us, average get time: %lf us\n", average_read_time, average_get_time);
             if (m_fileIoUseCache) {
                 auto cache_stat = m_pShardedLRUCache->get_stat();
@@ -1097,30 +872,11 @@ namespace SPTAG::SPANN {
 
         bool Initialize(bool debug = false) override {
             if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize FileIO for new threads\n");
-            m_freeIdMutex.lock();
-	    if (id < 0) {
-                if (m_freeId.empty()) {
-                    id = m_maxId++;
-                }
-                else {
-                    id = m_freeId.front();
-                    m_freeId.pop();
-                }
-	    } else {
-                if (id > m_maxId) m_maxId = id + 1;
-	    }
-            while(read_time_vec.size() < m_maxId) read_time_vec.push_back(0);
-            while(get_time_vec.size() < m_maxId) get_time_vec.push_back(0);
-            while(get_times_vec.size() < m_maxId) get_times_vec.push_back(0);
-            m_freeIdMutex.unlock();
-            return m_pBlockController.Initialize(m_mappingPath, 64);
+            return true;
         }
 
         bool ExitBlockController(bool debug = false) override { 
             if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Exit FileIO for thread\n");
-            m_freeIdMutex.lock();
-            m_freeId.push(id);
-            m_freeIdMutex.unlock();
             return m_pBlockController.ShutDown(); 
         }
 
@@ -1143,13 +899,9 @@ namespace SPTAG::SPANN {
         static constexpr const char* kFileIoCacheShards = "SPFRESH_FILE_IO_CACHE_SHARDS";
         static constexpr int kSsdFileIoDefaultCacheShards = 4;
 
-        thread_local static int id;
-        int m_maxId = 0;
-        std::queue<int> m_freeId;
-        std::mutex m_freeIdMutex;
-        std::vector<uint64_t> read_time_vec;
-        std::vector<uint64_t> get_time_vec;
-        std::vector<uint64_t> get_times_vec;
+        uint64_t read_time_vec = 0;
+        uint64_t get_time_vec = 0;
+        uint64_t get_times_vec = 0;
 
         bool m_fileIoUseLock = kFileIoDefaultUseLock;
         int m_fileIoLockSize = kFileIoDefaultLockSize;

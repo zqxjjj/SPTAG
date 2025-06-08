@@ -244,6 +244,9 @@
     <ClInclude Include="inc\Core\SPANN\SPANNResultIterator.h">
       <Filter>Header Files\Core\SPANN</Filter>
     </ClInclude>
+    <ClInclude Include="inc\Core\SPANN\ExtraFileController.h">
+      <Filter>Header Files\Core\SPANN</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Core\VectorIndex.cpp">
@@ -323,6 +326,9 @@
     </ClCompile>
     <ClCompile Include="src\Helper\AsyncFileReader.cpp">
       <Filter>Source Files\Helper</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Core\SPANN\ExtraFileController.cpp">
+      <Filter>Source Files\Core\SPANN</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "inc/Helper/SimpleIniReader.h"
+#include "inc/Core/VectorIndex.h"
 #include "inc/Helper/CommonHelper.h"
 
 #include <cctype>

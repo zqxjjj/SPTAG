@@ -696,6 +696,55 @@ case VectorValueType::Name: \
         }
 
         template <typename T>
+        ErrorCode Index<T>::AddIndexId(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, int& beginHead, int& endHead)
+        {
+            if (p_data == nullptr || p_vectorNum == 0 || p_dimension == 0) return ErrorCode::EmptyData;
+
+            SizeType begin, end;
+            {
+                std::lock_guard<std::mutex> lock(m_dataAddLock);
+
+                begin = GetNumSamples();
+                end = begin + p_vectorNum;
+
+                if (begin == 0) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Index Error: No vector in Index!\n");
+                    return ErrorCode::EmptyIndex;
+                }
+
+                if (p_dimension != GetFeatureDim()) return ErrorCode::DimensionSizeMismatch;
+
+
+                if (m_pSamples.AddBatch(p_vectorNum, (const T*)p_data) != ErrorCode::Success ||
+                    m_pGraph.AddBatch(p_vectorNum) != ErrorCode::Success ||
+                    m_deletedID.AddBatch(p_vectorNum) != ErrorCode::Success) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Memory Error: Cannot alloc space for vectors!\n");
+                    m_pSamples.SetR(begin);
+                    m_pGraph.SetR(begin);
+                    m_deletedID.SetR(begin);
+                    return ErrorCode::MemoryOverFlow;
+                }
+            }
+            beginHead = begin;
+            endHead = end;
+            return ErrorCode::Success;
+        }
+
+        template <typename T>
+        ErrorCode Index<T>::AddIndexIdx(SizeType begin, SizeType end)
+        {
+            // if (end - m_pTrees.sizePerTree() >= m_addCountForRebuild && m_threadPool.jobsize() == 0) {
+            //     m_threadPool.add(new RebuildJob(&m_pSamples, &m_pTrees, &m_pGraph, m_iDistCalcMethod));
+            // }
+
+            for (SizeType node = begin; node < end; node++)
+            {
+                m_pGraph.RefineNode<T>(this, node, true, true, m_pGraph.m_iAddCEF);
+            }
+            return ErrorCode::Success;
+        }
+
+        template <typename T>
         ErrorCode
             Index<T>::UpdateIndex()
         {

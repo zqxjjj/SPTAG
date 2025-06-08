@@ -3,6 +3,7 @@
 
 #include "inc/Core/VectorSet.h"
 #include "inc/Core/Common/CommonUtils.h"
+#include "inc/Core/VectorIndex.h"
 
 using namespace SPTAG;
 

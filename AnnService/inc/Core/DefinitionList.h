@@ -140,3 +140,12 @@ DefineOrderStrategy(ASC)
 DefineOrderStrategy(DESC)
 
 #endif // DefineOrderStrategy
+
+#ifdef DefineStorage
+
+DefineStorage(STATIC)
+DefineStorage(FILEIO)
+DefineStorage(SPDK)
+DefineStorage(ROCKSDB)
+
+#endif // DefineStorage

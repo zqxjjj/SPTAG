@@ -17,8 +17,6 @@
 
 namespace SPTAG
 {
-    template <typename T>
-    thread_local std::unique_ptr<T> COMMON::ThreadLocalWorkSpaceFactory<T>::m_workspace;
     namespace SPANN
     {
         std::atomic_int ExtraWorkSpace::g_spaceCount(0);
@@ -95,23 +93,16 @@ namespace SPTAG
             m_index->UpdateIndex();
             m_index->SetReady(true);
 
-            if (m_pQuantizer)
+            if (m_pQuantizer || (m_options.m_storage == Storage::STATIC))
             {
-                m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
+                if (m_pQuantizer)
+                    m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
+                else
+                    m_extraSearcher.reset(new ExtraStaticSearcher<T>());
             }
             else
             {
-                if (m_options.m_useKV) {
-                    if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                }
-                else {
-                    m_extraSearcher.reset(new ExtraStaticSearcher<T>());
-                }
+                m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
             }
 
             if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index)) return ErrorCode::Fail;
@@ -159,30 +150,16 @@ namespace SPTAG
                 m_options.m_spdkMappingPath = m_options.m_persistentBufferPath;
             }
 
-            if (m_pQuantizer)
+            if (m_pQuantizer || (m_options.m_storage == Storage::STATIC))
             {
-                m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
+                if (m_pQuantizer)
+                    m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
+                else
+                    m_extraSearcher.reset(new ExtraStaticSearcher<T>());
             }
             else
             {
-                if (m_options.m_useKV) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex:: UseKV.\n");
-                    if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
-                    }
-                }
-                else if (m_options.m_useSPDK) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex:: UseSPDK.\n");
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
-                } else if(m_options.m_useFileIO) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex:: UseFileIO.\n");
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery, true));
-                } else {
-                    m_extraSearcher.reset(new ExtraStaticSearcher<T>());
-                }
+                m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
             }
 
             if (!m_options.m_recovery && m_options.m_excludehead) {
@@ -195,7 +172,7 @@ namespace SPTAG
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading storage\n");
             if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index)) return ErrorCode::Fail;
 
-            if ((m_options.m_useSPDK || m_options.m_useKV || m_options.m_useFileIO) && m_options.m_preReassign) {
+            if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign) {
                 std::shared_ptr<Helper::ReaderOptions> vectorOptions(new Helper::ReaderOptions(m_options.m_valueType, m_options.m_dim, m_options.m_vectorType, m_options.m_vectorDelimiter, m_options.m_iSSDNumberOfThreads));
                 auto vectorReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
                 if (m_options.m_vectorPath.empty())
@@ -286,10 +263,10 @@ namespace SPTAG
                 auto workSpace = m_workSpaceFactory->GetWorkSpace();
                 if (!workSpace) {
                     workSpace.reset(new ExtraWorkSpace());
-                    workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                    workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
                 }
                 else {
-                    workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                    workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
                 }
                 workSpace->m_deduper.clear();
                 workSpace->m_postingIDs.clear();
@@ -387,7 +364,10 @@ namespace SPTAG
             auto extraWorkspace = m_workSpaceFactory->GetWorkSpace();
             if (!extraWorkspace) {
                 extraWorkspace.reset(new ExtraWorkSpace());
-                extraWorkspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                extraWorkspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+            }
+            else {
+                extraWorkspace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
             }
             extraWorkspace->m_relaxedMono = false;
             extraWorkspace->m_loadedPostingNum = 0;
@@ -447,11 +427,12 @@ namespace SPTAG
             auto workSpace = m_workSpaceFactory->GetWorkSpace();
             if (!workSpace) {
                 workSpace.reset(new ExtraWorkSpace());
-                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
             }
             else {
-                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
             }
+
             workSpace->m_deduper.clear();
             workSpace->m_postingIDs.clear();
 
@@ -563,10 +544,10 @@ namespace SPTAG
             auto workSpace = m_workSpaceFactory->GetWorkSpace();
             if (!workSpace) {
                 workSpace.reset(new ExtraWorkSpace());
-                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
             }
             else {
-                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
             }
             workSpace->m_deduper.clear();
 
@@ -604,10 +585,10 @@ namespace SPTAG
             auto workSpace = m_workSpaceFactory->GetWorkSpace();
             if (!workSpace) {
                 workSpace.reset(new ExtraWorkSpace());
-                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
             }
             else {
-                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
             }
             workSpace->m_deduper.clear();
 
@@ -985,40 +966,16 @@ namespace SPTAG
                 m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
                 m_index->UpdateIndex();
 
-                if (m_pQuantizer)
-                {
-                    m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
-                }
-                else if (m_options.m_useKV)
-                {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex::BuildIndex::UseKV.\n");
-                    if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T)*m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
-                    }
-                } else if (m_options.m_useSPDK)
-                {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex::BuildIndex::UseSPDK.\n");
-                    if (m_options.m_inPlace) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Currently unsupport SPDK with inplace!\n");
-                        exit(1);
-                    }
-                    else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength));
-                    }  
-                } else if (m_options.m_useFileIO) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex::BuildIndex::UseFileIO.\n");
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_spdkMappingPath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, false, true));
-                }
-                else {
+                if (m_pQuantizer || (m_options.m_storage == Storage::STATIC)) {
                     if (m_pQuantizer) {
                         m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
                     }
                     else {
                         m_extraSearcher.reset(new ExtraStaticSearcher<T>());
                     }
+                }
+                else {
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
                 }
 
                 if (m_options.m_buildSsdIndex) {
@@ -1063,7 +1020,7 @@ namespace SPTAG
                         return ErrorCode::Fail;
                     }
                     IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
-                    if ((m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) && m_options.m_preReassign) {
+                    if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign) {
                         m_extraSearcher->RefineIndex(p_reader, m_index);
                     }
                 }
@@ -1197,7 +1154,7 @@ namespace SPTAG
                                      std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex,
                                      bool p_normalized)
         {
-            if ((!m_options.m_useKV &&!m_options.m_useSPDK && !m_options.m_useFileIO) || m_extraSearcher == nullptr) {
+            if ((m_options.m_storage == Storage::STATIC) || m_extraSearcher == nullptr) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Only Support KV Extra Update\n");
                 return ErrorCode::Fail;
             }
@@ -1251,7 +1208,17 @@ namespace SPTAG
                     GetEnumValueType<T>(), p_dimension, p_vectorNum));
             }
 
-            return m_extraSearcher->AddIndex(vectorSet, m_index, begin);
+            auto workSpace = m_workSpaceFactory->GetWorkSpace();
+            if (!workSpace) {
+                workSpace.reset(new ExtraWorkSpace());
+                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+            }
+            else {
+                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+            }
+            workSpace->m_deduper.clear();
+            workSpace->m_postingIDs.clear();
+            return m_extraSearcher->AddIndex(workSpace.get(), vectorSet, m_index, begin);
         }
 
         template <typename T>
@@ -1281,7 +1248,19 @@ namespace SPTAG
                 vectorSet.reset(new BasicVectorSet(ByteArray((std::uint8_t*)p_vectors, sizeof(T) * 1 * p_dimension, false),
                     GetEnumValueType<T>(), p_dimension, 1));
             }
-            SizeType p_id = m_extraSearcher->SearchVector(vectorSet, m_index);
+
+            auto workSpace = m_workSpaceFactory->GetWorkSpace();
+            if (!workSpace) {
+                workSpace.reset(new ExtraWorkSpace());
+                workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+            }
+            else {
+                workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+            }
+            workSpace->m_deduper.clear();
+            workSpace->m_postingIDs.clear();
+
+            SizeType p_id = m_extraSearcher->SearchVector(workSpace.get(), vectorSet, m_index);
             if (p_id == -1) return ErrorCode::VectorNotFound;
             return DeleteIndex(p_id);
         }

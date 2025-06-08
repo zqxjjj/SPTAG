@@ -40,6 +40,9 @@ namespace SPTAG
             class RebuildJob : public Helper::ThreadPool::Job {
             public:
                 RebuildJob(COMMON::Dataset<T>* p_data, COMMON::KDTree* p_tree, COMMON::RelativeNeighborhoodGraph* p_graph) : m_data(p_data), m_tree(p_tree), m_graph(p_graph) {}
+                void exec(void* p_workSpace, IAbortOperation* p_abort) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot support job.exec(workspace, abort)!\n");
+                }
                 void exec(IAbortOperation* p_abort) {
                     m_tree->Rebuild<T>(*m_data, p_abort);
                 }
@@ -167,6 +170,8 @@ namespace SPTAG
             ErrorCode RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const;
             ErrorCode SearchTree(QueryResult &p_query) const;
             ErrorCode AddIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex = false, bool p_normalized = false);
+            ErrorCode AddIndexIdx(SizeType begin, SizeType end);
+            ErrorCode AddIndexId(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, int& beginHead, int& endHead);
             ErrorCode DeleteIndex(const void* p_vectors, SizeType p_vectorNum);
             ErrorCode DeleteIndex(const SizeType& p_id);
 

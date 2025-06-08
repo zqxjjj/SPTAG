@@ -1,4 +1,5 @@
 #include "inc/Helper/DynamicNeighbors.h"
+#include "inc/Core/VectorIndex.h"
 #include "inc/Core/Common.h"
 
 using namespace SPTAG::Helper;

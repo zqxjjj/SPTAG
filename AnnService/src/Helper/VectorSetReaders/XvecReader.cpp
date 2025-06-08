@@ -3,7 +3,7 @@
 
 #include "inc/Helper/VectorSetReaders/XvecReader.h"
 #include "inc/Helper/CommonHelper.h"
-
+#include "inc/Core/VectorIndex.h"
 #include <time.h>
 
 using namespace SPTAG;

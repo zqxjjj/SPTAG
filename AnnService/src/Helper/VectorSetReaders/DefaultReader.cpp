@@ -3,6 +3,7 @@
 
 #include "inc/Helper/VectorSetReaders/DefaultReader.h"
 #include "inc/Helper/CommonHelper.h"
+#include "inc/Core/VectorIndex.h"
 
 using namespace SPTAG;
 using namespace SPTAG::Helper;

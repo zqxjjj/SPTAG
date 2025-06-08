@@ -370,6 +370,116 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
     }
 }
 
+bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_values, const std::chrono::microseconds& timeout = (std::chrono::microseconds::max)()) {
+    if (m_useMemImpl) {
+        for (size_t i = 0; i < p_data.size(); i++) {
+            std::uint8_t* p_value = p_values[i].GetBuffer();
+            AddressType currOffset = 0;
+            AddressType dataIdx = 1;
+            while (currOffset < p_data[0]) {
+                AddressType readSize = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
+                memcpy((void*)p_value + currOffset, m_memBuffer.get() + p_data[dataIdx] * PageSize, readSize);
+                currOffset += PageSize;
+                dataIdx++;
+            }
+        }
+        return true;
+    }
+    else if (m_useSsdImpl) {
+        // Temporarily disable timeout
+
+        // Convert request format to SubIoRequests
+        auto t1 = std::chrono::high_resolution_clock::now();
+        std::vector<SubIoRequest> subIoRequests;
+        std::vector<int> subIoRequestCount(p_data.size(), 0);
+        subIoRequests.reserve(256);
+        for (size_t i = 0; i < p_data.size(); i++) {
+            AddressType* p_data_i = p_data[i];
+            std::uint8_t* p_value = p_values[i].GetBuffer();
+
+            if (p_data_i == nullptr) {
+                continue;
+            }
+            std::size_t postingSize = (std::size_t)p_data_i[0];
+            p_values[i].SetAvailableSize(postingSize);
+            AddressType currOffset = 0;
+            AddressType dataIdx = 1;
+            while (currOffset < postingSize) {
+                SubIoRequest currSubIo;
+                currSubIo.app_buff = (void*)p_value + currOffset;
+                currSubIo.real_size = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
+                currSubIo.is_read = true;
+                currSubIo.offset = p_data_i[dataIdx] * PageSize;
+                currSubIo.posting_id = i;
+                subIoRequests.push_back(currSubIo);
+                subIoRequestCount[i]++;
+                currOffset += PageSize;
+                dataIdx++;
+            }
+        }
+
+        // Clear timeout I/Os
+        while (m_currIoContext.in_flight) {
+            SubIoRequest* currSubIo;
+            if (m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
+                currSubIo->app_buff = nullptr;
+                m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+                m_currIoContext.in_flight--;
+            }
+        }
+
+        const int batch_size = m_batchSize;
+        for (int currSubIoStartId = 0; currSubIoStartId < subIoRequests.size(); currSubIoStartId += batch_size) {
+            int currSubIoEndId = (currSubIoStartId + batch_size) > subIoRequests.size() ? subIoRequests.size() : currSubIoStartId + batch_size;
+            int currSubIoIdx = currSubIoStartId;
+            SubIoRequest* currSubIo;
+            while (currSubIoIdx < currSubIoEndId || m_currIoContext.in_flight) {
+                auto t2 = std::chrono::high_resolution_clock::now();
+                if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
+                    break;
+                }
+                // Try submit
+                if (currSubIoIdx < currSubIoEndId && m_currIoContext.free_sub_io_requests.size()) {
+                    currSubIo = m_currIoContext.free_sub_io_requests.back();
+                    m_currIoContext.free_sub_io_requests.pop_back();
+                    currSubIo->app_buff = subIoRequests[currSubIoIdx].app_buff;
+                    currSubIo->real_size = subIoRequests[currSubIoIdx].real_size;
+                    currSubIo->is_read = true;
+                    currSubIo->offset = subIoRequests[currSubIoIdx].offset;
+                    currSubIo->posting_id = subIoRequests[currSubIoIdx].posting_id;
+                    m_submittedSubIoRequests.push(currSubIo);
+                    m_currIoContext.in_flight++;
+                    currSubIoIdx++;
+                }
+                // Try complete
+                if (m_currIoContext.in_flight && m_currIoContext.completed_sub_io_requests.try_pop(currSubIo)) {
+                    memcpy(currSubIo->app_buff, currSubIo->dma_buff, currSubIo->real_size);
+                    currSubIo->app_buff = nullptr;
+                    subIoRequestCount[currSubIo->posting_id]--;
+                    m_currIoContext.free_sub_io_requests.push_back(currSubIo);
+                    m_currIoContext.in_flight--;
+                }
+            }
+
+            auto t2 = std::chrono::high_resolution_clock::now();
+            if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
+                break;
+            }
+        }
+
+        for (int i = 0; i < subIoRequestCount.size(); i++) {
+            if (subIoRequestCount[i] != 0) {
+                (*p_values)[i].clear();
+            }
+        }
+        return true;
+    }
+    else {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPDKIO::BlockController::ReadBlocks batch failed\n");
+        return false;
+    }
+}
+
 // write p_value into p_size blocks start from p_data
 bool SPDKIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value) {
     if (m_useMemImpl) {

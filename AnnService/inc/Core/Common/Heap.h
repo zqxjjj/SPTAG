@@ -13,7 +13,7 @@ namespace SPTAG
         template <typename T>
         class Heap {
         public:
-            Heap() : heap(nullptr), length(0), count(0) {}
+            Heap() : heap(nullptr), length(0), count(0),lastlevel(0) {}
 
             Heap(int size) { Resize(size); }
 

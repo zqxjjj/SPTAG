@@ -28,7 +28,7 @@ namespace SPTAG
         public:
             Dataset() {}
 
-            Dataset(SizeType rows_, DimensionType cols_, SizeType rowsInBlock_, SizeType capacity_, const void* data_ = nullptr, bool shareOwnership_ = true)
+            Dataset(SizeType rows_, DimensionType cols_, SizeType rowsInBlock_, SizeType capacity_, T* data_ = nullptr, bool shareOwnership_ = true)
             {
                 Initialize(rows_, cols_, rowsInBlock_, capacity_, data_, shareOwnership_);
             }
@@ -38,7 +38,7 @@ namespace SPTAG
                 for (T* ptr : incBlocks) ALIGN_FREE(ptr);
                 incBlocks.clear();
             }
-            void Initialize(SizeType rows_, DimensionType cols_, SizeType rowsInBlock_, SizeType capacity_, const void* data_ = nullptr, bool shareOwnership_ = true)
+            void Initialize(SizeType rows_, DimensionType cols_, SizeType rowsInBlock_, SizeType capacity_, T* data_ = nullptr, bool shareOwnership_ = true)
             {
                 if (data != nullptr) {
                     if (ownData) ALIGN_FREE(data);
@@ -48,7 +48,7 @@ namespace SPTAG
 
                 rows = rows_;
                 cols = cols_;
-                data = (T*)data_;
+                data = data_;
                 if (data_ == nullptr || !shareOwnership_)
                 {
                     ownData = true;
@@ -80,11 +80,20 @@ namespace SPTAG
 
             inline const T* At(SizeType index) const
             {
-                if (index >= rows) {
-                    SizeType incIndex = index - rows;
-                    return incBlocks[incIndex >> rowsInBlockEx] + ((size_t)(incIndex & rowsInBlock)) * cols;
+                if (index < R() && index >= 0)
+                {
+                    if (index >= rows) {
+                        SizeType incIndex = index - rows;
+                        return incBlocks[incIndex >> rowsInBlockEx] + ((size_t)(incIndex & rowsInBlock)) * cols;
+                    }
+                    return data + ((size_t)index) * cols;
                 }
-                return data + ((size_t)index) * cols;
+                else
+                {
+                    std::ostringstream oss;
+                    oss << "Index out of range in Dataset. Index: " << index << " Size: " << R();
+                    throw std::out_of_range(oss.str());
+                }
             }
 
             T* operator[](SizeType index)
@@ -221,9 +230,9 @@ namespace SPTAG
             char* data = nullptr;
             bool ownData = false;
             SizeType incRows = 0;
-            SizeType maxRows;
-            SizeType rowsInBlock;
-            SizeType rowsInBlockEx;
+            SizeType maxRows = MaxSize;
+            SizeType rowsInBlock = 1024 * 1024;
+            SizeType rowsInBlockEx = 20;
             std::shared_ptr<std::vector<char*>> incBlocks;
 
             DimensionType colStart = 0;

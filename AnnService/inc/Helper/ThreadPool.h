@@ -35,6 +35,8 @@ namespace SPTAG
             public:
                 virtual ~Job() {}
                 virtual void exec(IAbortOperation* p_abort) = 0;
+
+                virtual void exec(void* p_workspace, IAbortOperation* p_abort) = 0;
             };
 
             ThreadPool() {}

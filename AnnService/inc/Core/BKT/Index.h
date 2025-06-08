@@ -41,6 +41,11 @@ namespace SPTAG
             public:
                 RebuildJob(COMMON::Dataset<T>* p_data, COMMON::BKTree* p_tree, COMMON::RelativeNeighborhoodGraph* p_graph, 
                     DistCalcMethod p_distMethod) : m_data(p_data), m_tree(p_tree), m_graph(p_graph), m_distMethod(p_distMethod) {}
+                
+                void exec(void* p_workSpace, IAbortOperation* p_abort) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot support job.exec(workspace, abort)!\n");
+                }
+
                 void exec(IAbortOperation* p_abort) {
                     COMMON::BKTree newTrees(*m_tree);
                     newTrees.BuildTrees<T>(*m_data, m_distMethod, 1, nullptr, nullptr, false, p_abort);

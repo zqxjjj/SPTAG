@@ -8,6 +8,19 @@
 #include <fstream>
 #include <string.h>
 #include <memory>
+#include <chrono>
+
+#ifdef _MSC_VER
+#include <tchar.h>
+#include <Windows.h>
+#else
+#include <fcntl.h>
+#include <sys/syscall.h>
+#include <linux/aio_abi.h>
+#ifdef NUMA
+#include <numa.h>
+#endif
+#endif
 
 namespace SPTAG
 {
@@ -24,6 +37,38 @@ namespace SPTAG
             DIS_Count
         };
 
+#ifdef _MSC_VER
+        namespace DiskUtils
+        {
+
+            struct PrioritizedDiskFileReaderResource;
+
+            struct CallbackOverLapped : public OVERLAPPED
+            {
+                PrioritizedDiskFileReaderResource* const c_registeredResource;
+
+                void* m_data;
+
+                CallbackOverLapped(PrioritizedDiskFileReaderResource* p_registeredResource)
+                    : c_registeredResource(p_registeredResource),
+                    m_data(nullptr)
+                {
+                }
+            };
+
+
+            struct PrioritizedDiskFileReaderResource
+            {
+                CallbackOverLapped m_col;
+
+                PrioritizedDiskFileReaderResource()
+                    : m_col(this)
+                {
+                }
+            };
+        }
+#endif
+
         struct AsyncReadRequest
         {
             std::uint64_t m_offset;
@@ -39,7 +84,59 @@ namespace SPTAG
             // Carry exension metadata needed by some DiskIO implementations
             void* m_extension;
 
+#ifdef _MSC_VER
+            DiskUtils::PrioritizedDiskFileReaderResource myres;
+#else
+            struct iocb myiocb;
+#endif
+
             AsyncReadRequest() : m_offset(0), m_readSize(0), m_buffer(nullptr), m_status(0), m_payload(nullptr), m_success(false), m_extension(nullptr) {}
+        };
+
+        template<typename T>
+        class PageBuffer
+        {
+        public:
+            PageBuffer()
+                : m_pageBufferSize(0)
+            {
+            }
+
+            void ReservePageBuffer(std::size_t p_size)
+            {
+                if (m_pageBufferSize < p_size)
+                {
+                    m_pageBufferSize = p_size;
+                    m_pageBuffer.reset(static_cast<T*>(PAGE_ALLOC(sizeof(T) * m_pageBufferSize)), [=](T* ptr) { PAGE_FREE(ptr); });
+                }
+            }
+
+            T* GetBuffer()
+            {
+                return m_pageBuffer.get();
+            }
+
+            std::size_t GetPageSize()
+            {
+                return m_pageBufferSize;
+            }
+
+            void SetAvailableSize(std::size_t p_size)
+            {
+                m_availableSize = p_size;
+            }
+
+            std::size_t GetAvailableSize()
+            {
+                return m_availableSize;
+            }
+
+        private:
+            std::shared_ptr<T> m_pageBuffer;
+
+            std::size_t m_pageBufferSize;
+
+            std::size_t m_availableSize = 0;
         };
 
         class DiskIO
@@ -54,7 +151,8 @@ namespace SPTAG
                 std::uint64_t maxIOSize = (1 << 20),
                 std::uint32_t maxReadRetries = 2,
                 std::uint32_t maxWriteRetries = 2,
-                std::uint16_t threadPoolSize = 4) = 0;
+                std::uint16_t threadPoolSize = 4,
+                std::uint64_t maxFileSize = (300ULL << 30)) = 0;
 
             virtual std::uint64_t ReadBinary(std::uint64_t readSize, char* buffer, std::uint64_t offset = UINT64_MAX) = 0;
 
@@ -69,7 +167,9 @@ namespace SPTAG
             // interface method for waiting for async read to complete when underlying callback support is not available.
             virtual void Wait(AsyncReadRequest& readRequest) { return; }
             
-            virtual bool BatchReadFile(AsyncReadRequest* readRequests, std::uint32_t requestCount) { return false; }
+            virtual std::uint32_t BatchReadFile(AsyncReadRequest* readRequests, std::uint32_t requestCount, const std::chrono::microseconds& timeout, int batchSize = -1) { return false; }
+
+            virtual std::uint32_t BatchWriteFile(AsyncReadRequest* readRequests, std::uint32_t requestCount, const std::chrono::microseconds& timeout, int batchSize = -1) { return false; }
 
             virtual bool BatchCleanRequests(SPTAG::Helper::AsyncReadRequest* readRequests, std::uint32_t requestCount) { return false; }
 
@@ -90,7 +190,8 @@ namespace SPTAG
                 std::uint64_t maxIOSize = (1 << 20),
                 std::uint32_t maxReadRetries = 2,
                 std::uint32_t maxWriteRetries = 2,
-                std::uint16_t threadPoolSize = 4)
+                std::uint16_t threadPoolSize = 4,
+                std::uint64_t maxFileSize = (300ULL << 30))
             {
                 m_handle.reset(new std::fstream(filePath, (std::ios::openmode)openMode));
                 return m_handle->is_open();
@@ -195,7 +296,8 @@ namespace SPTAG
                 std::uint64_t maxIOSize = (1 << 20),
                 std::uint32_t maxReadRetries = 2,
                 std::uint32_t maxWriteRetries = 2,
-                std::uint16_t threadPoolSize = 4)
+                std::uint16_t threadPoolSize = 4,
+                std::uint64_t maxFileSize = (300ULL << 30))
             {
                 if (filePath != nullptr)
                     m_handle.reset(new streambuf((char*)filePath, maxIOSize));

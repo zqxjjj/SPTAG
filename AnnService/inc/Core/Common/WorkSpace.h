@@ -300,12 +300,12 @@ namespace SPTAG
             OptHashPosVector nodeCheckStatus;
 
             // counter for dynamic pivoting
-            int m_iNumOfContinuousNoBetterPropagation;
-            int m_iContinuousLimit;
-            int m_iNumberOfTreeCheckedLeaves;
-            int m_iNumberOfCheckedLeaves;
-            int m_iMaxCheck;
-            bool m_relaxedMono;
+            int m_iNumOfContinuousNoBetterPropagation = 0;
+            int m_iContinuousLimit = 128;
+            int m_iNumberOfTreeCheckedLeaves = 0;
+            int m_iNumberOfCheckedLeaves = 0;
+            int m_iMaxCheck = 8192;
+            bool m_relaxedMono = false;
 
             // Prioriy queue used for neighborhood graph
             Heap<NodeDistPair> m_NGQueue;

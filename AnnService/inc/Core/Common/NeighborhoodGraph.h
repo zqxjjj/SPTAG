@@ -34,7 +34,8 @@ namespace SPTAG
         class NeighborhoodGraph
         {
         public:
-            NeighborhoodGraph() : m_iTPTNumber(32),
+            NeighborhoodGraph() : m_iGraphSize(0),
+                m_iTPTNumber(32),
                 m_iTPTLeafSize(2000),
                 m_iSamples(1000),
                 m_numTopDimensionTPTSplit(5),

@@ -157,7 +157,7 @@ namespace SPTAG::SPANN
 	    db = nullptr;
         }
 
-        ErrorCode Get(const std::string& key, std::string* value) override {
+        ErrorCode Get(const std::string& key, std::string* value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             auto s = db->Get(rocksdb::ReadOptions(), key, value);
             if (s == rocksdb::Status::OK()) {
                 return ErrorCode::Success;
@@ -168,12 +168,47 @@ namespace SPTAG::SPANN
             }
         }
 
-        ErrorCode Get(SizeType key, std::string* value) override {
+        ErrorCode Get(SizeType key, std::string* value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             std::string k((char*)&key, sizeof(SizeType));
-            return Get(k, value);
+            return Get(k, value, timeout, reqs);
         }
 
-        ErrorCode MultiGet(const std::vector<std::string>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
+        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<Helper::PageBuffer<std::uint8_t>>& values,
+            const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
+            size_t num_keys = keys.size();
+
+            rocksdb::Slice* slice_keys = new rocksdb::Slice[num_keys];
+            rocksdb::PinnableSlice* slice_values = new rocksdb::PinnableSlice[num_keys];
+            rocksdb::Status* statuses = new rocksdb::Status[num_keys];
+
+            for (int i = 0; i < num_keys; i++) {
+                slice_keys[i] = rocksdb::Slice(keys[i]);
+            }
+
+            db->MultiGet(rocksdb::ReadOptions(), db->DefaultColumnFamily(),
+                num_keys, slice_keys, slice_values, statuses);
+
+            for (int i = 0; i < num_keys; i++) {
+                if (statuses[i] != rocksdb::Status::OK()) {
+                    delete[] slice_keys;
+                    delete[] slice_values;
+                    delete[] statuses;
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "\e[0;31mError in MultiGet\e[0m: %s, key: %d\n", statuses[i].getState(), *((SizeType*)(keys[i].data())));
+                    return ErrorCode::Fail;
+                }
+                std::string& tmp = slice_values[i].ToString();
+                memcpy(values[i].GetBuffer(), tmp.data(), tmp.size());
+                values[i].SetAvailableSize(tmp.size());
+            }
+
+            delete[] slice_keys;
+            delete[] slice_values;
+            delete[] statuses;
+            return ErrorCode::Success;
+        }
+
+        ErrorCode MultiGet(const std::vector<std::string>& keys, std::vector<std::string>* values, 
+            const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             size_t num_keys = keys.size();
 
             rocksdb::Slice* slice_keys = new rocksdb::Slice[num_keys];
@@ -204,17 +239,18 @@ namespace SPTAG::SPANN
             return ErrorCode::Success;
         }
 
-        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
+        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, 
+            const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             std::vector<std::string> str_keys;
 
             for (const auto& key : keys) {
                 str_keys.emplace_back((char*)(&key), sizeof(SizeType));
             }
 
-            return MultiGet(str_keys, values, timeout);
+            return MultiGet(str_keys, values, timeout, reqs);
         }
 
-        ErrorCode Put(const std::string& key, const std::string& value) override {
+        ErrorCode Put(const std::string& key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             auto s = db->Put(rocksdb::WriteOptions(), key, value);
             if (s == rocksdb::Status::OK()) {
                 return ErrorCode::Success;
@@ -225,12 +261,12 @@ namespace SPTAG::SPANN
             }
         }
 
-        ErrorCode Put(SizeType key, const std::string& value) override {
+        ErrorCode Put(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             std::string k((char*)&key, sizeof(SizeType));
-            return Put(k, value);
+            return Put(k, value, timeout, reqs);
         }
 
-        ErrorCode Merge(SizeType key, const std::string& value) {
+        ErrorCode Merge(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             if (value.empty()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error! empty append posting!\n");
             }

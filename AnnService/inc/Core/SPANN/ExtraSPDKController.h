@@ -110,10 +110,11 @@ namespace SPTAG::SPANN
             // read a posting list. p_data[0] is the total data size, 
             // p_data[1], p_data[2], ..., p_data[((p_data[0] + PageSize - 1) >> PageSizeEx)] are the addresses of the blocks
             // concat all the block contents together into p_value string.
-            bool ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
+            bool ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout = (std::chrono::microseconds::max)());
 
             // parallel read a list of posting lists.
-            bool ReadBlocks(std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max());
+            bool ReadBlocks(std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout = (std::chrono::microseconds::max)());
+            bool ReadBlocks(std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_values, const std::chrono::microseconds& timeout = (std::chrono::microseconds::max)());
 
             // write p_value into p_size blocks start from p_data
             bool WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value);
@@ -220,21 +221,6 @@ namespace SPTAG::SPANN
             }
         };
 
-        class CompactionJob : public Helper::ThreadPool::Job
-        {
-        private:
-            SPDKIO* m_spdkIO;
-
-        public:
-            CompactionJob(SPDKIO* spdkIO): m_spdkIO(spdkIO) {}
-
-            ~CompactionJob() {}
-
-            inline void exec(IAbortOperation* p_abort) override {
-                m_spdkIO->ForceCompaction();
-            }
-        };
-
     public:
         SPDKIO(const char* filePath, SizeType blockSize, SizeType capacity, SizeType postingBlocks, SizeType bufferSize = 1024, int batchSize = 64, bool recovery = false, int compactionThreads = 1)
         {
@@ -290,14 +276,15 @@ namespace SPTAG::SPANN
             return *(m_pBlockMapping[key]);
         }
 
-        ErrorCode Get(SizeType key, std::string* value) override {
+        ErrorCode Get(const SizeType key, std::string* value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             if (key >= m_pBlockMapping.R()) return ErrorCode::Fail;
 
             if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) return ErrorCode::Success;
             return ErrorCode::Fail;
         }
 
-        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, const std::chrono::microseconds &timeout = std::chrono::microseconds::max()) {
+        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<std::string>* values, 
+            const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             std::vector<AddressType*> blocks;
             for (SizeType key : keys) {
                 if (key < m_pBlockMapping.R()) blocks.push_back((AddressType*)At(key));
@@ -309,7 +296,19 @@ namespace SPTAG::SPANN
             return ErrorCode::Fail; 
         }
 
-        ErrorCode Put(SizeType key, const std::string& value) override {
+        ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<Helper::PageBuffer<std::uint8_t>>& values, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
+            std::vector<AddressType*> blocks;
+            for (SizeType key : keys) {
+                if (key < m_pBlockMapping.R()) blocks.push_back((AddressType*)At(key));
+                else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to read key:%d total key number:%d\n", key, m_pBlockMapping.R());
+                }
+            }
+            if (m_pBlockController.ReadBlocks(blocks, values, timeout)) return ErrorCode::Success;
+            return ErrorCode::Fail;
+        }
+
+        ErrorCode Put(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             int blocks = ((value.size() + PageSize - 1) >> PageSizeEx);
             if (blocks >= m_blockLimit) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failt to put key:%d value:%lld since value too long!\n", key, value.size());
@@ -355,7 +354,7 @@ namespace SPTAG::SPANN
             return ErrorCode::Success;
         }
 
-        ErrorCode Merge(SizeType key, const std::string& value) {
+        ErrorCode Merge(SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             if (key >= m_pBlockMapping.R()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key range error: key: %d, mapping size: %d\n", key, m_pBlockMapping.R());
                 return ErrorCode::Fail;

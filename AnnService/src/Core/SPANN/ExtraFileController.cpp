@@ -2,183 +2,40 @@
 
 namespace SPTAG::SPANN
 {
-typedef tbb::concurrent_hash_map<int, std::pair<int, uint64_t>> fdmap;
-thread_local struct FileIO::BlockController::IoContext FileIO::BlockController::m_currIoContext;
+extern std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO;
 thread_local int FileIO::BlockController::debug_fd = -1;
-thread_local int FileIO::id = -1;
-#ifdef USE_ASYNC_IO
-thread_local fdmap FileIO::BlockController::fd_to_id_iocp;
-#endif
-std::atomic<int> FileIO::BlockController::m_ioCompleteCount(0);
 
-void FileIO::BlockController::InitializeFileIo() {
-    struct stat st;
-    auto fileSize = kSsdImplMaxNumBlocks << PageSizeEx;
-    if(m_filePath == nullptr) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraFileController::BlockController::InitializeFileIo failed: No filePath\n");
-        m_fileIoThreadStartFailed = true;
-        fd = -1;
-    }
-    if(stat(m_filePath, &st) != 0) {
-	SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraFileController::BlockController::Create a file\n");
-        fd = open(m_filePath, O_CREAT | O_WRONLY, 0666);
-        if(fd == -1) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExraFileController::BlockController::InitializeFileIo failed\n");
-            // return nullptr;
-            m_fileIoThreadStartFailed = true;
-        }
-        else {
-            if (fallocate(fd, 0, 0, fileSize) == -1) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraFileController::BlockController::InitializeFileIo failed: fallocate failed\n");
-                m_fileIoThreadStartFailed = true;
-                fd = -1;
-            } else {
-                close(fd);
-                fd = open(m_filePath, O_RDWR | O_DIRECT);
-                if (fd == -1) {
-                    auto err_str = strerror(errno);
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraFileController::BlockController::InitializeFileIo failed: open failed:%s\n", err_str);
-                    m_fileIoThreadStartFailed = true;
-                } else {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraFileController::BlockController::InitializeFileIo: file %s created, fd=%d\n", m_filePath, fd);
-                }
-            }
-        }
-    }
-    else {
-	SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraFileController::BlockController::Open a file\n");
-        auto actualFileSize = st.st_blocks * st.st_blksize;
-        if(actualFileSize < fileSize) {
-            fd = open(m_filePath, O_CREAT | O_WRONLY, 0666);
-            if(fd == -1) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraFileController::BlockController::InitializeFileIo failed\n");
-                // return nullptr;
-                m_fileIoThreadStartFailed = true;
-            }
-            else {
-                if (fallocate(fd, 0, 0, fileSize) == -1) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraFileController::BlockController::InitializeFileIo failed: fallocate failed\n");
-                    m_fileIoThreadStartFailed = true;
-                    fd = -1;
-                } else {
-                    close(fd);
-                    fd = open(m_filePath, O_RDWR | O_DIRECT);
-                    if (fd == -1) {
-                        auto err_str = strerror(errno);
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraFileController::BlockController::Open failed: %s\n", err_str);
-                        m_fileIoThreadStartFailed = true;
-                    } else {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraFileController::BlockController::InitializeFileIo: file %s created, fd=%d\n", m_filePath, fd);
-                    }
-                }
-            }
-        } else {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraFileController::BlockController::InitializeFileIo: file has been created with enough space.\n", m_filePath, fd);
-            fd = open(m_filePath, O_RDWR | O_DIRECT);
-            if (fd == -1) {
-                auto err_str = strerror(errno);
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraFileController::BlockController::Open failed: %s\n", err_str);
-                m_fileIoThreadStartFailed = true;
-            } else {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraFileController::BlockController::InitializeFileIo: file %s opened, fd=%d\n", m_filePath, fd);
-            }
-        }
-    }
-
-    const char* fileIoDepth = getenv(kFileIoDepth);
-    if (fileIoDepth) m_ssdFileIoDepth = atoi(fileIoDepth);
-    const char* fileIoThreadNum = getenv(kFileIoThreadNum);
-    if (fileIoThreadNum) m_ssdFileIoThreadNum = atoi(fileIoThreadNum);
-    const char* fileIoAlignment = getenv(kFileIoAlignment);
-    if (fileIoAlignment) m_ssdFileIoAlignment = atoi(fileIoAlignment);
-
-    m_batchReadTimes = 0;
-    m_batchReadTimeouts = 0;
-
-    if(m_fileIoThreadStartFailed == false) {
-        m_fileIoThreadReady = true;
-    }
-}
-
-bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d)\n", filePath.c_str(), batchSize);
+bool FileIO::BlockController::Initialize(SPANN::Options &p_opt, bool recovery) {
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d)\n", p_opt.m_spdkMappingPath.c_str(), p_opt.m_spdkBatchSize);
     std::lock_guard<std::mutex> lock(m_initMutex);
     m_numInitCalled++;
 
     if(m_numInitCalled == 1) {
-        m_batchSize = batchSize;
+        m_batchSize = p_opt.m_spdkBatchSize;
         if (m_filePath == nullptr) m_filePath = new char[1024];
-	strcpy(m_filePath, (filePath + "_postings").c_str());
+	    strcpy(m_filePath, (p_opt.m_spdkMappingPath + "_postings").c_str());
         m_startTime = std::chrono::high_resolution_clock::now();
-        //pthread_create(&m_fileIoTid, NULL, &InitializeFileIo, this);
-	InitializeFileIo();
-        while(!m_fileIoThreadReady && !m_fileIoThreadStartFailed);
-        if(m_fileIoThreadStartFailed) {
+
+        int numblocks = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit + 1) * p_opt.m_searchInternalResultNum;
+        m_fileHandle = f_createAsyncIO();
+        if (m_fileHandle == nullptr || !m_fileHandle->Initialize(m_filePath,
+#ifndef _MSC_VER
+            O_RDWR | O_DIRECT, numblocks, 2, 2, p_opt.m_searchThreadNum, p_opt.m_maxFileSize << 30
+#else
+            GENERIC_READ, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, (std::uint64_t)p_opt.m_maxFileSize << 30
+#endif
+        )) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
             return false;
         }
-        LoadBlockPool(m_filePath, true);
-    }
-
-    int id = 0;
-    if (m_idQueue.empty()) {
-        id = m_maxId;
-        m_maxId++;
-    }
-    else {
-        id = m_idQueue.front();
-        m_idQueue.pop();
-    }
-    while(read_complete_vec.size() <= id) {
-        read_complete_vec.push_back(0);
-    }
-    while(read_submit_vec.size() <= id) {
-        read_submit_vec.push_back(0);
-    }
-    while(write_complete_vec.size() <= id) {
-        write_complete_vec.push_back(0);
-    }
-    while(write_submit_vec.size() <= id) {
-        write_submit_vec.push_back(0);
-    }
-    while(read_bytes_vec.size() <= id) {
-        read_bytes_vec.push_back(0);
-    }
-    while(write_bytes_vec.size() <= id) {
-        write_bytes_vec.push_back(0);
-    }
-    while(read_blocks_time_vec.size() <= id) {
-        read_blocks_time_vec.push_back(0);
-    }
-
-    if (m_currIoContext.sub_io_requests.size() < m_ssdFileIoDepth) {
-        int original = m_currIoContext.sub_io_requests.size();
-        m_currIoContext.sub_io_requests.resize(m_ssdFileIoDepth);
-        for(int i = original; i < m_ssdFileIoDepth; i++) {
-            auto &sr = m_currIoContext.sub_io_requests[i];
-            sr.app_buff = nullptr;
-            memset(&(sr.myiocb), 0, sizeof(struct iocb));
-            auto buf_ptr = aligned_alloc(m_ssdFileIoAlignment, PageSize);
-            if (buf_ptr == nullptr) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed: aligned_alloc failed\n");
-                return false;
-            }
-            sr.myiocb.aio_buf = reinterpret_cast<uint64_t>(buf_ptr);
-            sr.myiocb.aio_fildes = fd;
-            sr.myiocb.aio_data = reinterpret_cast<uintptr_t>(&sr);
-            sr.myiocb.aio_nbytes = PageSize;
-            sr.ctrl = this;
-            m_currIoContext.free_sub_io_requests.push(&sr);
+        std::string blockpoolPath = (recovery) ? p_opt.m_persistentBufferPath : m_filePath;
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool from file:%s\n", blockpoolPath.c_str());
+        ErrorCode ret = LoadBlockPool(blockpoolPath, (std::uint64_t)p_opt.m_maxFileSize << (30 - PageSizeEx), !recovery);
+        if (ErrorCode::Success != ret) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool failed!\n");
+            return false;
         }
     }
-    uint64_t iocp = 0;
-    auto ret = syscall(__NR_io_setup, m_ssdFileIoDepth, &iocp);
-    if (ret < 0) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize io_setup failed: %s\n", strerror(errno));
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "m_ssdFileIoDepth = %d, iocp = %p\n", m_ssdFileIoDepth, &iocp);
-        return false;
-    }
-    fd_to_id_iocp.emplace(fd, std::make_pair(id, iocp));
  
 #ifdef USE_FILE_DEBUG
     auto debug_file_name = std::string("/nvme1n1/lml/") + std::to_string(m_numInitCalled) + "_debug.log";
@@ -223,7 +80,7 @@ bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
     return true;
 }
 
-bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout) {
+bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
 #ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 3";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
@@ -232,188 +89,34 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
     }
     fsync(debug_fd);
 #endif
+    auto blockNum = (p_data[0] + PageSize - 1) >> PageSizeEx;
+    if (blockNum > reqs->size()) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: %d > %u\n", (int)blockNum, reqs->size());
+        return false;
+    }
+    
     p_value->resize(p_data[0]);
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
-    auto blockNum = (p_data[0] + PageSize - 1) >> PageSizeEx;
-    read_submit_vec[id] += blockNum;
-    if (blockNum > m_ssdFileIoDepth) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: blockNum > m_ssdFileIoDepth\n");
-        return false;
-    }
-
-    fdmap::accessor accessor;
-    bool isFound = fd_to_id_iocp.find(accessor, fd);
-    int id = (accessor->second).first;
-    uint64_t iocp = (accessor->second).second;
-    // clear timeout io
-    while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
-        auto wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
-        std::vector<struct io_event> events(wait);
-        struct timespec timeout_ts {0, timeout.count() * 100};   // 用10%的timeout时间等待
-        if (timeout.count() == std::chrono::microseconds::max().count()) {
-            timeout_ts.tv_sec = 0;
-            timeout_ts.tv_nsec = 500 * 1000;
-        }
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
-        for (int i = 0; i < d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-    }
-    if (blockNum > m_currIoContext.free_sub_io_requests.size()) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: blockNum > m_currIoContext.free_sub_io_requests.size()\n");
-        return false;
-    }
-    std::vector<struct iocb*> iocbs(blockNum);
-    int submitted = 0, done = 0;
-
-    // Create iocb vector
     for (int i = 0; i < blockNum; i++) {
-        auto currSubIo = m_currIoContext.free_sub_io_requests.front();
-        m_currIoContext.free_sub_io_requests.pop();
-        currSubIo->app_buff = (void*)p_value->data() + currOffset;
-        currSubIo->real_size = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
-        currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
-        currSubIo->myiocb.aio_offset = p_data[dataIdx] * PageSize;
-        currSubIo->myiocb.aio_nbytes = PageSize;
-        iocbs[i] = &(currSubIo->myiocb);
+        Helper::AsyncReadRequest& curr = reqs->at(i);
+        curr.m_buffer = (char*)p_value->data() + currOffset;
+        curr.m_readSize = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
+        curr.m_offset = p_data[dataIdx] * PageSize;
         currOffset += PageSize;
         dataIdx++;
     }
-    std::vector<struct io_event> events(blockNum);
-    int totalDone = 0, totalSubmitted = 0;
-    struct timespec timeout_ts {0, timeout.count() * 1000};
-    auto t1 = std::chrono::high_resolution_clock::now();
-    while(totalDone < blockNum) {
-        auto t2 = std::chrono::high_resolution_clock::now();
-        if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
-            return false;
-        }
-        // Submit IO
-        if(totalSubmitted < blockNum) {
-            int s = syscall(__NR_io_submit, iocp, blockNum - totalSubmitted, iocbs.data() + totalSubmitted);
-            if(s > 0) {
-                totalSubmitted += s;
-            }
-            else {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
-            }
-        }
-
-        // Get IO result
-        int wait = totalSubmitted - totalDone;
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &timeout_ts);
-        for (int i = totalDone; i < totalDone + d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            memcpy(req->app_buff, reinterpret_cast<void *>(req->myiocb.aio_buf), req->real_size);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-        totalDone += d;
-        read_complete_vec[id] += d;
+    read_submit_vec += blockNum;
+    std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), blockNum, timeout, m_batchSize);
+    read_complete_vec += totalReads;
+    if (totalReads < blockNum) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, blockNum);
+        m_batchReadTimeouts++;
     }
     return true;
 }
 
-bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value, const std::chrono::microseconds &timeout) {
-    std::uint8_t* outdata = new std::uint8_t[p_data[0]];    
-    p_value.Set(outdata, p_data[0], false);
-    AddressType currOffset = 0;
-    AddressType dataIdx = 1;
-    auto blockNum = (p_data[0] + PageSize - 1) >> PageSizeEx;
-    read_submit_vec[id] += blockNum;
-    if (blockNum > m_ssdFileIoDepth) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: blockNum > m_ssdFileIoDepth\n");
-        return false;
-    }
-
-    fdmap::accessor accessor;
-    bool isFound = fd_to_id_iocp.find(accessor, fd);
-    int id = (accessor->second).first;
-    uint64_t iocp = (accessor->second).second;
-    // clear timeout io
-    while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
-        auto wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
-        std::vector<struct io_event> events(wait);
-        struct timespec timeout_ts {0, timeout.count() * 100};   // 用10%的timeout时间等待
-        if (timeout.count() == std::chrono::microseconds::max().count()) {
-            timeout_ts.tv_sec = 0;
-            timeout_ts.tv_nsec = 500 * 1000;
-        }
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
-        for (int i = 0; i < d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-    }
-    if (blockNum > m_currIoContext.free_sub_io_requests.size()) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: blockNum > m_currIoContext.free_sub_io_requests.size()\n");
-        return false;
-    }
-    std::vector<struct iocb*> iocbs(blockNum);
-    int submitted = 0, done = 0;
-
-    // Create iocb vector
-    for (int i = 0; i < blockNum; i++) {
-        auto currSubIo = m_currIoContext.free_sub_io_requests.front();
-        m_currIoContext.free_sub_io_requests.pop();
-        currSubIo->app_buff = (void*)p_value.Data() + currOffset;
-        currSubIo->real_size = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
-        // currSubIo->myiocb.aio_nbytes = ((currSubIo->real_size - 1) / 512 + 1) * 512;
-        currSubIo->myiocb.aio_nbytes = PageSize;
-        read_bytes_vec[id] += currSubIo->myiocb.aio_nbytes;
-        currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
-        currSubIo->myiocb.aio_offset = p_data[dataIdx] * PageSize;
-        iocbs[i] = &(currSubIo->myiocb);
-        currOffset += PageSize;
-        dataIdx++;
-    }
-    std::vector<struct io_event> events(blockNum);
-    int totalDone = 0, totalSubmitted = 0;
-    struct timespec timeout_ts {0, timeout.count() * 1000};
-    auto t1 = std::chrono::high_resolution_clock::now();
-    while(totalDone < blockNum) {
-        auto t2 = std::chrono::high_resolution_clock::now();
-        if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
-            return false;
-        }
-        // Submit IO
-        if(totalSubmitted < blockNum) {
-            int s = syscall(__NR_io_submit, iocp, blockNum - totalSubmitted, iocbs.data() + totalSubmitted);
-            if(s > 0) {
-                totalSubmitted += s;
-            }
-            else {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
-            }
-        }
-        auto begin = std::chrono::high_resolution_clock::now();
-
-        // Get IO result
-        int wait = totalSubmitted - totalDone;
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &timeout_ts);
-        if (d < 0) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_getevents failed\n");
-            return false;
-        }
-        auto end = std::chrono::high_resolution_clock::now();
-        read_blocks_time_vec[id] += std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
-        for (int i = totalDone; i < totalDone + d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            memcpy(req->app_buff, reinterpret_cast<void *>(req->myiocb.aio_buf), req->real_size);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-        totalDone += d;
-        read_complete_vec[id] += d;
-    }
-    return true;
-}
-
-bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout) {
+bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
 #ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
@@ -425,12 +128,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     auto t1 = std::chrono::high_resolution_clock::now();
     m_batchReadTimes++;
     p_values->resize(p_data.size());
-    const int batch_size = m_batchSize;
-    std::vector<struct iocb*> iocbs(batch_size);
-    std::vector<struct io_event> events(batch_size);
-    std::vector<SubIoRequest> subIoRequests;
-    std::vector<int> subIoRequestCount(p_data.size(), 0);
-    subIoRequests.reserve(256);
+    std::uint32_t reqcount = 0;
     for(size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
         std::string* p_value = &((*p_values)[i]);
@@ -442,205 +140,82 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         p_value->resize(p_data_i[0]);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
-
         while(currOffset < p_data_i[0]) {
-            SubIoRequest currSubIo;
-            currSubIo.app_buff = (void*)p_value->data() + currOffset;
-            currSubIo.real_size = (p_data_i[0] - currOffset) < PageSize ? (p_data_i[0] - currOffset) : PageSize;
-            currSubIo.offset = p_data_i[dataIdx] * PageSize;
-            currSubIo.posting_id = i;
-            subIoRequests.push_back(currSubIo);
-            subIoRequestCount[i]++;
-            read_submit_vec[id]++;
+            Helper::AsyncReadRequest& curr = reqs->at(reqcount);
+            curr.m_buffer = (char*)p_value->data() + currOffset;
+            curr.m_readSize = (p_data_i[0] - currOffset) < PageSize ? (p_data_i[0] - currOffset) : PageSize;
+            curr.m_offset = p_data_i[dataIdx] * PageSize;
             currOffset += PageSize;
             dataIdx++;
-        }
-    }
-
-    fdmap::accessor accessor;
-    bool isFound = fd_to_id_iocp.find(accessor, fd);
-    int id = (accessor->second).first;
-    uint64_t iocp = (accessor->second).second;
-     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: sub_io_requests.size:%d free_io_requests.size:%d\n", (int)(m_currIoContext.sub_io_requests.size()), (int)(m_currIoContext.free_sub_io_requests.size()));
-    // Clear timeout I/Os
-    while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
-        int wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
-        std::vector<struct io_event> events(wait);
-        struct timespec timeout_ts {0, 0};
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
-        for (int i = 0; i < d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-    }
-
-    struct timespec timeout_ts {0, timeout.count() * 1000};
-    
-    for (int currSubIoStartId = 0; currSubIoStartId < subIoRequests.size(); currSubIoStartId += batch_size) {
-        int currSubIoEndId = (currSubIoStartId + batch_size) > subIoRequests.size() ? subIoRequests.size() : currSubIoStartId + batch_size;
-        int currSubIoIdx = currSubIoStartId;
-        int totalToSubmit = currSubIoEndId - currSubIoStartId;
-        int totalSubmitted = 0, totalDone = 0;
-        for (int i = 0; i < totalToSubmit; i++) {
-            auto currSubIoIdx = currSubIoStartId + i;
-            auto currSubIo = m_currIoContext.free_sub_io_requests.front();
-            m_currIoContext.free_sub_io_requests.pop();
-            currSubIo->app_buff = subIoRequests[currSubIoIdx].app_buff;
-            currSubIo->real_size = subIoRequests[currSubIoIdx].real_size;
-            currSubIo->posting_id = subIoRequests[currSubIoIdx].posting_id;
-            currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
-            currSubIo->myiocb.aio_offset = subIoRequests[currSubIoIdx].offset;
-            currSubIo->myiocb.aio_nbytes = PageSize;
-            iocbs[i] = &(currSubIo->myiocb);
-            currSubIoIdx++;
-        }
-        //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: totalToSubmit:%d\n", totalToSubmit);
-        while (totalDone < totalToSubmit) {
-            // Submit all I/Os
-            if(totalSubmitted < totalToSubmit) {
-                int s = syscall(__NR_io_submit, iocp, totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
-                if(s > 0) {
-                    totalSubmitted += s;
-                }
+            reqcount++;
+            if (reqcount >= reqs->size()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  %u >= %u\n", reqcount, reqs->size());
+                return false;
             }
-            int wait = totalSubmitted - totalDone;
-            auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &timeout_ts);
-            for (int i = totalDone; i < totalDone + d; i++) {
-                auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-                memcpy(req->app_buff, reinterpret_cast<void *>(req->myiocb.aio_buf), req->real_size);
-                subIoRequestCount[req->posting_id]--;
-                req->app_buff = nullptr;
-                m_currIoContext.free_sub_io_requests.push(req);
-            }
-            totalDone += d;
-            read_complete_vec[id] += d;
-        }
-        auto t2 = std::chrono::high_resolution_clock::now();
-        if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
-            break;
         }
     }
-
-    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: totalDone == totalToSubmit\n");
-    bool is_timeout = false;
-    for (int i = 0; i < subIoRequestCount.size(); i++) {
-        if (subIoRequestCount[i] != 0) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks (batch) : timeout\n");
-            (*p_values)[i].clear();
-            is_timeout = true;
-        }
-    }
-    if (is_timeout) {
+    read_submit_vec += reqcount;
+    std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), reqcount, timeout, m_batchSize);
+    read_complete_vec += totalReads;
+    if (totalReads < reqcount) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount);
         m_batchReadTimeouts++;
     }
-    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: finish\n");
     return true;
 }
 
-bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<ByteArray>& p_values, const std::chrono::microseconds& timeout) {
+bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_values, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
+#ifdef USE_FILE_DEBUG
+    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
+    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
+    if (result == -1) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
+    }
+    fsync(debug_fd);
+#endif
     auto t1 = std::chrono::high_resolution_clock::now();
-    p_values.resize(p_data.size());
-    const int batch_size = m_batchSize;
-    std::vector<struct iocb*> iocbs(batch_size);
-    std::vector<struct io_event> events(batch_size);
-    std::vector<SubIoRequest> subIoRequests;
-    std::vector<int> subIoRequestCount(p_data.size(), 0);
-    subIoRequests.reserve(256);
-    for(size_t i = 0; i < p_data.size(); i++) {
+    m_batchReadTimes++;
+    std::uint32_t reqcount = 0;
+    for (size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
-        std::uint8_t* out_data = new std::uint8_t[p_data_i[0]];
-        p_values[i].Set(out_data, p_data_i[0], false);
+        std::uint8_t* p_value = p_values[i].GetBuffer();
+
+        if (p_data_i == nullptr) {
+            continue;
+        }
+        std::size_t postingSize = (std::size_t)p_data_i[0];
+        p_values[i].SetAvailableSize(postingSize);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
-
-        while(currOffset < p_data_i[0]) {
-            SubIoRequest currSubIo;
-            currSubIo.app_buff = (void*)p_values[i].Data() + currOffset;
-            currSubIo.real_size = (p_data_i[0] - currOffset) < PageSize ? (p_data_i[0] - currOffset) : PageSize;
-            currSubIo.offset = p_data_i[dataIdx] * PageSize;
-            currSubIo.posting_id = i;
-            subIoRequests.push_back(currSubIo);
-            subIoRequestCount[i]++;
-            read_submit_vec[id]++;
+        while (currOffset < postingSize) {
+            if (dataIdx > p_values[i].GetPageSize()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  block(%d) > buffer page size (%d)\n", dataIdx - 1, p_values[i].GetPageSize());
+                return false;
+            }
+            Helper::AsyncReadRequest& curr = reqs->at(reqcount);
+            curr.m_buffer = (char*)p_value + currOffset;
+            curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
+            curr.m_offset = p_data_i[dataIdx] * PageSize;
             currOffset += PageSize;
             dataIdx++;
-        }
-    }
-
-    fdmap::accessor accessor;
-    bool isFound = fd_to_id_iocp.find(accessor, fd);
-    int id = (accessor->second).first;
-    uint64_t iocp = (accessor->second).second;
-    // Clear timeout I/Os
-    while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
-        int wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
-        std::vector<struct io_event> events(wait);
-        struct timespec timeout_ts {0, 0};
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
-        for (int i = 0; i < d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-    }
-
-    struct timespec timeout_ts {0, timeout.count() * 1000};
-    
-    for (int currSubIoStartId = 0; currSubIoStartId < subIoRequests.size(); currSubIoStartId += batch_size) {
-        int currSubIoEndId = (currSubIoStartId + batch_size) > subIoRequests.size() ? subIoRequests.size() : currSubIoStartId + batch_size;
-        int currSubIoIdx = currSubIoStartId;
-        int totalToSubmit = currSubIoEndId - currSubIoStartId;
-        int totalSubmitted = 0, totalDone = 0;
-        for (int i = 0; i < totalToSubmit; i++) {
-            auto currSubIoIdx = currSubIoStartId + i;
-            auto currSubIo = m_currIoContext.free_sub_io_requests.front();
-            m_currIoContext.free_sub_io_requests.pop();
-            currSubIo->app_buff = subIoRequests[currSubIoIdx].app_buff;
-            currSubIo->real_size = subIoRequests[currSubIoIdx].real_size;
-            currSubIo->posting_id = subIoRequests[currSubIoIdx].posting_id;
-            currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
-            currSubIo->myiocb.aio_offset = subIoRequests[currSubIoIdx].offset;
-            currSubIo->myiocb.aio_nbytes = PageSize;
-            iocbs[i] = &(currSubIo->myiocb);
-            currSubIoIdx++;
-        }
-        while (totalDone < totalToSubmit) {
-            // Submit all I/Os
-            if(totalSubmitted < totalToSubmit) {
-                int s = syscall(__NR_io_submit, iocp, totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
-                if(s > 0) {
-                    totalSubmitted += s;
-                }
+            reqcount++;
+            if (reqcount >= reqs->size()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  %u >= %u\n", reqcount, reqs->size());
+                return false;
             }
-            int wait = totalSubmitted - totalDone;
-            auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &timeout_ts);
-            for (int i = totalDone; i < totalDone + d; i++) {
-                auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-                memcpy(req->app_buff, reinterpret_cast<void *>(req->myiocb.aio_buf), req->real_size);
-                subIoRequestCount[req->posting_id]--;
-                req->app_buff = nullptr;
-                m_currIoContext.free_sub_io_requests.push(req);
-            }
-            totalDone += d;
-            read_complete_vec[id] += d;
-        }
-        auto t2 = std::chrono::high_resolution_clock::now();
-        if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
-            break;
         }
     }
-
-    for (int i = 0; i < subIoRequestCount.size(); i++) {
-        if (subIoRequestCount[i] != 0) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks (batch) : timeout\n");
-            delete[] p_values[i].Data();
-            p_values[i].Clear();
-        }
+    read_submit_vec += reqcount;
+    std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), reqcount, timeout, m_batchSize);
+    read_complete_vec += totalReads;
+    if (totalReads < reqcount) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount);
+        m_batchReadTimeouts++;
     }
     return true;
 }
-bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value) {
+
+bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
 #ifdef USE_FILE_DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 5";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
@@ -649,158 +224,34 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     }
     fsync(debug_fd);
 #endif
-    AddressType currBlockIdx = 0;
-    SubIoRequest* currSubIo;
+
+    AddressType currOffset = 0;
     int totalSize = p_value.size();
-
-    fdmap::accessor accessor;
-    bool isFound = fd_to_id_iocp.find(accessor, fd);
-    int id = (accessor->second).first;
-    uint64_t iocp = (accessor->second).second; 
-    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks: %d\n", p_size);
-    // Clear timeout I/Os
-    while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
-        int wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
-        std::vector<struct io_event> events(wait);
-        struct timespec timeout_ts {0, 0};
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
-        for (int i = 0; i < d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-    }
-
-    // Submit all I/Os
-    write_submit_vec[id] += p_size;
-    std::vector<struct iocb*> iocbs(p_size);
     for (int i = 0; i < p_size; i++) {
-        auto currSubIo = m_currIoContext.free_sub_io_requests.front();
-        m_currIoContext.free_sub_io_requests.pop();
-        currSubIo->app_buff = (void*)p_value.data() + currBlockIdx * PageSize;
-        currSubIo->real_size = (PageSize * (currBlockIdx + 1)) > totalSize ? (totalSize - currBlockIdx * PageSize) : PageSize;
-        memcpy(reinterpret_cast<void *>(currSubIo->myiocb.aio_buf), currSubIo->app_buff, currSubIo->real_size);
-        currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PWRITE;
-        currSubIo->myiocb.aio_offset = p_data[currBlockIdx] * PageSize;
-        currSubIo->myiocb.aio_nbytes = PageSize;
-        iocbs[i] = &(currSubIo->myiocb);
-        currBlockIdx++;
-    }
-    std::vector<struct io_event> events(p_size);
-    int totalDone = 0, totalSubmitted = 0;
-    while(totalDone < p_size) {
-        int s = syscall(__NR_io_submit, iocp, p_size - totalSubmitted, iocbs.data() + totalSubmitted);
-        if(s > 0) {
-            totalSubmitted += s;
-        }
-        else {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: io_submit failed\n");
-        }
-        int wait = totalSubmitted - totalDone;
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, nullptr);
-        for (int i = totalDone; i < totalDone + d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-        totalDone += d;
-        write_complete_vec[id] += d;
-    }
-    return true;
-}
-
-bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const ByteArray& p_value) {
-    AddressType currBlockIdx = 0;
-    SubIoRequest* currSubIo;
-    int totalSize = p_value.Length();
-
-    fdmap::accessor accessor;
-    bool isFound = fd_to_id_iocp.find(accessor, fd);
-    int id = (accessor->second).first;
-    uint64_t iocp = (accessor->second).second;
-    // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks: %d\n", p_size);
-    // Clear timeout I/Os
-    while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
-        int wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
-        std::vector<struct io_event> events(wait);
-        struct timespec timeout_ts {0, 0};
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
-        for (int i = 0; i < d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
+        Helper::AsyncReadRequest& curr = reqs->at(i);
+        curr.m_buffer = (char*)p_value.data() + currOffset;
+        curr.m_readSize = (totalSize - currOffset) < PageSize ? (totalSize - currOffset) : PageSize;
+        curr.m_offset = p_data[i] * PageSize;
+        currOffset += PageSize;
     }
 
-    // Submit all I/Os
-    write_submit_vec[id] += p_size;
-    std::vector<struct iocb*> iocbs(p_size);
-    for (int i = 0; i < p_size; i++) {
-        auto currSubIo = m_currIoContext.free_sub_io_requests.front();
-        m_currIoContext.free_sub_io_requests.pop();
-        currSubIo->app_buff = (void*)p_value.Data() + currBlockIdx * PageSize;
-        currSubIo->real_size = (PageSize * (currBlockIdx + 1)) > totalSize ? (totalSize - currBlockIdx * PageSize) : PageSize;
-        // currSubIo->myiocb.aio_nbytes = ((currSubIo->real_size - 1) / 512 + 1) * 512;
-        currSubIo->myiocb.aio_nbytes = PageSize;
-        write_bytes_vec[id] += currSubIo->myiocb.aio_nbytes;
-        memcpy(reinterpret_cast<void *>(currSubIo->myiocb.aio_buf), currSubIo->app_buff, currSubIo->real_size);
-        currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PWRITE;
-        currSubIo->myiocb.aio_offset = p_data[currBlockIdx] * PageSize;
-        iocbs[i] = &(currSubIo->myiocb);
-        currBlockIdx++;
-    }
-    std::vector<struct io_event> events(p_size);
-    int totalDone = 0, totalSubmitted = 0;
-    while(totalDone < p_size) {
-        int s = syscall(__NR_io_submit, iocp, p_size - totalSubmitted, iocbs.data() + totalSubmitted);
-        if(s > 0) {
-            totalSubmitted += s;
-        }
-        else {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: io_submit failed\n");
-        }
-        int wait = totalSubmitted - totalDone;
-        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, nullptr);
-        for (int i = totalDone; i < totalDone + d; i++) {
-            auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-            req->app_buff = nullptr;
-            m_currIoContext.free_sub_io_requests.push(req);
-        }
-        totalDone += d;
-        write_complete_vec[id] += d;
+    write_submit_vec += p_size;
+    std::uint32_t totalWrites = m_fileHandle->BatchWriteFile(reqs->data(), p_size, timeout, m_batchSize);
+    write_complete_vec += totalWrites;
+    if (totalWrites < p_size) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::WriteBlocks: %u < %d\n", totalWrites, p_size);
     }
     return true;
 }
 
 bool FileIO::BlockController::IOStatistics() {
-    int currReadCount = 0;
-    int read_submit_count = 0;
-    int currWriteCount = 0;
-    int write_submit_count = 0;
-    int64_t read_blocks_time = 0;
-    int64_t read_bytes_count = 0;
-    int64_t write_bytes_count = 0;
-    for (int i = 0; i < read_complete_vec.size(); i++) {
-        currReadCount += read_complete_vec[i];
-    }
-    for (int i = 0; i < read_submit_vec.size(); i++) {
-        read_submit_count += read_submit_vec[i];
-    }
-    for (int i = 0; i < write_complete_vec.size(); i++) {
-        currWriteCount += write_complete_vec[i];
-    }
-    for (int i = 0; i < write_submit_vec.size(); i++) {
-        write_submit_count += write_submit_vec[i];
-    }
-    for (int i = 0; i < read_bytes_vec.size(); i++) {
-        read_bytes_count += read_bytes_vec[i];
-    }
-    for (int i = 0; i < write_bytes_vec.size(); i++) {
-        write_bytes_count += write_bytes_vec[i];
-    }
-    for (int i = 0; i < read_blocks_time_vec.size(); i++) {
-        read_blocks_time += read_blocks_time_vec[i];
-    }
+    int64_t currReadCount = read_complete_vec;
+    int64_t read_submit_count = read_submit_vec;
+    int64_t currWriteCount = write_complete_vec;
+    int64_t write_submit_count = write_submit_vec;
+    int64_t read_blocks_time = read_blocks_time_vec;
+    int64_t read_bytes_count = read_bytes_vec;
+    int64_t write_bytes_count = write_bytes_vec;
     
     int currIOCount = currReadCount + currWriteCount;
     int diffIOCount = currIOCount - m_preIOCompleteCount;
@@ -822,7 +273,6 @@ bool FileIO::BlockController::IOStatistics() {
     std::cout << "IOPS: " << currIOPS << "k Bandwidth: " << currBandWidth << "MB/s" << std::endl;
     std::cout << "Read Count: " << currReadCount << " Write Count: " << currWriteCount << " Read Submit Count: " << read_submit_count << " Write Submit Count: " << write_submit_count << std::endl;
     std::cout << "Read Bytes Count: " << read_bytes_count << " Write Bytes Count: " << write_bytes_count << std::endl;
-    std::cout << "Remain free IO requests: " << m_currIoContext.free_sub_io_requests.size() << std::endl;
     std::cout << "Read Blocks Time: " << read_blocks_time << "ns" << std::endl;
     std::cout << "Batch Read Times: " << m_batchReadTimes.load() << " Batch Read Timeouts: " << m_batchReadTimeouts.load() << std::endl;
     return true;
@@ -830,35 +280,15 @@ bool FileIO::BlockController::IOStatistics() {
 
 bool FileIO::BlockController::ShutDown() {
     std::lock_guard<std::mutex> lock(m_initMutex);
-    SubIoRequest* currSubIo;
     m_numInitCalled--;
-    fdmap::accessor accessor;
-    bool isFound = fd_to_id_iocp.find(accessor, fd);
-    int id = (accessor->second).first;
-    uint64_t iocp = (accessor->second).second;
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
     if (m_numInitCalled == 0) {
-        m_fileIoThreadExiting = true;
-        //pthread_join(m_fileIoTid, NULL);
         Checkpoint(m_filePath);
         while (!m_blockAddresses.empty()) {
             AddressType currBlockAddress;
             m_blockAddresses.try_pop(currBlockAddress);
         }
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Close file handler\n");
-	fd_to_id_iocp.erase(accessor);
-        close(fd);
-    }
-    m_idQueue.push(id);
-    syscall(__NR_io_destroy, iocp);
-    for (auto &sr : m_currIoContext.sub_io_requests) {
-        sr.app_buff = nullptr;
-        auto buf_ptr = reinterpret_cast<void *>(sr.myiocb.aio_buf);
-        free(buf_ptr);
-        sr.myiocb.aio_buf = 0;
-    }
-    while(m_currIoContext.free_sub_io_requests.size()) {
-        m_currIoContext.free_sub_io_requests.pop();
+        m_fileHandle->ShutDown();
     }
     return true;
 }
