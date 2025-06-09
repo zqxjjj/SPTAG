@@ -1777,14 +1777,14 @@ namespace SPTAG::SPANN {
                             Serialize(ptr, fullID, version, p_fullVectors->GetVector(fullID));
                             ptr += m_vectorInfoSize;
                         }
-			            if (m_opt->m_excludehead) {
+                        if (m_opt->m_excludehead) {
                             auto VIDTrans = static_cast<SizeType>((vectorTranslateMap.get())[index]);
                             uint8_t version = m_versionMap->GetVersion(VIDTrans);
                             std::string appendPosting(m_vectorInfoSize, '\0');
                             char* ptr = (char*)(appendPosting.c_str());
-			                Serialize(ptr, VIDTrans, version, p_fullVectors->GetVector(VIDTrans));
+                            Serialize(ptr, VIDTrans, version, p_fullVectors->GetVector(VIDTrans));
                             postinglist = appendPosting + postinglist;
-			            }
+                        }
                         db->Put((SizeType)index, postinglist, MaxTimeout, &(workSpace.m_diskRequests));
                     }
                     else
@@ -1795,7 +1795,7 @@ namespace SPTAG::SPANN {
                 }
             };
 
-            for (int j = 0; j < 20; j++) { threads.emplace_back(func); }
+            for (int j = 0; j < m_opt->m_iSSDNumberOfThreads; j++) { threads.emplace_back(func); }
             for (auto& thread : threads) { thread.join(); }
 	    return ErrorCode::Success;
         }
@@ -1879,7 +1879,7 @@ namespace SPTAG::SPANN {
         void GetIndexStats(int finishedInsert, bool cost, bool reset) override { m_stat.PrintStat(finishedInsert, cost, reset); }
 
         bool CheckValidPosting(SizeType postingID) override {
-            return m_postingSizes.GetSize(postingID) > 0;
+            return (postingID < m_postingSizes.GetPostingNum()) && (m_postingSizes.GetSize(postingID) > 0);
         }
 
         bool Initialize() override {

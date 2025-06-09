@@ -443,7 +443,7 @@ namespace SPTAG
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileIO::InitializeFileIo failed: open failed:%s\n", err_str);
                     return false;
                 }
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s created, fd=%d\n", filePath, m_fileHandle);
+                //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s created, fd=%d\n", filePath, m_fileHandle);
                 return true;
             }
 
@@ -472,12 +472,11 @@ namespace SPTAG
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileIO::Open failed: %s\n", err_str);
                             return false;
                         }
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s opened, fd=%d\n", filePath, m_fileHandle);
                     } else {
                         if (!CreateFile(filePath, maxFileSize)) return false;
                    }
                 }
-
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s opened, fd=%d threads=%d maxNumBlocks=%d\n", filePath, m_fileHandle, threadPoolSize, maxNumBlocks);
                 m_iocps.resize(threadPoolSize);
                 memset(m_iocps.data(), 0, sizeof(aio_context_t) * threadPoolSize);
                 for (int i = 0; i < threadPoolSize; i++) {
@@ -523,7 +522,14 @@ namespace SPTAG
                 if (requestCount <= 0) return 0;
 
                 auto t1 = std::chrono::high_resolution_clock::now();
-                /*
+                if (batchSize < 0 || batchSize > requestCount) batchSize = requestCount;
+                std::vector<struct iocb*> iocbs(batchSize);
+                std::vector<struct io_event> events(batchSize);
+                int iocp = readRequests[0].m_status % m_iocps.size();
+		struct timespec timeout_ts {0, 0};
+		while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
+ 
+		/*
                 while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
                     int wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
                     std::vector<struct io_event> events(wait);
@@ -536,19 +542,18 @@ namespace SPTAG
                     }
                 }
                 */
-                int iocp = (readRequests[0].m_status & 0xffff) % m_iocps.size();
                 for (int i = 0; i < requestCount; i++) {
                     AsyncReadRequest* readRequest = readRequests + i;
                     struct iocb* myiocb = &(readRequest->myiocb);
+ 		    memset(myiocb, 0, sizeof(struct iocb));
+                    myiocb->aio_data = reinterpret_cast<uintptr_t>(&readRequest);
                     myiocb->aio_lio_opcode = IOCB_CMD_PREAD;
                     myiocb->aio_fildes = m_fileHandle;
                     myiocb->aio_buf = (std::uint64_t)(readRequest->m_buffer);
-                    myiocb->aio_nbytes = readRequest->m_readSize;
+                    //myiocb->aio_nbytes = readRequest->m_readSize;
+                    myiocb->aio_nbytes = PageSize;
                     myiocb->aio_offset = static_cast<std::int64_t>(readRequest->m_offset);
                 }
-                if (batchSize < 0) batchSize = requestCount;
-                std::vector<struct iocb*> iocbs(batchSize);
-                std::vector<struct io_event> events(batchSize);
                 uint32_t batchTotalDone = 0;
                 for (int currSubIoStartId = 0; currSubIoStartId < requestCount; currSubIoStartId += batchSize) {
                     int currSubIoEndId = (currSubIoStartId + batchSize) > requestCount ? requestCount : currSubIoStartId + batchSize;
@@ -562,14 +567,19 @@ namespace SPTAG
                     while (totalDone < totalToSubmit) {
                         // Submit all I/Os
                         if (totalSubmitted < totalToSubmit) {
-                            int s = syscall(__NR_io_submit, iocp, totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
+                            int s = syscall(__NR_io_submit, m_iocps[iocp], totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
                             if (s > 0) {
                                 totalSubmitted += s;
-                            }
+                            } else {
+                                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_submit failed\n");
+			    }
+ 
                         }
                         int wait = totalSubmitted - totalDone;
-                        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &AIOTimeout);
-                        totalDone += d;
+                        auto d = syscall(__NR_io_getevents, m_iocps[iocp], wait, wait, events.data() + totalDone, &AIOTimeout);
+			if (d > 0) {
+                            totalDone += d;
+			}
                     }
                     batchTotalDone += totalDone;
                     auto t2 = std::chrono::high_resolution_clock::now();
@@ -589,19 +599,28 @@ namespace SPTAG
                 if (requestCount <= 0) return 0;
 
                 auto t1 = std::chrono::high_resolution_clock::now();
-                int iocp = (readRequests[0].m_status & 0xffff) % m_iocps.size();
+                if (batchSize < 0 || batchSize > requestCount) batchSize = requestCount;
+		
+                std::vector<struct iocb*> iocbs(batchSize);
+                std::vector<struct io_event> events(batchSize);
+                int iocp = readRequests[0].m_status % m_iocps.size();
+		struct timespec timeout_ts {0, 0};
+		while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
+		
+ 
                 for (int i = 0; i < requestCount; i++) {
                     AsyncReadRequest* readRequest = readRequests + i;
                     struct iocb* myiocb = &(readRequest->myiocb);
+		    memset(myiocb, 0, sizeof(struct iocb));
+                    myiocb->aio_data = reinterpret_cast<uintptr_t>(&readRequest);
                     myiocb->aio_lio_opcode = IOCB_CMD_PWRITE;
                     myiocb->aio_fildes = m_fileHandle;
                     myiocb->aio_buf = (std::uint64_t)(readRequest->m_buffer);
-                    myiocb->aio_nbytes = readRequest->m_readSize;
+                    //myiocb->aio_nbytes = readRequest->m_readSize;
+                    myiocb->aio_nbytes = PageSize;
                     myiocb->aio_offset = static_cast<std::int64_t>(readRequest->m_offset);
                 }
-                if (batchSize < 0) batchSize = requestCount;
-                std::vector<struct iocb*> iocbs(batchSize);
-                std::vector<struct io_event> events(batchSize);
+
                 uint32_t batchTotalDone = 0;
                 for (int currSubIoStartId = 0; currSubIoStartId < requestCount; currSubIoStartId += batchSize) {
                     int currSubIoEndId = (currSubIoStartId + batchSize) > requestCount ? requestCount : currSubIoStartId + batchSize;
@@ -611,18 +630,22 @@ namespace SPTAG
                         iocbs[i] = &(readRequests[currSubIoStartId + i].myiocb);
                     }
 
-                    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: totalToSubmit:%d\n", totalToSubmit);
+                    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: iocp:%d totalToSubmit:%d\n", iocp, totalToSubmit);
                     while (totalDone < totalToSubmit) {
                         // Submit all I/Os
                         if (totalSubmitted < totalToSubmit) {
-                            int s = syscall(__NR_io_submit, iocp, totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
+                            int s = syscall(__NR_io_submit, m_iocps[iocp], totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
                             if (s > 0) {
                                 totalSubmitted += s;
-                            }
+                            } else {
+                                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks: io_submit failed\n");
+			    }
                         }
                         int wait = totalSubmitted - totalDone;
-                        auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &AIOTimeout);
-                        totalDone += d;
+                        auto d = syscall(__NR_io_getevents, m_iocps[iocp], wait, wait, events.data() + totalDone, nullptr);
+			if (d > 0) {
+                            totalDone += d;
+                        }
                     }
                     batchTotalDone += totalDone;
                     auto t2 = std::chrono::high_resolution_clock::now();

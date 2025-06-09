@@ -20,9 +20,9 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt, bool recovery) {
         m_fileHandle = f_createAsyncIO();
         if (m_fileHandle == nullptr || !m_fileHandle->Initialize(m_filePath,
 #ifndef _MSC_VER
-            O_RDWR | O_DIRECT, numblocks, 2, 2, p_opt.m_searchThreadNum, p_opt.m_maxFileSize << 30
+            O_RDWR | O_DIRECT, numblocks, 2, 2, max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads) + p_opt.m_insertThreadNum + p_opt.m_reassignThreadNum + p_opt.m_appendThreadNum, ((std::uint64_t)p_opt.m_maxFileSize) << 30
 #else
-            GENERIC_READ, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, (std::uint64_t)p_opt.m_maxFileSize << 30
+            GENERIC_READ, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, ((std::uint64_t)p_opt.m_maxFileSize) << 30
 #endif
         )) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
@@ -95,7 +95,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         return false;
     }
     
-    p_value->resize(p_data[0]);
+    p_value->resize(blockNum << PageSizeEx);
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
     for (int i = 0; i < blockNum; i++) {
@@ -113,6 +113,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, blockNum);
         m_batchReadTimeouts++;
     }
+    p_value->resize(p_data[0]);
     return true;
 }
 
@@ -136,7 +137,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             continue;
         }
 
-        p_value->resize(p_data_i[0]);
+        p_value->resize(((p_data_i[0] + PageSize - 1) >> PageSizeEx) << PageSizeEx);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
         while(currOffset < p_data_i[0]) {
@@ -159,6 +160,16 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     if (totalReads < reqcount) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount);
         m_batchReadTimeouts++;
+    }
+
+    for (int i = 0; i < p_data.size(); i++) {
+        AddressType* p_data_i = p_data[i];
+        std::string* p_value = &((*p_values)[i]);
+
+        if (p_data_i == nullptr) {
+            continue;
+        }
+        p_value->resize(p_data_i[0]);
     }
     return true;
 }
@@ -223,11 +234,13 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     fsync(debug_fd);
 #endif
 
+    std::string tmp(((p_value.size() + PageSize - 1) >> PageSizeEx) << PageSizeEx, '\0');
+    memcpy(tmp.data(), p_value.data(), p_value.size());
     AddressType currOffset = 0;
     int totalSize = p_value.size();
     for (int i = 0; i < p_size; i++) {
         Helper::AsyncReadRequest& curr = reqs->at(i);
-        curr.m_buffer = (char*)p_value.data() + currOffset;
+        curr.m_buffer = (char*)tmp.data() + currOffset;
         curr.m_readSize = (totalSize - currOffset) < PageSize ? (totalSize - currOffset) : PageSize;
         curr.m_offset = p_data[i] * PageSize;
         currOffset += PageSize;
