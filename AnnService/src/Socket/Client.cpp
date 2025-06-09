@@ -60,7 +60,7 @@ Client::ConnectToServer(const std::string& p_address,
     }
 
     boost::asio::ip::tcp::socket socket(m_ioContext);
-    for (const auto ep : endPoints)
+    for (const auto &ep : endPoints)
     {
         errCode.clear();
         socket.connect(ep, errCode);

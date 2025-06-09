@@ -4,6 +4,8 @@
 #ifndef _SPTAG_COMMON_DATASET_H_
 #define _SPTAG_COMMON_DATASET_H_
 
+#include "inc/Core/VectorIndex.h"
+
 namespace SPTAG
 {
     namespace COMMON

@@ -208,7 +208,7 @@ namespace SPTAG {
                                 req.myres.m_col.m_data = (void*)(&req);
 #else
                                 memset(&(req.myiocb), 0, sizeof(struct iocb));
-                                req.myiocb.aio_buf = einterpret_cast<uint64_t>(req.m_buffer);
+                                req.myiocb.aio_buf = reinterpret_cast<uint64_t>(req.m_buffer);
                                 req.myiocb.aio_data = reinterpret_cast<uintptr_t>(&req);
 #endif
                             }
@@ -225,7 +225,7 @@ namespace SPTAG {
                             req.myres.m_col.m_data = (void*)(&req);
 #else
                             memset(&(req.myiocb), 0, sizeof(struct iocb));
-                            req.myiocb.aio_buf = einterpret_cast<uint64_t>(req.m_buffer);
+                            req.myiocb.aio_buf = reinterpret_cast<uint64_t>(req.m_buffer);
                             req.myiocb.aio_data = reinterpret_cast<uintptr_t>(&req);
 #endif
                         }

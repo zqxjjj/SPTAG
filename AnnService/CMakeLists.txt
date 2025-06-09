@@ -4,6 +4,12 @@
 set(AnnService ${PROJECT_SOURCE_DIR}/AnnService)
 set(Zstd ${PROJECT_SOURCE_DIR}/ThirdParty/zstd)
 
+include_directories(${AnnService})
+include_directories(${Zstd}/lib)
+
+file(GLOB_RECURSE HDR_FILES ${AnnService}/inc/Core/*.h  ${AnnService}/inc/Helper/*.h)
+file(GLOB_RECURSE SRC_FILES ${AnnService}/src/Core/*.cpp ${AnnService}/src/Helper/*.cpp)
+
 set(RocksDB_LIBRARIES "")
 set(uring_LIBRARIES "")
 set(SPDK_LIBRARIES "")
@@ -32,11 +38,26 @@ if (SPDK)
     if ((NOT EXISTS ${SpdkLibPrefix}bdev_nvme.a) OR (NOT EXISTS ${DpdkLibPrefix}pci.a) OR  (NOT EXISTS ${IsalLCrypto}))
         set (SPDK_LIBRARIES "")
         message (FATAL_ERROR "Cound not find SPDK, DPDK and IsalLCrypto!")
+        list(REMOVE_ITEM HDR_FILES
+            ${AnnService}/inc/Core/SPANN/ExtraSPDKController.h
+        )
+
+        list(REMOVE_ITEM SRC_FILES
+            ${AnnService}/src/Core/SPANN/ExtraSPDKController.cpp
+        )
     else()
         include_directories(${Spdk}/include)
         set(SPDK_LIBRARIES -Wl,--whole-archive ${SpdkLibPrefix}bdev_nvme.a ${SpdkLibPrefix}bdev.a ${SpdkLibPrefix}nvme.a ${SpdkLibPrefix}vfio_user.a ${SpdkLibPrefix}sock.a ${SpdkLibPrefix}dma.a ${SpdkLibPrefix}notify.a ${SpdkLibPrefix}accel.a ${SpdkLibPrefix}event_bdev.a ${SpdkLibPrefix}event_accel.a ${SpdkLibPrefix}vmd.a ${SpdkLibPrefix}event_vmd.a ${SpdkLibPrefix}event_sock.a ${SpdkLibPrefix}event_iobuf.a ${SpdkLibPrefix}event.a ${SpdkLibPrefix}env_dpdk.a ${SpdkLibPrefix}log.a ${SpdkLibPrefix}thread.a ${SpdkLibPrefix}rpc.a ${SpdkLibPrefix}init.a ${SpdkLibPrefix}jsonrpc.a ${SpdkLibPrefix}json.a ${SpdkLibPrefix}trace.a ${SpdkLibPrefix}util.a ${DpdkLibPrefix}mempool.a ${DpdkLibPrefix}mempool_ring.a ${DpdkLibPrefix}eal.a ${DpdkLibPrefix}ring.a ${DpdkLibPrefix}telemetry.a ${DpdkLibPrefix}bus_pci.a ${DpdkLibPrefix}kvargs.a ${DpdkLibPrefix}pci.a -Wl,--no-whole-archive dl rt isal ${IsalLCrypto} uuid)
         message (STATUS "Found SPDK:${SPDK_LIBRARIES}")
     endif()
+else()
+    list(REMOVE_ITEM HDR_FILES
+        ${AnnService}/inc/Core/SPANN/ExtraSPDKController.h
+    )
+
+    list(REMOVE_ITEM SRC_FILES
+        ${AnnService}/src/Core/SPANN/ExtraSPDKController.cpp
+    )
 endif()
 
 find_package(TBB REQUIRED)
@@ -45,12 +66,6 @@ if (TBB_FOUND)
 else()
     message (FATAL_ERROR "Could not find TBB!")
 endif()
-
-include_directories(${AnnService})
-include_directories(${Zstd}/lib)
-
-file(GLOB_RECURSE HDR_FILES ${AnnService}/inc/Core/*.h  ${AnnService}/inc/Helper/*.h)
-file(GLOB_RECURSE SRC_FILES ${AnnService}/src/Core/*.cpp ${AnnService}/src/Helper/*.cpp)
 
 list(REMOVE_ITEM HDR_FILES
     ${AnnService}/inc/Core/Common/DistanceUtils.h

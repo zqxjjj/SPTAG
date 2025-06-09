@@ -65,7 +65,7 @@
 	{
 		if (m_workspace != nullptr) {
 			m_index->SearchIndexIterativeEnd(std::move(((UniqueHandler*)m_workspace)->m_handler));
-			delete m_workspace;
+			delete (UniqueHandler*)m_workspace;
 			m_workspace = nullptr;
 		}
 	}

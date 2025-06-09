@@ -125,7 +125,6 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     }
     fsync(debug_fd);
 #endif
-    auto t1 = std::chrono::high_resolution_clock::now();
     m_batchReadTimes++;
     p_values->resize(p_data.size());
     std::uint32_t reqcount = 0;
@@ -173,7 +172,6 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     }
     fsync(debug_fd);
 #endif
-    auto t1 = std::chrono::high_resolution_clock::now();
     m_batchReadTimes++;
     std::uint32_t reqcount = 0;
     for (size_t i = 0; i < p_data.size(); i++) {
@@ -258,7 +256,7 @@ bool FileIO::BlockController::IOStatistics() {
     m_preIOCompleteCount = currIOCount;
 
     int64_t currBytesCount = read_bytes_count + write_bytes_count;
-    int64_t diffBytesCount = currBytesCount - m_preIOBytes;
+    //int64_t diffBytesCount = currBytesCount - m_preIOBytes;
     m_preIOBytes = currBytesCount;
 
     auto currTime = std::chrono::high_resolution_clock::now();

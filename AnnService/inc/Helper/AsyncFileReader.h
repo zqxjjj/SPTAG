@@ -443,7 +443,7 @@ namespace SPTAG
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileIO::InitializeFileIo failed: open failed:%s\n", err_str);
                     return false;
                 }
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s created, fd=%d\n", m_filePath, fd);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s created, fd=%d\n", filePath, m_fileHandle);
                 return true;
             }
 
@@ -455,7 +455,7 @@ namespace SPTAG
                 std::uint64_t maxFileSize = (300ULL << 30))
             {
                 if (!fileexists(filePath)) {
-                    if (openMode == O_RDONLY | O_DIRECT) {
+                    if (openMode == (O_RDONLY | O_DIRECT)) {
                         SPTAGLIB_LOG(LogLevel::LL_Error, "Failed to open file handle: %s\n", filePath);
                         return false;
                     }
@@ -464,8 +464,8 @@ namespace SPTAG
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open a file\n");
                     auto actualFileSize = filesize(filePath);
-                    if ((openMode == O_RDONLY | O_DIRECT) || actualFileSize == maxFileSize) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file has been created with enough space.\n", m_filePath, fd);
+                    if (openMode == (O_RDONLY | O_DIRECT) || actualFileSize == maxFileSize) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file has been created with enough space.\n");
                         m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
                         if (m_fileHandle == -1) {
                             auto err_str = strerror(errno);
@@ -522,6 +522,7 @@ namespace SPTAG
             {
                 if (requestCount <= 0) return 0;
 
+                auto t1 = std::chrono::high_resolution_clock::now();
                 /*
                 while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
                     int wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
@@ -549,9 +550,8 @@ namespace SPTAG
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
                 uint32_t batchTotalDone = 0;
-                bool is_timeout = false;
-                for (int currSubIoStartId = 0; currSubIoStartId < requestCount; currSubIoStartId += batch_size) {
-                    int currSubIoEndId = (currSubIoStartId + batch_size) > requestCount ? requestCount : currSubIoStartId + batch_size;
+                for (int currSubIoStartId = 0; currSubIoStartId < requestCount; currSubIoStartId += batchSize) {
+                    int currSubIoEndId = (currSubIoStartId + batchSize) > requestCount ? requestCount : currSubIoStartId + batchSize;
                     int totalToSubmit = currSubIoEndId - currSubIoStartId;
                     int totalSubmitted = 0, totalDone = 0;
                     for (int i = 0; i < totalToSubmit; i++) {
@@ -575,7 +575,6 @@ namespace SPTAG
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                         if (batchTotalDone < requestCount) {
-                            is_timeout = true;
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks (batch[%d:%d]) : timeout\n", currSubIoStartId, currSubIoEndId);
                         }
                         break;
@@ -589,6 +588,7 @@ namespace SPTAG
             {
                 if (requestCount <= 0) return 0;
 
+                auto t1 = std::chrono::high_resolution_clock::now();
                 int iocp = (readRequests[0].m_status & 0xffff) % m_iocps.size();
                 for (int i = 0; i < requestCount; i++) {
                     AsyncReadRequest* readRequest = readRequests + i;
@@ -603,9 +603,8 @@ namespace SPTAG
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
                 uint32_t batchTotalDone = 0;
-                bool is_timeout = false;
-                for (int currSubIoStartId = 0; currSubIoStartId < requestCount; currSubIoStartId += batch_size) {
-                    int currSubIoEndId = (currSubIoStartId + batch_size) > requestCount ? requestCount : currSubIoStartId + batch_size;
+                for (int currSubIoStartId = 0; currSubIoStartId < requestCount; currSubIoStartId += batchSize) {
+                    int currSubIoEndId = (currSubIoStartId + batchSize) > requestCount ? requestCount : currSubIoStartId + batchSize;
                     int totalToSubmit = currSubIoEndId - currSubIoStartId;
                     int totalSubmitted = 0, totalDone = 0;
                     for (int i = 0; i < totalToSubmit; i++) {
@@ -624,13 +623,11 @@ namespace SPTAG
                         int wait = totalSubmitted - totalDone;
                         auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &AIOTimeout);
                         totalDone += d;
-                        read_complete_vec += d;
                     }
                     batchTotalDone += totalDone;
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                         if (batchTotalDone < requestCount) {
-                            is_timeout = true;
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks (batch[%d:%d]) : timeout\n", currSubIoStartId, currSubIoEndId);
                         }
                         break;

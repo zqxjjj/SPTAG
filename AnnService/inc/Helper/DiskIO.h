@@ -9,6 +9,7 @@
 #include <string.h>
 #include <memory>
 #include <chrono>
+#include "inc/Core/Common.h"
 
 #ifdef _MSC_VER
 #include <tchar.h>

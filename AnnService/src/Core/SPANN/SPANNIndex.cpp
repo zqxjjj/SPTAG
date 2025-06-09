@@ -19,6 +19,8 @@
 
 namespace SPTAG
 {
+    template <typename T>
+    thread_local std::unique_ptr<T> COMMON::ThreadLocalWorkSpaceFactory<T>::m_workspace;
     namespace SPANN
     {
         std::atomic_int ExtraWorkSpace::g_spaceCount(0);

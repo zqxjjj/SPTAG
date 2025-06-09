@@ -150,13 +150,13 @@ inline float MultipleClustersAssign(const COMMON::Dataset<T>& data,
     std::vector<SizeType>& indices,
     const SizeType first, const SizeType last, COMMON::KmeansArgs<T>& args, COMMON::Dataset<LabelType>& label, bool updateCenters, float lambda, std::vector<float>& weights, float wlambda) {
     float currDist = 0;
-    SizeType subsize = (last - first - 1) / args._T + 1;
+    SizeType subsize = (last - first - 1) / args._TH + 1;
 
     std::uint64_t avgCount = 0;
     for (int k = 0; k < args._K; k++) avgCount += args.counts[k];
     avgCount /= args._K;
 
-    std::vector<float> dist_total(args._K * args._T, 0);
+    std::vector<float> dist_total(args._K * args._TH, 0);
 
     auto func = [&](int tid)
     {
@@ -214,10 +214,10 @@ inline float MultipleClustersAssign(const COMMON::Dataset<T>& data,
     };
 
     std::vector<std::thread> threads;
-    for (int i = 0; i < args._T; i++) { threads.emplace_back(func, i); }
+    for (int i = 0; i < args._TH; i++) { threads.emplace_back(func, i); }
     for (auto& thread : threads) { thread.join(); }
 
-    for (int i = 1; i < args._T; i++) {
+    for (int i = 1; i < args._TH; i++) {
         for (int k = 0; k < args._K; k++) {
             args.newCounts[k] += args.newCounts[i*args._K + k];
             args.newWeightedCounts[k] += args.newWeightedCounts[i*args._K + k];
@@ -231,7 +231,7 @@ inline float MultipleClustersAssign(const COMMON::Dataset<T>& data,
     }
 
     if (updateCenters) {
-        for (int i = 1; i < args._T; i++) {
+        for (int i = 1; i < args._TH; i++) {
             float* currCenter = args.newCenters + i*args._K*args._D;
             for (size_t j = 0; j < ((size_t)args._K) * args._D; j++) args.newCenters[j] += currCenter[j];
 
@@ -244,7 +244,7 @@ inline float MultipleClustersAssign(const COMMON::Dataset<T>& data,
         }
     }
     else {
-        for (int i = 1; i < args._T; i++) {
+        for (int i = 1; i < args._TH; i++) {
             for (int k = 0; k < args._K; k++) {
                 if (args.clusterIdx[i*args._K + k] != -1 && args.clusterDist[i*args._K + k] <= args.clusterDist[k]) {
                     args.clusterDist[k] = args.clusterDist[i*args._K + k];
@@ -262,7 +262,7 @@ inline float HardMultipleClustersAssign(const COMMON::Dataset<T>& data,
     const SizeType first, const SizeType last, COMMON::KmeansArgs<T>& args, COMMON::Dataset<LabelType>& label, SizeType* mylimit, std::vector<float>& weights,
     const int clusternum, const bool fill) {
     float currDist = 0;
-    SizeType subsize = (last - first - 1) / args._T + 1;
+    SizeType subsize = (last - first - 1) / args._TH + 1;
 
     SPTAG::Edge* items = new SPTAG::Edge[last - first];
 
@@ -298,13 +298,13 @@ inline float HardMultipleClustersAssign(const COMMON::Dataset<T>& data,
 
     {
         std::vector<std::thread> threads;
-        for (int i = 0; i < args._T; i++) { threads.emplace_back(func1, i); }
+        for (int i = 0; i < args._TH; i++) { threads.emplace_back(func1, i); }
         for (auto& thread : threads) { thread.join(); }
     }
 
     std::sort(items, items + last - first, g_edgeComparer);
 
-    for (int i = 0; i < args._T; i++) {
+    for (int i = 0; i < args._TH; i++) {
         for (int k = 0; k < args._K; k++) {
             mylimit[k] -= args.newCounts[i * args._K + k];
             if (i > 0) args.clusterDist[k] += args.clusterDist[i * args._K + k];
@@ -352,14 +352,14 @@ inline float HardMultipleClustersAssign(const COMMON::Dataset<T>& data,
 
     {
         std::vector<std::thread> threads2;
-        for (int i = 0; i < args._T; i++) { threads2.emplace_back(func2, i); }
+        for (int i = 0; i < args._TH; i++) { threads2.emplace_back(func2, i); }
         for (auto& thread : threads2) { thread.join(); }
     }
     delete[] items;
 
     std::memset(args.counts, 0, sizeof(SizeType) * args._K);
     std::memset(args.weightedCounts, 0, sizeof(float) * args._K);
-    for (int i = 0; i < args._T; i++) {
+    for (int i = 0; i < args._TH; i++) {
         for (int k = 0; k < args._K; k++) {
             args.counts[k] += args.newCounts[i*args._K + k];
             args.weightedCounts[k] += args.newWeightedCounts[i*args._K + k];

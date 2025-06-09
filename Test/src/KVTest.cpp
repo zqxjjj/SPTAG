@@ -3,7 +3,7 @@
 
 #include "inc/Test.h"
 #include "inc/Core/SPANN/ExtraFileController.h"
-
+#include "inc/Core/SPANN/IExtraSearcher.h"
 #include <memory>
 #include <chrono>
 
@@ -21,7 +21,7 @@
 using namespace SPTAG;
 using namespace SPTAG::SPANN;
 
-void Search(std::shared_ptr<Helper::KeyValueIO> db, int internalResultNum, int totalSize, int times, bool debug = false) { 
+void Search(std::shared_ptr<Helper::KeyValueIO> db, int internalResultNum, int totalSize, int times, bool debug, SPTAG::SPANN::ExtraWorkSpace& workspace) { 
     std::vector<SizeType> headIDs(internalResultNum, 0);
 
     std::vector<std::string> values;
@@ -30,7 +30,7 @@ void Search(std::shared_ptr<Helper::KeyValueIO> db, int internalResultNum, int t
         values.clear();
         for (int j = 0; j < internalResultNum; j++) headIDs[j] = (j + i * internalResultNum) % totalSize;
         auto t1 = std::chrono::high_resolution_clock::now();
-        db->MultiGet(headIDs, &values);
+        db->MultiGet(headIDs, &values, MaxTimeout, &(workspace.m_diskRequests));
         auto t2 = std::chrono::high_resolution_clock::now();
         latency += std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
@@ -50,6 +50,9 @@ void Test(std::string path, std::string type, bool debug = false)
     int totalNum = 1024;
     int mergeIters = 3;
     std::shared_ptr<Helper::KeyValueIO> db;
+    SPTAG::SPANN::ExtraWorkSpace workspace;
+    workspace.Initialize(4096, 2, internalResultNum, 4*PageSize, true, false);
+
     if (type == "RocksDB") {
 #ifdef ROCKSDB
         db.reset(new RocksDBIO(path.c_str(), true));
@@ -74,7 +77,7 @@ void Test(std::string path, std::string type, bool debug = false)
     for (int i = 0; i < totalNum; i++) {
         int len = std::to_string(i).length();
         std::string val(PageSize - len, '0');
-        db->Put(i, val);
+        db->Put(i, val, MaxTimeout, &(workspace.m_diskRequests));
     }
     auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "avg put time: " << (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / (float)(totalNum)) << "us" << std::endl;
@@ -84,13 +87,13 @@ void Test(std::string path, std::string type, bool debug = false)
     t1 = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < totalNum; i++) {
         for (int j = 0; j < mergeIters; j++) {
-            db->Merge(i, std::to_string(i));
+            db->Merge(i, std::to_string(i), MaxTimeout, &(workspace.m_diskRequests));
         }
     }
     t2 = std::chrono::high_resolution_clock::now();
     std::cout << "avg merge time: " << (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / (float)(totalNum * mergeIters)) << "us" << std::endl;
 
-    Search(db, internalResultNum, totalNum, 10, debug);
+    Search(db, internalResultNum, totalNum, 10, debug, workspace);
 
     db->ForceCompaction();
     db->ShutDown();

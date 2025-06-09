@@ -121,6 +121,8 @@ int main(int argc, char* argv[])
 
 #include "inc/Core/DefinitionList.h"
 #undef DefineVectorValueType
+
+		    default:  { SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Undefined InputValue Type!\n"); exit(1); }
             }
 
             auto ptr = SPTAG::f_createIO();

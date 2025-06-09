@@ -88,7 +88,7 @@ std::unique_ptr<T[]> TrainPQQuantizer(std::shared_ptr<QuantizerOptions> options,
         localindices.resize(dset.R());
         for (SizeType il = 0; il < localindices.size(); il++) localindices[il] = il;
 
-        auto nclusters = COMMON::KmeansClustering<T>(dset, localindices, 0, dset.R(), kargs, options->m_trainingSamples, options->m_KmeansLambda, options->m_debug, nullptr);
+        //auto nclusters = COMMON::KmeansClustering<T>(dset, localindices, 0, dset.R(), kargs, options->m_trainingSamples, options->m_KmeansLambda, options->m_debug, nullptr);
 
         std::vector<SizeType> reverselocalindex;
         reverselocalindex.resize(dset.R());
