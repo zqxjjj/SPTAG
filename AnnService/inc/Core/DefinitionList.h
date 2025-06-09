@@ -145,7 +145,7 @@ DefineOrderStrategy(DESC)
 
 DefineStorage(STATIC)
 DefineStorage(FILEIO)
-DefineStorage(SPDK)
-DefineStorage(ROCKSDB)
+DefineStorage(SPDKIO)
+DefineStorage(ROCKSDBIO)
 
 #endif // DefineStorage

@@ -226,7 +226,7 @@ namespace SPTAG
 
             void GetIndexStat(int finishedInsert, bool cost, bool reset) { if (m_options.m_storage != Storage::STATIC) m_extraSearcher->GetIndexStats(finishedInsert, cost, reset); }
             
-            void ForceCompaction() { if (m_options.m_storage == Storage::ROCKSDB) m_extraSearcher->ForceCompaction(); }
+            void ForceCompaction() { if (m_options.m_storage == Storage::ROCKSDBIO) m_extraSearcher->ForceCompaction(); }
 
             void StopMerge() { m_options.m_inPlace = true; }
 

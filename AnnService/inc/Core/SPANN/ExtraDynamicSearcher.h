@@ -188,14 +188,14 @@ namespace SPTAG::SPANN {
                 db.reset(new FileIO(p_opt));
             }
 #ifdef SPDK
-            else if (p_opt.m_storage == Storage::SPDK) {
+            else if (p_opt.m_storage == Storage::SPDKIO) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:UseSPDK\n");
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:blockMappingPath:%s\n", p_opt.m_spdkMappingPath.c_str());
                 db.reset(new SPDKIO(p_opt.m_spdkMappingPath.c_str(), 1024 * 1024, MaxSize, p_opt.m_postingPageLimit + p_opt.m_bufferLength, 1024, p_opt.m_spdkBatchSize, p_opt.m_recovery));
             } 
 #endif
 #ifdef ROCKSDB
-            else if (p_opt.m_storage == Storage::ROCKSDB) {
+            else if (p_opt.m_storage == Storage::ROCKSDBIO) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:UseKV\n");
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:dbPath:%s\n", p_opt.m_KVPath.c_str());
                 db.reset(new RocksDBIO(p_opt.m_KVPath.c_str(), p_opt.m_useDirectIO, p_opt.m_enableWAL, p_opt.m_recovery));
@@ -1147,12 +1147,12 @@ namespace SPTAG::SPANN {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery: Current vector num: %d.\n", m_versionMap->Count());
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery:Current posting num: %d.\n", m_postingSizes.GetPostingNum());
             }
-            else if (m_opt->m_storage == Storage::ROCKSDB) {
+            else if (m_opt->m_storage == Storage::ROCKSDBIO) {
                 m_versionMap->Load(m_opt->m_deleteIDFile, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
                 m_postingSizes.Load(m_opt->m_ssdInfoFile, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current vector num: %d.\n", m_versionMap->Count());
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current posting num: %d.\n", m_postingSizes.GetPostingNum());
-            } else if (m_opt->m_storage == Storage::SPDK || m_opt->m_storage == Storage::FILEIO) {
+            } else if (m_opt->m_storage == Storage::SPDKIO || m_opt->m_storage == Storage::FILEIO) {
 		        if (fileexists((m_opt->m_indexDirectory + FolderSep + m_opt->m_ssdIndex).c_str())) {
                 	m_versionMap->Initialize(m_opt->m_vectorSize, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
 			        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Copying data from static to SPDK\n");
