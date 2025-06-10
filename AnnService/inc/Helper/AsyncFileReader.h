@@ -529,19 +529,6 @@ namespace SPTAG
 		struct timespec timeout_ts {0, 0};
 		while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
  
-		/*
-                while (m_currIoContext.free_sub_io_requests.size() < m_ssdFileIoDepth) {
-                    int wait = m_ssdFileIoDepth - m_currIoContext.free_sub_io_requests.size();
-                    std::vector<struct io_event> events(wait);
-                    struct timespec timeout_ts {0, 0};
-                    auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data(), &timeout_ts);
-                    for (int i = 0; i < d; i++) {
-                        auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
-                        req->app_buff = nullptr;
-                        m_currIoContext.free_sub_io_requests.push(req);
-                    }
-                }
-                */
                 for (int i = 0; i < requestCount; i++) {
                     AsyncReadRequest* readRequest = readRequests + i;
                     struct iocb* myiocb = &(readRequest->myiocb);
@@ -563,7 +550,7 @@ namespace SPTAG
                         iocbs[i] = &(readRequests[currSubIoStartId + i].myiocb);
                     }
 
-                    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: totalToSubmit:%d\n", totalToSubmit);
+                    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: iocp:%d totalToSubmit:%d\n", iocp, totalToSubmit);
                     while (totalDone < totalToSubmit) {
                         // Submit all I/Os
                         if (totalSubmitted < totalToSubmit) {
@@ -572,6 +559,7 @@ namespace SPTAG
                                 totalSubmitted += s;
                             } else {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_submit failed\n");
+				exit(1);
 			    }
  
                         }
@@ -639,6 +627,7 @@ namespace SPTAG
                                 totalSubmitted += s;
                             } else {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks: io_submit failed\n");
+				exit(1);
 			    }
                         }
                         int wait = totalSubmitted - totalDone;
@@ -684,6 +673,7 @@ namespace SPTAG
 
             virtual void ShutDown()
             {
+		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader: ShutDown!\n");
                 for (int i = 0; i < m_iocps.size(); i++) syscall(__NR_io_destroy, m_iocps[i]);
                 close(m_fileHandle);
 #ifndef BATCH_READ

@@ -237,7 +237,7 @@ namespace SPTAG
             }
 
             ~WorkSpace() {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Delete workspace happens!\n");
+                //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Delete workspace happens!\n");
             }
 
             void Initialize(int maxCheck, int hashExp)

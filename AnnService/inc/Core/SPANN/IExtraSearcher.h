@@ -196,7 +196,7 @@ namespace SPTAG {
                     if (p_blockIO) {
                         int numPages = (p_maxPages >> PageSizeEx);
                         m_diskRequests.resize(p_internalResultNum * numPages);
-			SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d*%d reqs\n", p_internalResultNum, numPages);
+			//SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d*%d reqs\n", p_internalResultNum, numPages);
                         for (int pi = 0; pi < p_internalResultNum; pi++) {
                             for (int pg = 0; pg < numPages; pg++) {
                                 int rid = pi * numPages + pg;
@@ -217,7 +217,7 @@ namespace SPTAG {
                     }
                     else {
                         m_diskRequests.resize(p_internalResultNum);
-			SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d reqs\n", p_internalResultNum);
+			//SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d reqs\n", p_internalResultNum);
                         for (int pi = 0; pi < p_internalResultNum; pi++) {
                             auto& req = m_diskRequests[pi];
                             req.m_extension = m_processIocp.handle();

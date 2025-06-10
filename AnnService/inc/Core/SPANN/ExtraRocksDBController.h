@@ -182,7 +182,7 @@ namespace SPTAG::SPANN
             rocksdb::Status* statuses = new rocksdb::Status[num_keys];
 
             for (int i = 0; i < num_keys; i++) {
-                slice_keys[i] = rocksdb::Slice(keys[i]);
+                slice_keys[i] = rocksdb::Slice(std::string((char*)&keys[i], sizeof(SizeType)));
             }
 
             db->MultiGet(rocksdb::ReadOptions(), db->DefaultColumnFamily(),
@@ -193,12 +193,11 @@ namespace SPTAG::SPANN
                     delete[] slice_keys;
                     delete[] slice_values;
                     delete[] statuses;
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "\e[0;31mError in MultiGet\e[0m: %s, key: %d\n", statuses[i].getState(), *((SizeType*)(keys[i].data())));
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "\e[0;31mError in MultiGet\e[0m: %s, key: %d\n", statuses[i].getState(), keys[i]);
                     return ErrorCode::Fail;
                 }
-                std::string& tmp = slice_values[i].ToString();
-                memcpy(values[i].GetBuffer(), tmp.data(), tmp.size());
-                values[i].SetAvailableSize(tmp.size());
+                memcpy(values[i].GetBuffer(), slice_values[i].data(), slice_values[i].size());
+                values[i].SetAvailableSize(slice_values[i].size());
             }
 
             delete[] slice_keys;

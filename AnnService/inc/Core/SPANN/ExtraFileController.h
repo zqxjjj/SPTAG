@@ -877,7 +877,7 @@ namespace SPTAG::SPANN {
 
         bool ExitBlockController(bool debug = false) override { 
             if (debug) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Exit FileIO for thread\n");
-            return m_pBlockController.ShutDown(); 
+            return true; 
         }
 
         ErrorCode Checkpoint(std::string prefix) override {

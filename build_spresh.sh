@@ -46,6 +46,9 @@ dim=128
 basefile="base.1B.u8bin"
 queryfile="query.public.10K.u8bin"
 
+storage=FILEIO
+ssdpath=/mnt_ssd/data2/cheqi/tmp/
+checkpointpath=/mnt_ssd/data1/cheqi/tmp/
 testscale="1m"
 updateto="2m"
 testscale_number=1000000
@@ -187,8 +190,8 @@ cd ..
 fi
 
 if [ "$1" == "build_index" ]; then
-sudo rm -rf /mnt_ssd/data1/cheqi/tmp/*
-sudo rm -rf /mnt_ssd/data2/cheqi/tmp/*
+sudo rm -rf $ssdpath/*
+
 echo "[Base]
 ValueType=$datatype
 DistCalcMethod=L2
@@ -206,7 +209,7 @@ WarmupPath=
 WarmupType=DEFAULT
 WarmupSize=$query_number
 WarmupDelimiter=
-TruthPath=${dataset}1b/
+TruthPath=${dataset}1b/${dataset}${testscale}_truth
 TruthType=DEFAULT
 GenerateTruth=false
 HeadVectorIDs=head_vectors_ID_$datatype\_L2_base_DEFUALT.bin
@@ -215,7 +218,7 @@ IndexDirectory=store_${dataset}${testscale}/
 HeadIndexFolder=head_index
 
 [SelectHead]
-isExecute=true
+isExecute=false
 TreeNumber=1
 BKTKmeansK=32
 BKTLeafSize=8
@@ -234,7 +237,7 @@ RecursiveCheckSmallCluster=true
 PrintSizeCount=true
 
 [BuildHead]
-isExecute=true
+isExecute=false
 NumberOfThreads=16
 
 [BuildSSDIndex]
@@ -246,9 +249,7 @@ ReplicaCount=8
 PostingPageLimit=4
 OutputEmptyReplicaID=1
 TmpDir=store_${dataset}${testscale}/tmpdir
-UseSPDK=false
-UseKV=false
-UseFileIO=true
+Storage=${storage}
 SpdkBatchSize=64
 ExcludeHead=false
 UseDirectIO=false
@@ -279,153 +280,17 @@ Sampling=4
 BufferLength=6
 InPlace=true
 LoadAllVectors=true
-PersistentBufferPath=/mnt_ssd/data1/cheqi/tmp/bf
-SsdInfoFile=/mnt_ssd/data1/cheqi/tmp/postingSizeRecords
-SpdkMappingPath=/mnt_ssd/data2/cheqi/tmp/spdkmapping
-EndVectorNum=2000000" > build_SPANN_store_${dataset}${testscale}.ini
-SPFRESH_FILE_IO_PATH=/mnt_ssd/data2/cheqi/tmp/test_filepostings ./ssdserving build_SPANN_store_${dataset}${testscale}.ini
-echo "[Index]
-IndexAlgoType=SPANN
-ValueType=$datatype
+PersistentBufferPath=${checkpointpath}/bf
+SsdInfoFile=${ssdpath}/postingSizeRecords
+SpdkMappingPath=${ssdpath}/spdkmapping
+EndVectorNum=2000000
 
-[Base]
-ValueType=$datatype
-DistCalcMethod=L2
-IndexAlgoType=BKT
-Dim=$dim
-VectorPath=${dataset}1b/$dataset.$testscale.bin
-VectorType=DEFAULT
-VectorSize=$testscale_number
-VectorDelimiter=
-QueryPath=${dataset}1b/$queryfile
-QueryType=DEFAULT
-QuerySize=$query_number
-QueryDelimiter=
-WarmupPath=
-WarmupType=DEFAULT
-WarmupSize=$query_number
-WarmupDelimiter=
-TruthPath=${dataset}1b/
-TruthType=DEFAULT
-GenerateTruth=false
-HeadVectorIDs=head_vectors_ID_$datatype\_L2_base_DEFUALT.bin
-HeadVectors=head_vectors_$datatype\_L2_base_DEFUALT.bin
-IndexDirectory=store_${dataset}${testscale}/
-HeadIndexFolder=head_index
-
-
-[SelectHead]
-isExecute=false
-TreeNumber=1
-BKTKmeansK=32
-BKTLeafSize=8
-SamplesNumber=1000
-NumberOfThreads=16
-SaveBKT=false
-AnalyzeOnly=false
-CalcStd=true
-SelectDynamically=true
-NoOutput=false
-SelectThreshold=12
-SplitFactor=9
-SplitThreshold=18
-Ratio=0.15
-RecursiveCheckSmallCluster=true
-PrintSizeCount=true
-
-[BuildHead]
-isExecute=false
-TreeFilePath=tree.bin
-GraphFilePath=graph.bin
-VectorFilePath=vectors.bin
-DeleteVectorFilePath=deletes.bin
-EnableBfs=0
-BKTNumber=1
-BKTKmeansK=32
-BKTLeafSize=8
-Samples=1000
-BKTLambdaFactor=100.000000
-TPTNumber=32
-TPTLeafSize=2000
-NumTopDimensionTpTreeSplit=5
-NeighborhoodSize=32
-GraphNeighborhoodScale=2.000000
-GraphCEFScale=2.000000
-RefineIterations=2
-EnableRebuild=0
-CEF=1000
-AddCEF=500
-MaxCheckForRefineGraph=8192
-RNGFactor=1.000000
-GPUGraphType=2
-GPURefineSteps=0
-GPURefineDepth=30
-GPULeafSize=500
-HeadNumGPUs=1
-TPTBalanceFactor=2
-NumberOfThreads=16
-DistCalcMethod=L2
-DeletePercentageForRefine=0.400000
-AddCountForRebuild=1000
-MaxCheck=4096
-ThresholdOfNumberOfContinuousNoBetterPropagation=3
-NumberOfInitialDynamicPivots=50
-NumberOfOtherDynamicPivots=4
-HashTableExponent=2
-DataBlockSize=1048576
-DataCapacity=2147483647
-MetaRecordSize=10
-
-[BuildSSDIndex]
+[SearchSSDIndex]
 isExecute=true
 BuildSsdIndex=false
-NumberOfThreads=16
-InternalResultNum=64
-ReplicaCount=8
-PostingPageLimit=4
-OutputEmptyReplicaID=1
-TmpDir=store_${dataset}${testscale}/tmpdir
-UseSPDK=true
-ExcludeHead=false
-UseDirectIO=true
-ResultNum=10
-SearchInternalResultNum=64
 SearchThreadNum=2
-SearchTimes=1
-Update=true
-SteadyState=true
-Days=100
-InsertThreadNum=1
-AppendThreadNum=1
-ReassignThreadNum=0
-TruthFilePrefix=${dataset}1b/
-FullVectorPath=${dataset}1b/$dataset.$updateto.bin
-DisableReassign=false
-ReassignK=64
-LatencyLimit=20.0
-CalTruth=true
-SearchPostingPageLimit=4
-MaxDistRatio=1000000
-SearchDuringUpdate=true
-MergeThreshold=10
-UpdateFilePrefix=${dataset}1b/${dataset}${testscale}_update_trace
-DeleteQPS=800
-ShowUpdateProgress=false
-Sampling=4
-BufferLength=6
-InPlace=true
-PersistentBufferPath=/mnt_ssd/data1/cheqi/tmp/bf
-SsdInfoFile=/mnt_ssd/data1/cheqi/tmp/postingSizeRecords
-SpdkMappingPath=/mnt_ssd/data2/cheqi/tmp/spdkmapping
-SearchResult=${dataset}1b/result_spfresh_balance
-EndVectorNum=2000000" > store_${dataset}${testscale}/indexloader.ini
-fi
-
-if [ "$1" == "run_update" ]; then
-#SPDK version
-#PCI_ALLOWED="1462:00:00.0" SPFRESH_SPDK_USE_SSD_IMPL=1 SPFRESH_SPDK_CONF=../bdev.json SPFRESH_SPDK_BDEV=Nvme0n1 sudo -E ./spfresh store_${dataset}${testscale} |tee log_spfresh.log
-
-#FileIO version
+" > build_SPANN_store_${dataset}${testscale}.ini
+./ssdserving build_SPANN_store_${dataset}${testscale}.ini
 echo "[Index]
 IndexAlgoType=SPANN
 ValueType=$datatype
@@ -527,9 +392,7 @@ ReplicaCount=8
 PostingPageLimit=4
 OutputEmptyReplicaID=1
 TmpDir=store_${dataset}${testscale}/tmpdir
-UseSPDK=false
-UseKV=false
-UseFileIO=true
+Storage=FILEIO
 SpdkBatchSize=64
 ExcludeHead=false
 UseDirectIO=false
@@ -559,14 +422,24 @@ ShowUpdateProgress=false
 Sampling=4
 BufferLength=6
 InPlace=true
-SearchResult=${dataset}1b/result_spfresh_balance
 LoadAllVectors=true
-PersistentBufferPath=/mnt_ssd/data1/cheqi/tmp/bf
-SsdInfoFile=/mnt_ssd/data1/cheqi/tmp/postingSizeRecords
-SpdkMappingPath=/mnt_ssd/data2/cheqi/tmp/spdkmapping
+PersistentBufferPath=${checkpointpath}/bf
+SsdInfoFile=${ssdpath}/postingSizeRecords
+SpdkMappingPath=${ssdpath}/spdkmapping
+SearchResult=${dataset}1b/result_spfresh_balance
 EndVectorNum=2000000" > store_${dataset}${testscale}/indexloader.ini
+fi
 
-PCI_ALLOWED="1462:00:00.0" SPFRESH_SPDK_USE_SSD_IMPL=1 SPFRESH_SPDK_CONF=../bdev.json SPFRESH_SPDK_BDEV=Nvme0n1 SPFRESH_FILE_IO_PATH=/mnt_ssd/data2/cheqi/tmp/test_filepostings SPFRESH_FILE_IO_USE_CACHE=False SPFRESH_FILE_IO_THREAD_NUM=16 SPFRESH_FILE_IO_USE_LOCK=False SPFRESH_FILE_IO_LOCK_SIZE=262144 sudo -E ./spfresh store_${dataset}${testscale} |tee log_spfresh.log
+if [ "$1" == "run_update" ]; then
+rm -rf ${dataset}1b/result_spfresh_balance*
+#SPDK version
+if [ "$storage" == "SPDKIO" ]; then
+    echo "Run SPDKIO..."
+    PCI_ALLOWED="1462:00:00.0" SPFRESH_SPDK_USE_SSD_IMPL=1 SPFRESH_SPDK_CONF=../bdev.json SPFRESH_SPDK_BDEV=Nvme0n1 sudo -E ./spfresh store_${dataset}${testscale} |tee log_spfresh.log
+else
+   echo "RUN FILEIO..."
+   PCI_ALLOWED="1462:00:00.0" SPFRESH_SPDK_USE_SSD_IMPL=1 SPFRESH_SPDK_CONF=../bdev.json SPFRESH_SPDK_BDEV=Nvme0n1 SPFRESH_FILE_IO_USE_CACHE=False SPFRESH_FILE_IO_THREAD_NUM=16 SPFRESH_FILE_IO_USE_LOCK=False SPFRESH_FILE_IO_LOCK_SIZE=262144 sudo -E ./spfresh store_${dataset}${testscale} |tee log_spfresh.log
+fi
 fi
 
 if [ "$1" == "plot_result" ]; then

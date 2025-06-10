@@ -265,7 +265,7 @@ namespace SPTAG::SPANN
                 if (At(i) != 0xffffffffffffffff) delete[]((AddressType*)At(i));
             }
             while (!m_buffer.empty()) {
-                uintptr_t ptr;
+                uintptr_t ptr = 0xffffffffffffffff;
                 if (m_buffer.try_pop(ptr)) delete[]((AddressType*)ptr);
             }
             m_pBlockController.ShutDown();
@@ -323,7 +323,7 @@ namespace SPTAG::SPANN
             }
             if (At(key) == 0xffffffffffffffff) {
                 if (m_buffer.unsafe_size() > m_bufferLimit) {
-                    uintptr_t tmpblocks;
+                    uintptr_t tmpblocks = 0xffffffffffffffff;
                     while (!m_buffer.try_pop(tmpblocks));
                     At(key) = tmpblocks;
                 }
@@ -339,7 +339,7 @@ namespace SPTAG::SPANN
                 *postingSize = value.size();
             }
             else {
-                uintptr_t tmpblocks;
+                uintptr_t tmpblocks = 0xffffffffffffffff;
                 while (!m_buffer.try_pop(tmpblocks));
                 m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks);
                 m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value);
@@ -378,7 +378,7 @@ namespace SPTAG::SPANN
                 m_pBlockController.ReadBlocks(readreq, &newValue);
                 newValue += value;
 
-                uintptr_t tmpblocks;
+                uintptr_t tmpblocks = 0xffffffffffffffff;
                 while (!m_buffer.try_pop(tmpblocks));
                 memcpy((AddressType*)tmpblocks, postingSize, sizeof(AddressType) * (oldblocks + 1));
                 m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks);

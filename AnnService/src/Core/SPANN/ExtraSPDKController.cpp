@@ -215,7 +215,7 @@ bool SPDKIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         AddressType dataIdx = 1;
         while (currOffset < p_data[0]) {
             AddressType readSize = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
-            memcpy((void *)p_value->data() + currOffset, m_memBuffer.get() + p_data[dataIdx] * PageSize, readSize);
+            memcpy((char *)p_value->data() + currOffset, m_memBuffer.get() + p_data[dataIdx] * PageSize, readSize);
             currOffset += PageSize;
             dataIdx++;
         }
@@ -246,7 +246,7 @@ bool SPDKIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
             if (currOffset < p_data[0] && m_currIoContext.free_sub_io_requests.size()) {
                 currSubIo = m_currIoContext.free_sub_io_requests.back();
                 m_currIoContext.free_sub_io_requests.pop_back();
-                currSubIo->app_buff = (void *)p_value->data() + currOffset;
+                currSubIo->app_buff = (char *)p_value->data() + currOffset;
                 currSubIo->real_size = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
                 currSubIo->is_read = true;
                 currSubIo->offset = p_data[dataIdx] * PageSize;
@@ -297,7 +297,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
 
             while (currOffset < p_data_i[0]) {
                 SubIoRequest currSubIo;
-                currSubIo.app_buff = (void *)p_value->data() + currOffset;
+                currSubIo.app_buff = (char *)p_value->data() + currOffset;
                 currSubIo.real_size = (p_data_i[0] - currOffset) < PageSize ? (p_data_i[0] - currOffset) : PageSize;
                 currSubIo.is_read = true;
                 currSubIo.offset = p_data_i[dataIdx] * PageSize;
@@ -370,15 +370,16 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
     }
 }
 
-bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_values, const std::chrono::microseconds& timeout = (std::chrono::microseconds::max)()) {
+bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_values, const std::chrono::microseconds& timeout) {
     if (m_useMemImpl) {
         for (size_t i = 0; i < p_data.size(); i++) {
             std::uint8_t* p_value = p_values[i].GetBuffer();
+	    auto& p_data_i = p_data[i];
             AddressType currOffset = 0;
             AddressType dataIdx = 1;
-            while (currOffset < p_data[0]) {
-                AddressType readSize = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
-                memcpy((void*)p_value + currOffset, m_memBuffer.get() + p_data[dataIdx] * PageSize, readSize);
+            while (currOffset < p_data_i[0]) {
+                AddressType readSize = (p_data_i[0] - currOffset) < PageSize ? (p_data_i[0] - currOffset) : PageSize;
+                memcpy((char *)p_value + currOffset, m_memBuffer.get() + p_data_i[dataIdx] * PageSize, readSize);
                 currOffset += PageSize;
                 dataIdx++;
             }
@@ -406,7 +407,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
             AddressType dataIdx = 1;
             while (currOffset < postingSize) {
                 SubIoRequest currSubIo;
-                currSubIo.app_buff = (void*)p_value + currOffset;
+                currSubIo.app_buff = (char *)p_value + currOffset;
                 currSubIo.real_size = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
                 currSubIo.is_read = true;
                 currSubIo.offset = p_data_i[dataIdx] * PageSize;
@@ -469,7 +470,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
 
         for (int i = 0; i < subIoRequestCount.size(); i++) {
             if (subIoRequestCount[i] != 0) {
-                (*p_values)[i].clear();
+                p_values[i].SetAvailableSize(0);
             }
         }
         return true;
