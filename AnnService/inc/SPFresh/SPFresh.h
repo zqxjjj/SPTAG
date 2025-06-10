@@ -754,7 +754,7 @@ namespace SPTAG {
                         index = vectorsSent.fetch_add(1);
                         if (index < updateSize)
                         {
-                            if ((index & ((1 << 14) - 1)) == 0 && p_opts.m_showUpdateProgress)
+                            if ((index & ((1 << 8) - 1)) == 0 && p_opts.m_showUpdateProgress)
                             {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Insert: Sent %.2lf%%...\n", index * 100.0 / updateSize);
                             }
@@ -842,7 +842,7 @@ namespace SPTAG {
                         index = vectorsSent.fetch_add(1);
                         if (index < updateSize)
                         {
-                            if ((index & ((1 << 14) - 1)) == 0 && p_opts.m_showUpdateProgress)
+                            if ((index & ((1 << 8) - 1)) == 0 && p_opts.m_showUpdateProgress)
                             {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Delete: Sent %.2lf%%...\n", index * 100.0 / updateSize);
                             }

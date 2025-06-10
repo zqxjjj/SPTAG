@@ -89,7 +89,8 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
     }
     fsync(debug_fd);
 #endif
-    auto blockNum = (p_data[0] + PageSize - 1) >> PageSizeEx;
+    size_t postingSize = (size_t)p_data[0];
+    auto blockNum = (postingSize + PageSize - 1) >> PageSizeEx;
     if (blockNum > reqs->size()) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: %d > %u\n", (int)blockNum, reqs->size());
         return false;
@@ -101,7 +102,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
     for (int i = 0; i < blockNum; i++) {
         Helper::AsyncReadRequest& curr = reqs->at(i);
         curr.m_buffer = (char*)p_value->data() + currOffset;
-        curr.m_readSize = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
+        curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
         curr.m_offset = p_data[dataIdx] * PageSize;
         currOffset += PageSize;
         dataIdx++;
@@ -113,7 +114,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, blockNum);
         m_batchReadTimeouts++;
     }
-    p_value->resize(p_data[0]);
+    p_value->resize(postingSize);
     return true;
 }
 
@@ -137,13 +138,14 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             continue;
         }
 
-        p_value->resize(((p_data_i[0] + PageSize - 1) >> PageSizeEx) << PageSizeEx);
+        std::size_t postingSize = (std::size_t)p_data_i[0];
+        p_value->resize(((postingSize + PageSize - 1) >> PageSizeEx) << PageSizeEx);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
-        while(currOffset < p_data_i[0]) {
+        while(currOffset < postingSize) {
             Helper::AsyncReadRequest& curr = reqs->at(reqcount);
             curr.m_buffer = (char*)p_value->data() + currOffset;
-            curr.m_readSize = (p_data_i[0] - currOffset) < PageSize ? (p_data_i[0] - currOffset) : PageSize;
+            curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
             curr.m_offset = p_data_i[dataIdx] * PageSize;
             currOffset += PageSize;
             dataIdx++;

@@ -30,13 +30,13 @@ namespace SPTAG::SPANN {
 
             thread_local static int debug_fd;
             
-            int64_t read_complete_vec = 0;
-            int64_t read_submit_vec = 0;
-            int64_t write_complete_vec = 0;
-            int64_t write_submit_vec = 0;
-            int64_t read_bytes_vec = 0;
-            int64_t write_bytes_vec = 0;
-            int64_t read_blocks_time_vec = 0;
+	    std::atomic<int64_t> read_complete_vec = 0;
+	    std::atomic<int64_t> read_submit_vec = 0;
+	    std::atomic<int64_t> write_complete_vec = 0;
+	    std::atomic<int64_t> write_submit_vec = 0;
+	    std::atomic<int64_t> read_bytes_vec = 0;
+	    std::atomic<int64_t> write_bytes_vec = 0;
+	    std::atomic<int64_t> read_blocks_time_vec = 0;
 
             std::mutex m_initMutex;
             int m_numInitCalled = 0;
@@ -820,7 +820,7 @@ namespace SPTAG::SPANN {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Remain %d blocks, totally %d GB\n", remainBlocks, remainGB);
             double average_read_time = (double)read_time_vec / get_times_vec;
             double average_get_time = (double)get_time_vec / get_times_vec;
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Get times: %llu, get time: %llu us, read time: %llu us\n", get_times_vec, get_time_vec, read_time_vec);
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Get times: %llu, get time: %llu us, read time: %llu us\n", get_times_vec.load(), get_time_vec.load(), read_time_vec.load());
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Average read time: %lf us, average get time: %lf us\n", average_read_time, average_get_time);
             if (m_fileIoUseCache) {
                 auto cache_stat = m_pShardedLRUCache->get_stat();
@@ -899,9 +899,9 @@ namespace SPTAG::SPANN {
         static constexpr const char* kFileIoCacheShards = "SPFRESH_FILE_IO_CACHE_SHARDS";
         static constexpr int kSsdFileIoDefaultCacheShards = 4;
 
-        uint64_t read_time_vec = 0;
-        uint64_t get_time_vec = 0;
-        uint64_t get_times_vec = 0;
+	std::atomic<uint64_t> read_time_vec = 0;
+	std::atomic<uint64_t> get_time_vec = 0;
+	std::atomic<uint64_t> get_times_vec = 0;
 
         bool m_fileIoUseLock = kFileIoDefaultUseLock;
         int m_fileIoLockSize = kFileIoDefaultLockSize;

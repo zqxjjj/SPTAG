@@ -420,7 +420,10 @@ namespace SPTAG
         public:
             AsyncFileIO(DiskIOScenario scenario = DiskIOScenario::DIS_UserRead) {}
 
-            virtual ~AsyncFileIO() { ShutDown(); }
+            virtual ~AsyncFileIO() {
+		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader: Destroying fd=%d!\n", m_fileHandle);
+                ShutDown(); 
+	    }
 
             bool CreateFile(const char* filePath, uint64_t maxFileSize) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO: Create a file\n");
@@ -640,12 +643,12 @@ namespace SPTAG
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                         if (batchTotalDone < requestCount) {
-                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks (batch[%d:%d]) : timeout\n", currSubIoStartId, currSubIoEndId);
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks (batch[%d:%d]) : timeout\n", currSubIoStartId, currSubIoEndId);
                         }
                         break;
                     }
                 }
-                //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: finish\n");
+                //if (iocp == 1) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: %d reqs finish\n", requestCount);
                 return batchTotalDone;
             }
 
