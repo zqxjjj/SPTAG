@@ -89,6 +89,13 @@ namespace SPTAG
         {
             /** Need to modify **/
             m_index->SetQuantizer(m_pQuantizer);
+	    if (!m_options.m_persistentBufferPath.empty() && !direxists(m_options.m_persistentBufferPath.c_str())) mkdir(m_options.m_persistentBufferPath.c_str());
+
+	    std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
+            if (m_options.m_recovery) {
+                kvpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_KVFile;
+            }
+
             if (m_index->LoadIndexDataFromMemory(p_indexBlobs) != ErrorCode::Success) return ErrorCode::Fail;
 
             m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
@@ -105,10 +112,10 @@ namespace SPTAG
             {
                 if (m_options.m_useKV) {
                     if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVFile.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(kvpath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
                     }
                     else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVFile.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(kvpath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
                     }
                 }
                 else {
@@ -128,13 +135,14 @@ namespace SPTAG
         ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
             m_index->SetQuantizer(m_pQuantizer);
+	    if (!m_options.m_persistentBufferPath.empty() && !direxists(m_options.m_persistentBufferPath.c_str())) mkdir(m_options.m_persistentBufferPath.c_str());
 
             auto headfiles = m_index->GetIndexFiles();
             if (m_options.m_recovery) {
                 std::shared_ptr<std::vector<std::string>> files(new std::vector<std::string>);
                 auto headfiles = m_index->GetIndexFiles();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery: Loading another in-memory index\n");
-                std::string filename = m_options.m_persistentBufferPath + "_headIndex";
+                std::string filename = m_options.m_persistentBufferPath + FolderSep + m_options.m_headIndexFolder;
                 for (auto file : *headfiles) {
                     files->push_back(filename + FolderSep + file);
                 }
@@ -156,9 +164,11 @@ namespace SPTAG
             m_index->UpdateIndex();
             m_index->SetReady(true);
 
+	    std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
+	    std::string ssdmappingpath = m_options.m_indexDirectory + FolderSep + m_options.m_ssdMappingFile;
             if (m_options.m_recovery) {
-                m_options.m_KVFile = m_options.m_persistentBufferPath + FolderSep + "rocksdb";
-                m_options.m_ssdMappingFile = m_options.m_persistentBufferPath + FolderSep + m_options.;
+                kvpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_KVFile;
+                ssdmappingpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_ssdMappingFile;
             }
 
             if (m_pQuantizer)
@@ -170,18 +180,18 @@ namespace SPTAG
                 if (m_options.m_useKV) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex:: UseKV.\n");
                     if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVFile.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(kvpath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
                     }
                     else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVFile.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(kvpath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T) * m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
                     }
                 }
                 else if (m_options.m_useSPDK) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex:: UseSPDK.\n");
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>((m_options.m_ssdMappingFile).c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(ssdmappingpath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery));
                 } else if(m_options.m_useFileIO) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex:: UseFileIO.\n");
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_ssdMappingFile.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery, true));
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(ssdmappingpath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, m_options.m_recovery, true));
                 } else {
                     m_extraSearcher.reset(new ExtraStaticSearcher<T>());
                 }
@@ -298,25 +308,42 @@ namespace SPTAG
                 workSpace->m_postingIDs.clear();
 
                 float limitDist = p_queryResults->GetResult(0)->Dist * m_options.m_maxDistRatio;
-                for (int i = 0; i < p_queryResults->GetResultNum(); ++i)
+                int i = 0;
+		for (; i < m_options.m_searchInternalResultNum; ++i)
                 {
                     auto res = p_queryResults->GetResult(i);
-                    if (res->VID == -1) break;
-                    auto postingID = res->VID;
+                    if (res->VID == -1 || (limitDist > 0.1 && res->Dist > limitDist)) break;
+		    if (m_extraSearcher->CheckValidPosting(res->VID))
+                    {
+                        workSpace->m_postingIDs.emplace_back(res->VID);
+                    }
                     if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
                     }
-
-                    // Don't do disk reads for irrelevant pages
-                    if (workSpace->m_postingIDs.size() >= m_options.m_searchInternalResultNum ||
-                        (limitDist > 0.1 && res->Dist > limitDist) || 
-                        !m_extraSearcher->CheckValidPosting(postingID)) 
-                        continue;
-                    workSpace->m_postingIDs.emplace_back(postingID);
+                    if (res->VID == MaxSize) 
+                    {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
                 }
 
+		 for (; i < p_queryResults->GetResultNum(); ++i)
+                {
+                auto res = p_queryResults->GetResult(i);
+                if (res->VID == -1) break;
+                if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                else {
+                    res->VID = -1;
+                    res->Dist = MaxDist;
+                }
+                if (res->VID == MaxSize)
+                {
+                    res->VID = -1;
+                    res->Dist = MaxDist;
+                }
+                }
                 p_queryResults->Reverse();
                 m_extraSearcher->SearchIndex(workSpace.get(), *p_queryResults, m_index, nullptr);
                 m_workSpaceFactory->ReturnWorkSpace(std::move(workSpace));
@@ -333,6 +360,7 @@ namespace SPTAG
                 for (int i = 0; i < p_query.GetResultNum(); ++i)
                 {
                     SizeType result = p_query.GetResult(i)->VID;
+		    //if (result > m_pMetadata->Count()) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "vid return is beyond the metadata set:(%d > (%d, %d))\n", result, GetNumSamples(), m_pMetadata->Count());
                     p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
                 }
             }
@@ -902,12 +930,11 @@ namespace SPTAG
 
         template <typename T>
         ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader) {
-            if (!m_options.m_indexDirectory.empty()) {
-                if (!direxists(m_options.m_indexDirectory.c_str()))
-                {
-                    mkdir(m_options.m_indexDirectory.c_str());
-                }
-            }
+            if (!m_options.m_indexDirectory.empty() && !direxists(m_options.m_indexDirectory.c_str()))
+                mkdir(m_options.m_indexDirectory.c_str());
+
+	    if (!m_options.m_persistentBufferPath.empty() && !direxists(m_options.m_persistentBufferPath.c_str())) 
+                mkdir(m_options.m_persistentBufferPath.c_str());
 
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin Select Head...\n");
             auto t1 = std::chrono::high_resolution_clock::now();
@@ -988,6 +1015,9 @@ namespace SPTAG
                 m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
                 m_index->UpdateIndex();
 
+     	        std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
+	        std::string ssdmappingpath = m_options.m_indexDirectory + FolderSep + m_options.m_ssdMappingFile;
+ 
                 if (m_pQuantizer)
                 {
                     m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
@@ -996,10 +1026,10 @@ namespace SPTAG
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex::BuildIndex::UseKV.\n");
                     if (m_options.m_inPlace) {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVFile.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(kvpath.c_str(), m_options.m_dim, INT_MAX, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
                     }
                     else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_KVFile.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T)*m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(kvpath.c_str(), m_options.m_dim, m_options.m_postingPageLimit * PageSize / (sizeof(T)*m_options.m_dim + sizeof(int) + sizeof(uint8_t)), m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold));
                     }
                 } else if (m_options.m_useSPDK)
                 {
@@ -1009,11 +1039,11 @@ namespace SPTAG
                         exit(1);
                     }
                     else {
-                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_ssdMappingFile.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength));
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(ssdmappingpath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, true, m_options.m_spdkBatchSize, m_options.m_bufferLength));
                     }  
                 } else if (m_options.m_useFileIO) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPANNIndex::BuildIndex::UseFileIO.\n");
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options.m_ssdMappingFile.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, false, true));
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(ssdmappingpath.c_str(), m_options.m_dim, m_options.m_postingPageLimit, m_options.m_useDirectIO, m_options.m_latencyLimit, m_options.m_mergeThreshold, false, m_options.m_spdkBatchSize, m_options.m_bufferLength, false, true));
                 }
                 else {
                     if (m_pQuantizer) {

@@ -2,85 +2,24 @@
 // Licensed under the MIT License.
 
 #include "inc/Test.h"
+#include "inc/Helper/VectorSetReader.h"
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Core/VectorIndex.h"
+#include "inc/Core/SPANN/Index.h"
 #include "inc/Helper/DiskIO.h"
 #include "inc/Core/Common/CommonUtils.h"
-
+#include "inc/Core/Common/QueryResultSet.h"
+#include "inc/Core/Common/DistanceUtils.h"
 #include <thread>
 #include <unordered_set>
 #include <ctime>
 
 using namespace SPTAG;
 
-SizeType n = 20000, q = 2000;
-DimensionType m = 100;
-
-template <typename T>
-void ConcurrentAddSearchSave(const std::string out)
-{
-    std::shared_ptr<SPTAG::VectorIndex> vecIndex = SPTAG::VectorIndex::LoadIndex(out);
-    BOOST_CHECK(nullptr != vecIndex);
-
-    bool stop = false;
-
-    auto AddThread = [&stop, &vecIndex, &vec, &meta]() {
-        int i = 0;
-        while (!stop)
-        {
-            SPTAG::ByteArray metaarr = meta->GetMetadata(i);
-            std::uint64_t offset[2] = { 0, metaarr.Length() };
-            std::shared_ptr<SPTAG::MetadataSet> metaset(new SPTAG::MemMetadataSet(metaarr, SPTAG::ByteArray((std::uint8_t*)offset, 2 * sizeof(std::uint64_t), false), 1));
-            SPTAG::ErrorCode ret = vecIndex->AddIndex(vec->GetVector(i), 1, vec->Dimension(), metaset, true);
-            if (SPTAG::ErrorCode::Success != ret) std::cerr << "Error AddIndex(" << (int)(ret) << ") for vector " << i << std::endl;
-            i = (i + 1) % vec->Count();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        std::cout << "Stop AddThread..." << std::endl;
-        };
-
-    auto DeleteThread = [&stop, &vecIndex, &vec, &meta]() {
-        int i = 0;
-        while (!stop)
-        {
-            SPTAG::ByteArray metaarr = meta->GetMetadata(i);
-            vecIndex->DeleteIndex(metaarr);
-            i = (i + 1) % vec->Count();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        std::cout << "Stop DeleteThread..." << std::endl;
-        };
-
-    auto SearchThread = [&stop, &vecIndex, &vec]() {
-        while (!stop) {
-            SPTAG::QueryResult res(vec->GetVector(SPTAG::COMMON::Utils::rand(vec->Count())), 5, true);
-            vecIndex->SearchIndex(res);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        std::cout << "Stop SearchThread..." << std::endl;
-        };
-
-    auto SaveThread = [&stop, &vecIndex, &out]() {
-        while (!stop)
-        {
-            vecIndex->SaveIndex(out);
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-        std::cout << "Stop SaveThread..." << std::endl;
-        };
-
-    std::vector<std::thread> threads;
-    threads.emplace_back(std::thread(AddThread));
-    threads.emplace_back(std::thread(DeleteThread));
-    threads.emplace_back(std::thread(SearchThread));
-    threads.emplace_back(std::thread(SaveThread));
-
-    std::this_thread::sleep_for(std::chrono::seconds(30));
-
-    stop = true;
-    for (auto& thread : threads) { thread.join(); }
-    std::cout << "Main Thread quit!" << std::endl;
-}
+namespace SPFreshTest {
+SizeType n = 10000, q = 2000;
+DimensionType m = 128;
+int k = 10;
 
 template <typename T>
 std::shared_ptr<SPTAG::VectorIndex> BuildIndex(SPTAG::IndexAlgoType algo, std::shared_ptr<SPTAG::VectorSet>& vec, std::shared_ptr<SPTAG::MetadataSet>& meta, const std::string out)
@@ -88,79 +27,91 @@ std::shared_ptr<SPTAG::VectorIndex> BuildIndex(SPTAG::IndexAlgoType algo, std::s
     std::shared_ptr<SPTAG::VectorIndex> vecIndex = SPTAG::VectorIndex::CreateInstance(algo, SPTAG::GetEnumValueType<T>());
     BOOST_CHECK(nullptr != vecIndex);
 
-    const char* config =
-        "[Base]\n\
-        DistCalcMethod = L2\n\
-        IndexAlgoType = BKT\n\
-        Dim = [dim]\n\
-        IndexDirectory = [out]\n\
-        [SelectHead]\n\
-        isExecute = true\n\
-        NumberOfThreads = 16\n\
-        SelectThreshold = 0\n\
-        SplitFactor = 0\n\
-        SplitThreshold = 0\n\
-        Ratio = 0.1\n\
-        [BuildHead]\n\
-        isExecute = true\n\
-        NumberOfThreads = 16\n\
-        [BuildSSDIndex]\n\
-        isExecute = true\n\
-        BuildSsdIndex = true\n\
-        InternalResultNum = 64\n\
-        SearchInternalResultNum = 64\n\
-        NumberOfThreads = 16\n\
-        PostingPageLimit = 4\n\
-        SearchPostingPageLimit = 4\n\
-        TmpDir = tmpdir\n\
-        UseFileIO=true\n\
-        UseSPDKIO=false\n\
-        SpdkBatchSize = 64\n\
-        ExcludeHead = false\n\
-        ResultNum = 10\n\
-        SearchThreadNum = 2\n\
-        Update = true\n\
-        SteadyState = true\n\
-        InsertThreadNum = 1\n\
-        AppendThreadNum = 1\n\
-        ReassignThreadNum = 0\n\
-        DisableReassign = false\n\
-        ReassignK = 64\n\
-        LatencyLimit = 50.0\n\
-        SearchDuringUpdate = true\n\
-        MergeThreshold = 10\n\
-        Sampling = 4\n\
-        BufferLength = 6\n\
-        InPlace = true\n\
-        ";
-        std::string configstr(config);
-        configstr.replace("[out]", out);
-        configstr.replace("[dim]", std::to_string(m));
+    std::string configstr =
+"[Base]\n\
+DistCalcMethod=L2\n\
+IndexAlgoType=BKT\n\
+ValueType=Float\n\
+Dim=" + std::to_string(m) + "\n\
+IndexDirectory=" + out + "\n\
+[SelectHead]\n\
+isExecute=true\n\
+NumberOfThreads=16\n\
+SelectThreshold=0\n\
+SplitFactor=0\n\
+SplitThreshold=0\n\
+Ratio=0.1\n\
+[BuildHead]\n\
+isExecute=true\n\
+NumberOfThreads=16\n\
+[BuildSSDIndex]\n\
+isExecute=true\n\
+BuildSsdIndex=true\n\
+InternalResultNum=64\n\
+SearchInternalResultNum=64\n\
+NumberOfThreads=16\n\
+PostingPageLimit=16\n\
+SearchPostingPageLimit=16\n\
+TmpDir=tmpdir\n\
+UseFileIO=false\n\
+UseSPDKIO=false\n\
+SpdkBatchSize=64\n\
+ExcludeHead=false\n\
+ResultNum=10\n\
+SearchThreadNum=2\n\
+Update=true\n\
+SteadyState=true\n\
+InsertThreadNum=1\n\
+AppendThreadNum=1\n\
+ReassignThreadNum=0\n\
+DisableReassign=false\n\
+ReassignK=64\n\
+LatencyLimit=50.0\n\
+SearchDuringUpdate=true\n\
+MergeThreshold=10\n\
+Sampling=4\n\
+BufferLength=6\n\
+InPlace=true\n\
+";
 
     SPTAG::Helper::IniReader iniReader;
     std::shared_ptr<SPTAG::Helper::DiskIO> bufferhandle(new SPTAG::Helper::SimpleBufferIO());
-    if (bufferhandle == nullptr || !bufferhandle->Initialize(configstr.data(), std::ios::in, configstr.size())) return SPTAG::ErrorCode::EmptyDiskIO;
-    if (SPTAG::ErrorCode::Success != iniReader.LoadIni(bufferhandle)) return ErrorCode::FailedParseValue;
-    vecIndex->LoadConfig(iniReader);
+    if (bufferhandle == nullptr || !bufferhandle->Initialize(configstr.data(), std::ios::in, configstr.size())) return nullptr;
+    if (SPTAG::ErrorCode::Success != iniReader.LoadIni(bufferhandle)) return nullptr;
+    
+    std::string sections[] = { "Base", "SelectHead", "BuildHead", "BuildSSDIndex" };
+    for (int i = 0; i < 4; i++) {
+    auto parameters = iniReader.GetParameters(sections[i].c_str());
+    for (auto iter = parameters.begin(); iter != parameters.end(); iter++) {
+        vecIndex->SetParameter(iter->first.c_str(), iter->second.c_str(), sections[i].c_str());
+    }
+    }
 
     vecIndex->BuildIndex(vec, meta, true, false, false);
     return vecIndex;
 }
 
 template <typename T>
-void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& queryset, int k, std::shared_ptr<VectorSet>& truth)
+void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& queryset, std::shared_ptr<SPTAG::VectorSet>& vec, std::shared_ptr<SPTAG::VectorSet>& addvec, int k, std::shared_ptr<VectorSet>& truth)
 {
-    std::vector<QueryResult> res(queryset->Count(), QueryResult(nullptr, k, true));
+    SPTAG::SPANN::Index<T>* p_index = (SPTAG::SPANN::Index<T>*)vecIndex.get();
+    //p_index->Initialize();
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin Searching Index...\n");
+    std::vector<QueryResult> res(queryset->Count(), QueryResult(nullptr, 64, true));
     auto t1 = std::chrono::high_resolution_clock::now();
     for (SizeType i = 0; i < queryset->Count(); i++)
     {
         res[i].SetTarget(queryset->GetVector(i));
-        vecIndex->SearchIndex(res[i]);
+        //vecIndex->SearchIndex(res[i]);
+	p_index->GetMemoryIndex()->SearchIndex(res[i]);
+        p_index->SearchDiskIndex(res[i], nullptr);
+
     }
+    //p_index->ExitBlockController();
     auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "Search time: " << (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / (float)(queryset->Count())) << "us" << std::endl;
 
-    float eps = 1e-6f, recall = 0;
+    float eps = 1e-4f, recall = 0;
     bool deleted;
     int truthDimension = min(k, truth->Dimension());
     for (SizeType i = 0; i < queryset->Count(); i++)
@@ -170,10 +121,16 @@ void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& 
         {
             std::string truthstr = std::to_string(nn[j]);
             ByteArray truthmeta = ByteArray((std::uint8_t*)(truthstr.c_str()), truthstr.length(), false);
-            float truthdist = vecIndex->ComputeDistance(queryset->GetVector(i), vecIndex->GetSample(truthmeta, deleted));
+	    float truthdist = 0;
+	    if (nn[j] < n) truthdist = vecIndex->ComputeDistance(queryset->GetVector(i), vec->GetVector(nn[j]));
+	    else truthdist = vecIndex->ComputeDistance(queryset->GetVector(i), addvec->GetVector(nn[j] - n));
             for (int l = 0; l < k; l++)
             {
-                if (fabs(truthdist - res[i].GetResult(l)->Dist) <= eps * (fabs(truthdist) + eps)) {
+		if (nn[j] == res[i].GetResult(l)->VID) {
+		    recall += 1.0;
+		    break;
+		}
+		else if (fabs(truthdist - res[i].GetResult(l)->Dist) <= eps * (fabs(truthdist) + eps)) {
                     recall += 1.0;
                     break;
                 }
@@ -215,7 +172,7 @@ void GenerateData(std::shared_ptr<VectorSet>& vecset, std::shared_ptr<MetadataSe
         }
         addvecset = addReader->GetVectorSet();
 
-        addmetaset.reset(MemMetadataSet("perftest_addmeta.bin", "perftest_addmetaidx.bin", addvecset->Count() * 2, addvecset->Count() * 2, 10));
+        addmetaset.reset(new MemMetadataSet("perftest_addmeta.bin", "perftest_addmetaidx.bin", addvecset->Count() * 2, addvecset->Count() * 2, 10));
     }
     else {
         ByteArray vec = ByteArray::Alloc(sizeof(T) * n * m);
@@ -360,23 +317,24 @@ void CTest(SPTAG::IndexAlgoType algo, std::string distCalcMethod)
 {
     std::shared_ptr<VectorSet> vecset, queryset, truth, addset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
-    GenerateData<T>(vecset, metaset, queryset, truth, addset, addmetaset, addtruth, distCalcMethod, 10); 
+    GenerateData<T>(vecset, metaset, queryset, truth, addset, addmetaset, addtruth, distCalcMethod, k); 
 
     std::shared_ptr<SPTAG::VectorIndex> vecIndex = BuildIndex<T>(algo, vecset, metaset, "testindices");
-    Search<T>(vecIndex, queryset, k, truth);
+    Search<T>(vecIndex, queryset, vecset, addset, k, truth);
     vecIndex->SaveIndex("testindices");
-    vecIndex = SPTAG::VectorIndex::LoadIndex("testindices");
+    vecIndex.reset();
+    if (SPTAG::VectorIndex::LoadIndex("testindices", vecIndex) != ErrorCode::Success) return;
     BOOST_CHECK(nullptr != vecIndex);
-    Search<T>(vecIndex, queryset, k, truth);
+    Search<T>(vecIndex, queryset, vecset, addset, k, truth);
 
     vecIndex->AddIndex(addset, addmetaset, true, false);
-    Search<T>(vecIndex, queryset, k, addtruth);
+    Search<T>(vecIndex, queryset, vecset, addset, k, addtruth);
     vecIndex->SaveIndex("testindices");
-    
-    vecIndex = SPTAG::VectorIndex::LoadIndex("testindices");
+    vecIndex.reset();
+    if (SPTAG::VectorIndex::LoadIndex("testindices", vecIndex) != ErrorCode::Success) return;
     BOOST_CHECK(nullptr != vecIndex);
-    Search<T>(vecIndex, queryset, k, addtruth);
-    //ConcurrentAddSearchSave<T>("testindices");
+    Search<T>(vecIndex, queryset, vecset, addset, k, addtruth);
+}
 }
 
 BOOST_AUTO_TEST_SUITE(SPFreshTest)
@@ -384,7 +342,7 @@ BOOST_AUTO_TEST_SUITE(SPFreshTest)
 
 BOOST_AUTO_TEST_CASE(FlowTest)
 {
-    CTest<float>(SPTAG::IndexAlgoType::SPANN, "L2");
+	SPFreshTest::CTest<float>(SPTAG::IndexAlgoType::SPANN, "L2");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

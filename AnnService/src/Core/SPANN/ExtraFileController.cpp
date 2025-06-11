@@ -857,6 +857,7 @@ bool FileIO::BlockController::ShutDown() {
         free(buf_ptr);
         sr.myiocb.aio_buf = 0;
     }
+    m_currIoContext.sub_io_requests.clear();
     while(m_currIoContext.free_sub_io_requests.size()) {
         m_currIoContext.free_sub_io_requests.pop();
     }

@@ -1124,7 +1124,7 @@ namespace SPTAG::SPANN {
             std::string filename = prefix + FolderSep + m_mappingPath.substr(m_mappingPath.find_last_of(FolderSep) + 1);
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: saving block mapping\n");
             Save(filename);
-            return m_pBlockController.Checkpoint(prefix);
+            return m_pBlockController.Checkpoint(filename + "_postings");
         }
 
     private:

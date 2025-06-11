@@ -1281,7 +1281,7 @@ namespace SPTAG::SPANN {
 
             auto exSetUpEnd = std::chrono::high_resolution_clock::now();
 
-            p_stats->m_exSetUpLatency = ((double)std::chrono::duration_cast<std::chrono::microseconds>(exSetUpEnd - exStart).count()) / 1000;
+            if (p_stats) p_stats->m_exSetUpLatency = ((double)std::chrono::duration_cast<std::chrono::microseconds>(exSetUpEnd - exStart).count()) / 1000;
 
             COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
 
@@ -1293,8 +1293,9 @@ namespace SPTAG::SPANN {
             double readLatency = 0;
 
             std::vector<std::string> postingLists;
-
-            std::chrono::microseconds remainLimit = m_hardLatencyLimit - std::chrono::microseconds((int)p_stats->m_totalLatency);
+            std::chrono::microseconds remainLimit;
+            if (p_stats) remainLimit = m_hardLatencyLimit - std::chrono::microseconds((int)p_stats->m_totalLatency);
+            else remainLimit = m_hardLatencyLimit;
 
             auto readStart = std::chrono::high_resolution_clock::now();
             db->MultiGet(p_exWorkSpace->m_postingIDs, &postingLists, remainLimit);
