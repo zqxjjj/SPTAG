@@ -318,6 +318,59 @@ void GenerateData(std::shared_ptr<VectorSet>& vecset, std::shared_ptr<MetadataSe
     }
 }
 
+template <typename ValueType>
+void InsertVectors(SPANN::Index<ValueType>* p_index,
+    int insertThreads,
+    int step,
+    std::shared_ptr<SPTAG::VectorSet> addset,
+    std::shared_ptr<MetadataSet>& metaset)
+{
+    SPANN::Options& p_opts = *(p_index->GetOptions());
+    p_index->ForceCompaction();
+    p_index->GetDBStat();
+ 
+    std::vector<std::thread> threads;
+
+    std::atomic_size_t vectorsSent(0);
+    std::vector<double> latency_vector(step);
+
+    auto func = [&]()
+    {
+        p_index->Initialize();
+        size_t index = 0;
+        while (true)
+        {
+            index = vectorsSent.fetch_add(1);
+            if (index < step)
+            {
+                if ((index & ((1 << 5) - 1)) == 0)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / step);
+                }
+                auto insertBegin = std::chrono::high_resolution_clock::now();
+		ByteArray p_meta = metaset->GetMetadata((SizeType)index);
+		std::uint64_t* offsets = new std::uint64_t[2]{ 0,  p_meta.Length()};
+                std::shared_ptr<SPTAG::MetadataSet> meta(new SPTAG::MemMetadataSet(p_meta, ByteArray((std::uint8_t*)offsets, 2 * sizeof(std::uint64_t), true), 1));
+                p_index->AddIndex(addset->GetVector((SizeType)index), 1, p_opts.m_dim, meta, true);
+                auto insertEnd = std::chrono::high_resolution_clock::now();
+                latency_vector[index] = std::chrono::duration_cast<std::chrono::microseconds>(insertEnd - insertBegin).count();
+            }
+            else
+            {
+                p_index->ExitBlockController();
+                return;
+            }
+        }
+    };
+    for (int j = 0; j < insertThreads; j++) { threads.emplace_back(func); }
+    for (auto& thread : threads) { thread.join(); }
+
+    while(!p_index->AllFinished())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+}
+
 template <typename T>
 void CTest(SPTAG::IndexAlgoType algo, std::string distCalcMethod)
 {
@@ -334,7 +387,9 @@ void CTest(SPTAG::IndexAlgoType algo, std::string distCalcMethod)
     BOOST_CHECK(nullptr != vecIndex);
     Search<T>(vecIndex, queryset, vecset, addset, k, truth);
 
-    vecIndex->AddIndex(addset, addmetaset, true, false);
+    SPANN::Index<T> * p_index = (SPANN::Index<T>*)vecIndex.get();
+    //p_index->AddIndex(addset, addmetaset, true, false);
+    InsertVectors<T>(p_index, 2, 1000, addset, addmetaset);
     Search<T>(vecIndex, queryset, vecset, addset, k, addtruth);
     vecIndex->SaveIndex("testindices");
     vecIndex.reset();
