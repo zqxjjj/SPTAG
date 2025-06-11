@@ -17,8 +17,8 @@
 using namespace SPTAG;
 
 namespace SPFreshTest {
-SizeType n = 10000, q = 2000;
-DimensionType m = 128;
+SizeType n = 10000, q = 100;
+DimensionType m = 100;
 int k = 10;
 
 template <typename T>
@@ -31,7 +31,7 @@ std::shared_ptr<SPTAG::VectorIndex> BuildIndex(SPTAG::IndexAlgoType algo, std::s
 "[Base]\n\
 DistCalcMethod=L2\n\
 IndexAlgoType=BKT\n\
-ValueType=Float\n\
+ValueType=Int8\n\
 Dim=" + std::to_string(m) + "\n\
 IndexDirectory=" + out + "\n\
 [SelectHead]\n\
@@ -40,7 +40,7 @@ NumberOfThreads=16\n\
 SelectThreshold=0\n\
 SplitFactor=0\n\
 SplitThreshold=0\n\
-Ratio=0.1\n\
+Ratio=0.2\n\
 [BuildHead]\n\
 isExecute=true\n\
 NumberOfThreads=16\n\
@@ -50,11 +50,12 @@ BuildSsdIndex=true\n\
 InternalResultNum=64\n\
 SearchInternalResultNum=64\n\
 NumberOfThreads=16\n\
-PostingPageLimit=16\n\
-SearchPostingPageLimit=16\n\
+PostingPageLimit=4\n\
+SearchPostingPageLimit=4\n\
 TmpDir=tmpdir\n\
-UseFileIO=false\n\
+UseFileIO=true\n\
 UseSPDKIO=false\n\
+UseKV=false\n\
 SpdkBatchSize=64\n\
 ExcludeHead=false\n\
 ResultNum=10\n\
@@ -342,7 +343,7 @@ BOOST_AUTO_TEST_SUITE(SPFreshTest)
 
 BOOST_AUTO_TEST_CASE(FlowTest)
 {
-	SPFreshTest::CTest<float>(SPTAG::IndexAlgoType::SPANN, "L2");
+	SPFreshTest::CTest<int8_t>(SPTAG::IndexAlgoType::SPANN, "L2");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

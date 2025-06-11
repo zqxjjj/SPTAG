@@ -858,6 +858,14 @@ bool FileIO::BlockController::ShutDown() {
         sr.myiocb.aio_buf = 0;
     }
     m_currIoContext.sub_io_requests.clear();
+    read_complete_vec.clear();
+    read_submit_vec.clear();
+    write_complete_vec.clear();
+    write_submit_vec.clear();
+    read_bytes_vec.clear();
+    write_bytes_vec.clear();
+    read_blocks_time_vec.clear();
+
     while(m_currIoContext.free_sub_io_requests.size()) {
         m_currIoContext.free_sub_io_requests.pop();
     }
