@@ -89,6 +89,11 @@ InPlace=true\n\
     }
 
     vecIndex->BuildIndex(vec, meta, true, false, false);
+
+    //if (VectorIndex::LoadIndex(out, vecIndex) != ErrorCode::Success) {
+    //    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to load index.\n");
+    //    exit(1);
+    //}
     return vecIndex;
 }
 
@@ -96,7 +101,7 @@ template <typename T>
 void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& queryset, std::shared_ptr<SPTAG::VectorSet>& vec, std::shared_ptr<SPTAG::VectorSet>& addvec, int k, std::shared_ptr<VectorSet>& truth)
 {
     SPTAG::SPANN::Index<T>* p_index = (SPTAG::SPANN::Index<T>*)vecIndex.get();
-    //p_index->Initialize();
+    p_index->Initialize();
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin Searching Index...\n");
     std::vector<QueryResult> res(queryset->Count(), QueryResult(nullptr, 64, true));
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -108,7 +113,7 @@ void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& 
         p_index->SearchDiskIndex(res[i], nullptr);
 
     }
-    //p_index->ExitBlockController();
+    p_index->ExitBlockController();
     auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "Search time: " << (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / (float)(queryset->Count())) << "us" << std::endl;
 
@@ -323,6 +328,7 @@ void CTest(SPTAG::IndexAlgoType algo, std::string distCalcMethod)
     std::shared_ptr<SPTAG::VectorIndex> vecIndex = BuildIndex<T>(algo, vecset, metaset, "testindices");
     Search<T>(vecIndex, queryset, vecset, addset, k, truth);
     vecIndex->SaveIndex("testindices");
+   
     vecIndex.reset();
     if (SPTAG::VectorIndex::LoadIndex("testindices", vecIndex) != ErrorCode::Success) return;
     BOOST_CHECK(nullptr != vecIndex);
