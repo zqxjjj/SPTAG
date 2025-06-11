@@ -1776,6 +1776,10 @@ namespace SPTAG::SPANN {
 
         void Checkpoint(std::string prefix) override {
             /**flush SPTAG, versionMap, block mapping, block pool**/
+            while(!AllFinished())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
             std::string p_persistenMap = prefix + FolderSep + m_opt->m_deleteIDFile;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving version map\n");
             m_versionMap->Save(p_persistenMap);
