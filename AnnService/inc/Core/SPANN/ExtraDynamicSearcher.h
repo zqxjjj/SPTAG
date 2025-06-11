@@ -477,7 +477,7 @@ namespace SPTAG::SPANN {
 
                 // p_index->SaveIndex(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIndexFolder);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: ReWriting SSD Info\n");
-                m_postingSizes.Save(m_opt->m_ssdInfoFile);
+                m_postingSizes.Save(m_opt->m_indexDirectory + FolderSep + m_opt->m_ssdInfoFile);
             }
         }
 
@@ -1119,20 +1119,21 @@ namespace SPTAG::SPANN {
             m_versionMap = &p_versionMap;
             m_opt = &p_opt;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "DataBlockSize: %d, Capacity: %d\n", m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
-
+            std::string versionmapPath = m_opt->m_indexDirectory + FolderSep + m_opt->m_deleteIDFile;
+            std::string postingSizePath = m_opt->m_indexDirectory + FolderSep + m_opt->m_ssdInfoFile;
             if (m_opt->m_recovery) {
-                std::string p_persistenMap = m_opt->m_persistentBufferPath + "_versionMap";
+                versionmapPath = m_opt->m_persistentBufferPath + FolderSep + m_opt->m_deleteIDFile;
+                postingSizePath = m_opt->m_persistentBufferPath + FolderSep + m_opt->m_ssdInfoFile;
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery: Loading version map\n");
-                m_versionMap->Load(p_persistenMap, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
+                m_versionMap->Load(versionmapPath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery: Loading posting size\n");
-                std::string p_persistenRecord = m_opt->m_persistentBufferPath + "_postingSizeRecord";
-                m_postingSizes.Load(p_persistenRecord, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
+                m_postingSizes.Load(postingSizePath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery: Current vector num: %d.\n", m_versionMap->Count());
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery:Current posting num: %d.\n", m_postingSizes.GetPostingNum());
             }
             else if (!m_opt->m_useSPDK && !m_opt->m_useFileIO) {
-                m_versionMap->Load(m_opt->m_deleteIDFile, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
-                m_postingSizes.Load(m_opt->m_ssdInfoFile, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
+                m_versionMap->Load(versionmapPath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
+                m_postingSizes.Load(postingSizePath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current vector num: %d.\n", m_versionMap->Count());
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current posting num: %d.\n", m_postingSizes.GetPostingNum());
             } else if (m_opt->m_useSPDK || m_opt->m_useFileIO) {
@@ -1204,8 +1205,8 @@ namespace SPTAG::SPANN {
 			for (int j = 0; j < m_opt->m_iSSDNumberOfThreads; j++) { threads.emplace_back(func); }
 			for (auto& thread : threads) { thread.join(); }
 		    } else {
-                        m_versionMap->Load(m_opt->m_deleteIDFile, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
-                        m_postingSizes.Load(m_opt->m_ssdInfoFile, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
+                        m_versionMap->Load(versionmapPath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
+                        m_postingSizes.Load(postingSizePath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
 		    } 
 	    }
             if (m_opt->m_update) {
@@ -1216,8 +1217,8 @@ namespace SPTAG::SPANN {
                 m_reassignThreadPool->initSPDK(m_opt->m_reassignThreadNum, this);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: finish initialization\n");
 
-                if (m_opt->m_enableWAL) {
-                    std::string p_persistenWAL = m_opt->m_persistentBufferPath + "_WAL";
+                if (m_opt->m_enableWAL && !m_opt->m_persistentBufferPath.empty()) {
+                    std::string p_persistenWAL = m_opt->m_persistentBufferPath + FolderSep + "WAL";
                     std::shared_ptr<Helper::KeyValueIO> pdb;
 #ifdef RocksDB
                     pdb.reset(new RocksDBIO(p_persistenWAL.c_str(), false, false));
@@ -1230,7 +1231,7 @@ namespace SPTAG::SPANN {
             }
 
             /** recover the previous WAL **/
-            if (m_opt->m_recovery && m_opt->m_enableWAL) {
+            if (m_opt->m_recovery && m_opt->m_enableWAL && m_wal) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery: WAL\n");
                 std::string assignment;
                 int countAssignment = 0;
@@ -1600,9 +1601,9 @@ namespace SPTAG::SPANN {
                 m_postingSizes.UpdateSize(i, postingListSize_int[i]);
             }
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: Writing SSD Info\n");
-            m_postingSizes.Save(m_opt->m_ssdInfoFile);
+            m_postingSizes.Save(m_opt->m_indexDirectory + FolderSep + m_opt->m_ssdInfoFile);
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: save versionMap\n");
-            m_versionMap->Save(m_opt->m_deleteIDFile);
+            m_versionMap->Save(m_opt->m_indexDirectory + FolderSep + m_opt->m_deleteIDFile);
 
             auto t5 = std::chrono::high_resolution_clock::now();
             double elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(t5 - t1).count();
@@ -1683,7 +1684,7 @@ namespace SPTAG::SPANN {
                 uint8_t version = m_versionMap->GetVersion(VID);
                 std::string appendPosting(m_vectorInfoSize, '\0');
                 Serialize((char*)(appendPosting.c_str()), VID, version, p_vectorSet->GetVector(v));
-                if (m_opt->m_enableWAL) {
+                if (m_opt->m_enableWAL && m_wal) {
                     m_wal->PutAssignment(appendPosting);
                 }
                 for (int i = 0; i < replicaCount; i++)
@@ -1696,7 +1697,7 @@ namespace SPTAG::SPANN {
         }
 
         ErrorCode DeleteIndex(SizeType p_id) override {
-            if (m_opt->m_enableWAL) {
+            if (m_opt->m_enableWAL && m_wal) {
                 std::string assignment(sizeof(SizeType), '\0');
                 memcpy((char*)assignment.c_str(), &p_id, sizeof(SizeType));
                 m_wal->PutAssignment(assignment);
@@ -1774,14 +1775,14 @@ namespace SPTAG::SPANN {
 
         void Checkpoint(std::string prefix) override {
             /**flush SPTAG, versionMap, block mapping, block pool**/
-            std::string p_persistenMap = prefix + "_versionMap";
+            std::string p_persistenMap = prefix + FolderSep + m_opt->m_deleteIDFile;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving version map\n");
             m_versionMap->Save(p_persistenMap);
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving posting size\n");
-            std::string p_persistenRecord = prefix + "_postingSizeRecord";
+            std::string p_persistenRecord = prefix + FolderSep + m_opt->m_ssdInfoFile;
             m_postingSizes.Save(p_persistenRecord);
             db->Checkpoint(prefix);
-            if (m_opt->m_enableWAL) {
+            if (m_opt->m_enableWAL && m_wal) {
                 /** delete all the previous record **/
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Checkpoint done, delete previous record\n");
                 m_wal->ClearPreviousRecord();

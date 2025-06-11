@@ -241,12 +241,11 @@ namespace SPTAG::SPANN
             m_mappingPath = std::string(filePath);
             m_blockLimit = postingBlocks + 1;
             m_bufferLimit = bufferSize;
-            if (recovery) {
-                m_mappingPath += "_blockmapping";
-                Load(m_mappingPath, blockSize, capacity);
-            } else if (fileexists(m_mappingPath.c_str())) {
+            if (fileexists(m_mappingPath.c_str())) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load blockmapping from %s\n", m_mappingPath.c_str());
                 Load(m_mappingPath, blockSize, capacity);
             } else {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Init blockmapping\n");
                 m_pBlockMapping.Initialize(0, 1, blockSize, capacity);
             }
             for (int i = 0; i < bufferSize; i++) {
@@ -475,8 +474,8 @@ namespace SPTAG::SPANN
         }
 
         ErrorCode Checkpoint(std::string prefix) override {
-            std::string filename = prefix + "_blockmapping";
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK: saving block mapping\n");
+            std::string filename = prefix + FolderSep + m_mappingPath.substr(m_mappingPath.find_last_of(FolderSep) + 1);
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK: saving block mapping to %s\n", filename.c_str());
             Save(filename);
             return m_pBlockController.Checkpoint(prefix);
         }

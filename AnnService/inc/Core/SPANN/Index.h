@@ -312,7 +312,7 @@ namespace SPTAG
                 /** Lock & wait until all jobs done **/
 
                 /** Lock **/
-
+                if (m_options.m_persistentBufferPath == "") return;
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Locking Index\n");
                 std::unique_lock<std::shared_timed_mutex> lock(m_checkPointLock);
 
@@ -324,9 +324,9 @@ namespace SPTAG
                 }
 
                 /** Flush the checkpoint file: SPTAG states, block pool states, block mapping states **/
-                std::string filename = m_options.m_persistentBufferPath + "_headIndex";
+                std::string filename = m_options.m_persistentBufferPath + FolderSep + m_options.m_headIndexFolder;
                 // Flush SPTAG
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving in-memory index\n");
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving in-memory index to %s\n", filename.c_str());
                 m_index->SaveIndex(filename);
                 // Flush block pool states & block mapping states
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving storage states\n");

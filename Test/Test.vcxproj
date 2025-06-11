@@ -156,13 +156,13 @@
     <ClCompile Include="src\IniReaderTest.cpp" />
     <ClCompile Include="src\KVTest.cpp" />
     <ClCompile Include="src\IterativeScanTest.cpp" />
-    <ClCompile Include="src\KVTest.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\MultiIndexExperiment.cpp" />
     <ClCompile Include="src\MultiIndexScanTest.cpp" />
     <ClCompile Include="src\PerfTest.cpp" />
     <ClCompile Include="src\ReconstructIndexSimilarityTest.cpp" />
     <ClCompile Include="src\SIMDTest.cpp" />
+    <ClCompile Include="src\SPFreshTest.cpp" />
     <ClCompile Include="src\SSDServingTest.cpp" />
     <ClCompile Include="src\StringConvertTest.cpp" />
   </ItemGroup>

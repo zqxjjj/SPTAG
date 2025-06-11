@@ -465,13 +465,9 @@ namespace SPTAG::SPANN {
                 m_pShardedLRUCache = new ShardedLRUCache(shards, capacity);
             }
 
-            if (recovery) {
-                m_mappingPath += "_blockmapping";
+            if (fileexists(m_mappingPath.c_str())) {
                 Load(m_mappingPath, blockSize, capacity);
-		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery load block mapping successfully!\n");
-            } else if(fileexists(m_mappingPath.c_str())) {
-                Load(m_mappingPath, blockSize, capacity);
-		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully!\n");
+		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully from %s!\n", m_mappingPath.c_str());
             } else {
 		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize block mapping successfully!\n");
                 m_pBlockMapping.Initialize(0, 1, blockSize, capacity);
@@ -1125,7 +1121,7 @@ namespace SPTAG::SPANN {
         }
 
         ErrorCode Checkpoint(std::string prefix) override {
-            std::string filename = prefix + "_blockmapping";
+            std::string filename = prefix + FolderSep + m_mappingPath.substr(m_mappingPath.find_last_of(FolderSep) + 1);
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: saving block mapping\n");
             Save(filename);
             return m_pBlockController.Checkpoint(prefix);
