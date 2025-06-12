@@ -114,7 +114,7 @@ void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& 
 
     }
     p_index->ExitBlockController();
-    
+
     auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "Search time: " << (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / (float)(queryset->Count())) << "us" << std::endl;
 
@@ -332,7 +332,7 @@ void InsertVectors(SPANN::Index<ValueType>* p_index,
     std::vector<std::thread> threads;
 
     std::atomic_size_t vectorsSent(0);
-    std::vector<double> latency_vector(step);
+    //std::vector<double> latency_vector(step);
 
     auto func = [&]()
     {
@@ -348,12 +348,12 @@ void InsertVectors(SPANN::Index<ValueType>* p_index,
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / step);
                 }
                 auto insertBegin = std::chrono::high_resolution_clock::now();
-		ByteArray p_meta = metaset->GetMetadata((SizeType)index);
-		std::uint64_t* offsets = new std::uint64_t[2]{ 0,  p_meta.Length()};
+		        ByteArray p_meta = metaset->GetMetadata((SizeType)index);
+		        std::uint64_t* offsets = new std::uint64_t[2]{ 0,  p_meta.Length()};
                 std::shared_ptr<SPTAG::MetadataSet> meta(new SPTAG::MemMetadataSet(p_meta, ByteArray((std::uint8_t*)offsets, 2 * sizeof(std::uint64_t), true), 1));
                 p_index->AddIndex(addset->GetVector((SizeType)index), 1, p_opts.m_dim, meta, true);
                 auto insertEnd = std::chrono::high_resolution_clock::now();
-                latency_vector[index] = std::chrono::duration_cast<std::chrono::microseconds>(insertEnd - insertBegin).count();
+                //latency_vector[index] = std::chrono::duration_cast<std::chrono::microseconds>(insertEnd - insertBegin).count();
             }
             else
             {

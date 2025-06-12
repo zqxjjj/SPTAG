@@ -652,6 +652,10 @@ VectorIndex::LoadIndex(const std::string& p_loaderFilePath, std::shared_ptr<Vect
         handles.push_back(std::move(ptr));
     }
 
+    if (algoType == IndexAlgoType::SPANN) {
+        p_vectorIndex->SetParameter("IndexDirectory", folderPath, "Base");
+    }
+    
     if ((ret = p_vectorIndex->LoadIndexData(handles)) != ErrorCode::Success) return ret;
 
     size_t metaStart = p_vectorIndex->GetIndexFiles()->size();

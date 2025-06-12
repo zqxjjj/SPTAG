@@ -152,9 +152,6 @@ namespace SPTAG::SPANN {
 
         COMMON::PostingSizeRecord m_postingSizes;
 
-        std::shared_ptr<SPDKThreadPool> m_splitThreadPool;
-        std::shared_ptr<SPDKThreadPool> m_reassignThreadPool;
-
         IndexStats m_stat;
 
         std::shared_ptr<PersistentBuffer> m_wal;
@@ -1840,6 +1837,9 @@ namespace SPTAG::SPANN {
         std::chrono::microseconds m_hardLatencyLimit = std::chrono::microseconds(2000);
 
         int m_mergeThreshold = 10;
+
+        std::shared_ptr<SPDKThreadPool> m_splitThreadPool;
+        std::shared_ptr<SPDKThreadPool> m_reassignThreadPool;
     };
 } // namespace SPTAG
 #endif // _SPTAG_SPANN_EXTRADYNAMICSEARCHER_H_
