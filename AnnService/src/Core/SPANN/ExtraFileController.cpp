@@ -101,9 +101,9 @@ void FileIO::BlockController::InitializeFileIo() {
 }
 
 bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d)\n", filePath.c_str(), batchSize);
     std::lock_guard<std::mutex> lock(m_initMutex);
     m_numInitCalled++;
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d) with num of init call:%d\n", filePath.c_str(), batchSize, m_numInitCalled);
 
     if(m_numInitCalled == 1) {
         m_batchSize = batchSize;
@@ -158,7 +158,7 @@ bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
             auto &sr = m_currIoContext.sub_io_requests[i];
             sr.app_buff = nullptr;
             memset(&(sr.myiocb), 0, sizeof(struct iocb));
-            auto buf_ptr = aligned_alloc(m_ssdFileIoAlignment, PageSize);
+            auto buf_ptr = BLOCK_ALLOC(m_ssdFileIoAlignment, PageSize);
             if (buf_ptr == nullptr) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed: aligned_alloc failed\n");
                 return false;
@@ -836,7 +836,7 @@ bool FileIO::BlockController::ShutDown() {
     bool isFound = fd_to_id_iocp.find(accessor, fd);
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown\n");
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown with num of init call:%d\n", m_numInitCalled);
     if (m_numInitCalled == 0) {
         m_fileIoThreadExiting = true;
         //pthread_join(m_fileIoTid, NULL);
@@ -854,7 +854,7 @@ bool FileIO::BlockController::ShutDown() {
     for (auto &sr : m_currIoContext.sub_io_requests) {
         sr.app_buff = nullptr;
         auto buf_ptr = reinterpret_cast<void *>(sr.myiocb.aio_buf);
-        free(buf_ptr);
+        BLOCK_FREE(buf_ptr, PageSize);
         sr.myiocb.aio_buf = 0;
     }
     m_currIoContext.sub_io_requests.clear();

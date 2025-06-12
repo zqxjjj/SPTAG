@@ -108,12 +108,13 @@ void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& 
     for (SizeType i = 0; i < queryset->Count(); i++)
     {
         res[i].SetTarget(queryset->GetVector(i));
-        //vecIndex->SearchIndex(res[i]);
-	p_index->GetMemoryIndex()->SearchIndex(res[i]);
-        p_index->SearchDiskIndex(res[i], nullptr);
+        vecIndex->SearchIndex(res[i]);
+	    //p_index->GetMemoryIndex()->SearchIndex(res[i]);
+        //p_index->SearchDiskIndex(res[i], nullptr);
 
     }
     p_index->ExitBlockController();
+    
     auto t2 = std::chrono::high_resolution_clock::now();
     std::cout << "Search time: " << (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / (float)(queryset->Count())) << "us" << std::endl;
 
@@ -170,13 +171,12 @@ void GenerateData(std::shared_ptr<VectorSet>& vecset, std::shared_ptr<MetadataSe
         }
         queryset = vectorReader->GetVectorSet();
 
-        auto addReader = Helper::VectorSetReader::CreateInstance(options);
-        if (ErrorCode::Success != addReader->LoadFile("perftest_addvector.bin"))
+        if (ErrorCode::Success != vectorReader->LoadFile("perftest_addvector.bin"))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read vector file.\n");
             exit(1);
         }
-        addvecset = addReader->GetVectorSet();
+        addvecset = vectorReader->GetVectorSet();
 
         addmetaset.reset(new MemMetadataSet("perftest_addmeta.bin", "perftest_addmetaidx.bin", addvecset->Count() * 2, addvecset->Count() * 2, 10));
     }

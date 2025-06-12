@@ -121,6 +121,7 @@ namespace SPTAG
             std::shared_ptr<std::uint64_t> m_vectorTranslateMap;
             std::unordered_map<std::string, std::string> m_headParameters;
 
+            COMMON::VersionLabel m_versionMap;
             std::shared_ptr<IExtraSearcher> m_extraSearcher;
             std::unique_ptr<SPTAG::COMMON::IWorkSpaceFactory<ExtraWorkSpace>> m_workSpaceFactory;
 
@@ -133,7 +134,7 @@ namespace SPTAG
             
             std::shared_timed_mutex m_checkPointLock;
 
-            COMMON::VersionLabel m_versionMap;
+ 
 
         public:
             static thread_local std::shared_ptr<ExtraWorkSpace> m_workspace;
@@ -316,21 +317,15 @@ namespace SPTAG
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Locking Index\n");
                 std::unique_lock<std::shared_timed_mutex> lock(m_checkPointLock);
 
-                /** Wait **/
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Waiting for index update complete\n");
-                while(!AllFinished())
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                }
+                // Flush block pool states & block mapping states
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving storage states\n");
+                m_extraSearcher->Checkpoint(m_options.m_persistentBufferPath);
 
                 /** Flush the checkpoint file: SPTAG states, block pool states, block mapping states **/
                 std::string filename = m_options.m_persistentBufferPath + FolderSep + m_options.m_headIndexFolder;
                 // Flush SPTAG
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving in-memory index to %s\n", filename.c_str());
                 m_index->SaveIndex(filename);
-                // Flush block pool states & block mapping states
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving storage states\n");
-                m_extraSearcher->Checkpoint(m_options.m_persistentBufferPath);
             }
 
             ErrorCode AddIndexSPFresh(const void *p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType* VID) {

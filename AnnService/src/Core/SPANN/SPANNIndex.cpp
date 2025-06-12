@@ -309,11 +309,11 @@ namespace SPTAG
 
                 float limitDist = p_queryResults->GetResult(0)->Dist * m_options.m_maxDistRatio;
                 int i = 0;
-		for (; i < m_options.m_searchInternalResultNum; ++i)
+		        for (; i < m_options.m_searchInternalResultNum; ++i)
                 {
                     auto res = p_queryResults->GetResult(i);
                     if (res->VID == -1 || (limitDist > 0.1 && res->Dist > limitDist)) break;
-		    if (m_extraSearcher->CheckValidPosting(res->VID))
+		            if (m_extraSearcher->CheckValidPosting(res->VID))
                     {
                         workSpace->m_postingIDs.emplace_back(res->VID);
                     }
@@ -329,20 +329,20 @@ namespace SPTAG
                     }
                 }
 
-		 for (; i < p_queryResults->GetResultNum(); ++i)
+		        for (; i < p_queryResults->GetResultNum(); ++i)
                 {
-                auto res = p_queryResults->GetResult(i);
-                if (res->VID == -1) break;
-                if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
-                else {
-                    res->VID = -1;
-                    res->Dist = MaxDist;
-                }
-                if (res->VID == MaxSize)
-                {
-                    res->VID = -1;
-                    res->Dist = MaxDist;
-                }
+                    auto res = p_queryResults->GetResult(i);
+                    if (res->VID == -1) break;
+                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    else {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
+                    if (res->VID == MaxSize)
+                    {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
                 }
                 p_queryResults->Reverse();
                 m_extraSearcher->SearchIndex(workSpace.get(), *p_queryResults, m_index, nullptr);
@@ -360,7 +360,7 @@ namespace SPTAG
                 for (int i = 0; i < p_query.GetResultNum(); ++i)
                 {
                     SizeType result = p_query.GetResult(i)->VID;
-		    //if (result > m_pMetadata->Count()) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "vid return is beyond the metadata set:(%d > (%d, %d))\n", result, GetNumSamples(), m_pMetadata->Count());
+		            //if (result > m_pMetadata->Count()) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "vid return is beyond the metadata set:(%d > (%d, %d))\n", result, GetNumSamples(), m_pMetadata->Count());
                     p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
                 }
             }

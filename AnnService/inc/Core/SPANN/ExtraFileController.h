@@ -202,7 +202,7 @@ namespace SPTAG::SPANN {
                 m_currIoContext.sub_io_requests.resize(m_ssdFileIoDepth);
                 for (auto &sr : m_currIoContext.sub_io_requests) {
                     sr.app_buff = nullptr;
-                    auto buf_ptr = aligned_alloc(m_ssdFileIoAlignment, PageSize);
+                    auto buf_ptr = BLOCK_ALLOC(m_ssdFileIoAlignment, PageSize);
                     if (buf_ptr == nullptr) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed: aligned_alloc failed\n");
                         return ErrorCode::Fail;

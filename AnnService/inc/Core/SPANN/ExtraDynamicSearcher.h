@@ -1776,6 +1776,8 @@ namespace SPTAG::SPANN {
 
         void Checkpoint(std::string prefix) override {
             /**flush SPTAG, versionMap, block mapping, block pool**/
+            /** Wait **/
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Waiting for index update complete\n");
             while(!AllFinished())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
