@@ -1180,16 +1180,6 @@ namespace SPTAG::SPANN {
 					memcpy(ptr + sizeof(int), &version, sizeof(uint8_t));
 					memcpy(ptr + sizeof(int) + sizeof(uint8_t), vectorInfo + sizeof(int), m_vectorInfoSize - sizeof(uint8_t) - sizeof(int));
 				    }
-				    if (m_opt->m_excludehead) {
-					auto VIDTrans = static_cast<SizeType>((m_vectorTranslateMap.get())[index]);
-					uint8_t version = m_versionMap->GetVersion(VIDTrans);
-					std::string appendPosting(m_vectorInfoSize, '\0');
-					char* ptr = (char*)(appendPosting.c_str());
-					memcpy(ptr, &VIDTrans, sizeof(VIDTrans));
-					memcpy(ptr + sizeof(VIDTrans), &version, sizeof(version));
-					memcpy(ptr + sizeof(int) + sizeof(uint8_t), m_index->GetSample(index), m_vectorInfoSize - sizeof(int) + sizeof(uint8_t));
-					newPosting = appendPosting + newPosting;
-				    }
 				    GetWritePosting(index, newPosting, true);
 				}
 				else
@@ -1364,7 +1354,7 @@ namespace SPTAG::SPANN {
 
             int numThreads = m_opt->m_iSSDNumberOfThreads;
             int candidateNum = m_opt->m_internalResultNum;
-            std::unordered_set<SizeType> headVectorIDS;
+            std::unordered_map<SizeType, SizeType> headVectorIDS;
             if (m_opt->m_headIDFile.empty()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Not found VectorIDTranslate!\n");
                 return false;
@@ -1379,9 +1369,11 @@ namespace SPTAG::SPANN {
                 }
 
                 std::uint64_t vid;
+                SizeType i = 0;
                 while (ptr->ReadBinary(sizeof(vid), reinterpret_cast<char*>(&vid)) == sizeof(vid))
                 {
-                    headVectorIDS.insert(static_cast<SizeType>(vid));
+                    headVectorIDS[static_cast<SizeType>(vid)] = i;
+                    i++;
                 }
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
             }
@@ -1431,12 +1423,14 @@ namespace SPTAG::SPANN {
                             return false;
                         }
                         emptySet.clear();
-                        for (auto vid : headVectorIDS) {
-                            if (vid >= start && vid < end) emptySet.insert(vid - start);
+                            for (auto& pair : headVectorIDS) {
+                                if (pair.first >= start && pair.first < end) emptySet.insert(pair.first - start);
+                            }
                         }
-                    }
-                    else {
-                        emptySet = headVectorIDS;
+                        else {
+                            for (auto& pair : headVectorIDS) {
+                                emptySet.insert(pair.first);
+                            }
                     }
 
                     int sampleNum = 0;
@@ -1445,11 +1439,11 @@ namespace SPTAG::SPANN {
                         if (headVectorIDS.count(j) == 0) samples[sampleNum++] = j - start;
                     }
 
-                    float acc = 0;
-                    #pragma omp parallel for schedule(dynamic)
+		            float acc = 0;
+                    //#pragma omp parallel for schedule(dynamic)
                     for (int j = 0; j < sampleNum; j++)
                     {
-                         COMMON::Utils::atomic_float_add(&acc, COMMON::TruthSet::CalculateRecall(p_headIndex.get(), fullVectors->GetVector(samples[j]), candidateNum));
+                         acc += COMMON::TruthSet::CalculateRecall(p_headIndex.get(), fullVectors->GetVector(samples[j]), candidateNum);
                     }
                     acc = acc / sampleNum;
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Batch %d vector(%d,%d) loaded with %d vectors (%zu) HeadIndex acc @%d:%f.\n", i, start, end, fullVectors->Count(), selections.m_selections.size(), candidateNum, acc);
@@ -1466,6 +1460,11 @@ namespace SPTAG::SPANN {
                                 selections[vecOffset + resNum].tonode = j;
                                 ++replicaCount[j];
                             }
+                        } else if (!p_opt.m_excludehead) {
+                                selections[vecOffset].node = headVectorIDS[j];
+                                selections[vecOffset].tonode = j;
+                                ++postingListSize[selections[vecOffset].node];
+                                ++replicaCount[j];
                         }
                     }
 
@@ -1612,13 +1611,6 @@ namespace SPTAG::SPANN {
         ErrorCode WriteDownAllPostingToDB(const std::vector<int>& p_postingListSizes, Selection& p_postingSelections, std::shared_ptr<VectorSet> p_fullVectors) {
             std::shared_ptr<std::uint64_t> vectorTranslateMap;
 	    {
-	        vectorTranslateMap.reset(new std::uint64_t[p_postingListSizes.size()], std::default_delete<std::uint64_t[]>());
-                std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
-                if (ptr == nullptr || !ptr->Initialize((m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile).c_str());
-                    return ErrorCode::Fail;
-                }
-                IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * p_postingListSizes.size(), (char*)(vectorTranslateMap.get()));
 		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load vectorTranslateMap Successfully!\n");
 	    }
 
@@ -1647,14 +1639,6 @@ namespace SPTAG::SPANN {
                             Serialize(ptr, fullID, version, p_fullVectors->GetVector(fullID));
                             ptr += m_vectorInfoSize;
                         }
-			if (m_opt->m_excludehead) {
-                            auto VIDTrans = static_cast<SizeType>((vectorTranslateMap.get())[index]);
-                            uint8_t version = m_versionMap->GetVersion(VIDTrans);
-                            std::string appendPosting(m_vectorInfoSize, '\0');
-                            char* ptr = (char*)(appendPosting.c_str());
-			    Serialize(ptr, VIDTrans, version, p_fullVectors->GetVector(VIDTrans));
-                            postinglist = appendPosting + postinglist;
-			}
                         db->Put(index, postinglist);
                     }
                     else

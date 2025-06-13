@@ -163,9 +163,13 @@ namespace SPTAG
             m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
             m_index->UpdateIndex();
             m_index->SetReady(true);
+         
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
+            m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
+            IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
 
-	    std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
-	    std::string ssdmappingpath = m_options.m_indexDirectory + FolderSep + m_options.m_ssdMappingFile;
+	        std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
+	        std::string ssdmappingpath = m_options.m_indexDirectory + FolderSep + m_options.m_ssdMappingFile;
             if (m_options.m_recovery) {
                 kvpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_KVFile;
                 ssdmappingpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_ssdMappingFile;
@@ -197,11 +201,6 @@ namespace SPTAG
                 }
             }
 
-            if (!m_options.m_recovery && m_options.m_excludehead) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
-                m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
-                IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
-            }
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
 
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading storage\n");
@@ -274,7 +273,7 @@ namespace SPTAG
             ErrorCode ret;
             if ((ret = m_index->SaveIndexData(p_indexStreams)) != ErrorCode::Success) return ret;
 
-            if (m_options.m_excludehead) IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], WriteBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
+            IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], WriteBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
             
             m_extraSearcher->Checkpoint(m_options.m_indexDirectory);
             return ErrorCode::Success;
@@ -1055,6 +1054,16 @@ namespace SPTAG
                 }
 
                 if (m_options.m_buildSsdIndex) {
+                    if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap)) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "BuildSSDIndex Failed!\n");
+                        if (m_options.m_buildSsdIndex) {
+                            return ErrorCode::Fail;
+                        }
+                        else {
+                            m_extraSearcher.reset();
+                        }
+                    }
+
                     if (!m_options.m_excludehead) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Include all vectors into SSD index...\n");
                         std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
@@ -1067,17 +1076,8 @@ namespace SPTAG
                             IOBINARY(ptr, WriteBinary, sizeof(std::uint64_t), (char*)(&vid));
                         }
                     }
-
-                    if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap)) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "BuildSSDIndex Failed!\n");
-                        if (m_options.m_buildSsdIndex) {
-                            return ErrorCode::Fail;
-                        }
-                        else {
-                            m_extraSearcher.reset();
-                        }
-                    }
                 }
+
                 if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index)) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot Load SSDIndex!\n");
                     if (m_options.m_buildSsdIndex) {

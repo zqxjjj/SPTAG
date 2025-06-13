@@ -21,6 +21,11 @@ endif()
 file(GLOB_RECURSE HDR_FILES ${AnnService}/inc/Core/*.h  ${AnnService}/inc/Helper/*.h)
 file(GLOB_RECURSE SRC_FILES ${AnnService}/src/Core/*.cpp ${AnnService}/src/Helper/*.cpp)
 
+if (NOT SPDK)
+    list(REMOVE_ITEM HDR_FILES ${AnnService}/inc/Core/SPANN/ExtraSPDKController.h)
+    list(REMOVE_ITEM SRC_FILES ${AnnService}/src/Core/SPANN/ExtraSPDKController.cpp)
+endif()
+
 list(REMOVE_ITEM HDR_FILES
     ${AnnService}/inc/Core/Common/DistanceUtils.h
     ${AnnService}/inc/Core/Common/SIMDUtils.h 

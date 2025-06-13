@@ -319,7 +319,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
 
 bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value, const std::chrono::microseconds &timeout) {
     std::uint8_t* outdata = new std::uint8_t[p_data[0]];    
-    p_value.Set(outdata, p_data[0], false);
+     p_value.Set(outdata, p_data[0], true);
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
     auto blockNum = (p_data[0] + PageSize - 1) >> PageSizeEx;
@@ -550,7 +550,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     for(size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
         std::uint8_t* out_data = new std::uint8_t[p_data_i[0]];
-        p_values[i].Set(out_data, p_data_i[0], false);
+        p_values[i].Set(out_data, p_data_i[0], true);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
 

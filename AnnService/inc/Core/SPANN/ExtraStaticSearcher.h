@@ -594,7 +594,7 @@ namespace SPTAG
 
                 int numThreads = p_opt.m_iSSDNumberOfThreads;
                 int candidateNum = p_opt.m_internalResultNum;
-                std::unordered_set<SizeType> headVectorIDS;
+                std::unordered_map<SizeType, SizeType> headVectorIDS;
                 if (p_opt.m_headIDFile.empty()) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Not found VectorIDTranslate!\n");
                     return false;
@@ -609,9 +609,11 @@ namespace SPTAG
                     }
 
                     std::uint64_t vid;
+                    SizeType i = 0;
                     while (ptr->ReadBinary(sizeof(vid), reinterpret_cast<char*>(&vid)) == sizeof(vid))
                     {
-                        headVectorIDS.insert(static_cast<SizeType>(vid));
+                        headVectorIDS[static_cast<SizeType>(vid)] = i;
+                        i++;
                     }
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
                 }
@@ -657,12 +659,14 @@ namespace SPTAG
                                 return false;
                             }
                             emptySet.clear();
-                            for (auto vid : headVectorIDS) {
-                                if (vid >= start && vid < end) emptySet.insert(vid - start);
+                            for (auto& pair : headVectorIDS) {
+                                if (pair.first >= start && pair.first < end) emptySet.insert(pair.first - start);
                             }
                         }
                         else {
-                            emptySet = headVectorIDS;
+                            for (auto& pair : headVectorIDS) {
+                                emptySet.insert(pair.first);
+                            }
                         }
 
                         int sampleNum = 0;
@@ -692,6 +696,11 @@ namespace SPTAG
                                     selections[vecOffset + resNum].tonode = j;
                                     ++replicaCount[j];
                                 }
+                            } else if (!p_opt.m_excludehead) {
+                                selections[vecOffset].node = headVectorIDS[j];
+                                selections[vecOffset].tonode = j;
+                                ++postingListSize[selections[vecOffset].node];
+                                ++replicaCount[j];
                             }
                         }
 

@@ -392,8 +392,12 @@ void CTest(SPTAG::IndexAlgoType algo, std::string distCalcMethod)
     InsertVectors<T>(p_index, 2, 1000, addset, addmetaset);
     Search<T>(vecIndex, queryset, vecset, addset, k, addtruth);
     vecIndex->SaveIndex("testindices");
+
     vecIndex.reset();
-    if (SPTAG::VectorIndex::LoadIndex("testindices", vecIndex) != ErrorCode::Success) return;
+    if (SPTAG::VectorIndex::LoadIndex("testindices", vecIndex) != ErrorCode::Success) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to load index.\n");
+        return;
+    }
     BOOST_CHECK(nullptr != vecIndex);
     Search<T>(vecIndex, queryset, vecset, addset, k, addtruth);
 }

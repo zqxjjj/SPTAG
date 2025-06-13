@@ -140,11 +140,11 @@ namespace SPTAG::SPANN {
                     m_blockAddresses_reserve.try_pop(currBlockAddress);
                     m_blockAddresses.push(currBlockAddress);
                 }
+                int blocks = RemainBlocks();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Reload Finish!\n");
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save blockpool To %s\n", filename.c_str());
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save blockpool To %s with %d remain blocks\n", filename.c_str(), blocks);
                 auto ptr = f_createIO();
                 if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::out)) return ErrorCode::FailedCreateFile;
-                int blocks = RemainBlocks();
                 IOBINARY(ptr, WriteBinary, sizeof(SizeType), (char*)&blocks);
                 for (auto it = m_blockAddresses.unsafe_begin(); it != m_blockAddresses.unsafe_end(); it++) {
                     IOBINARY(ptr, WriteBinary, sizeof(AddressType), (char*)&(*it));
@@ -168,13 +168,13 @@ namespace SPTAG::SPANN {
     		        return ErrorCode::Fail;
                     }
                     int blocks;
-		    IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&blocks);
+		            IOBINARY(ptr, ReadBinary, sizeof(SizeType), (char*)&blocks);
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Reading %d blocks to pool\n", blocks);
                     AddressType currBlockAddress = 0;
                     for (int i = 0; i < blocks; i++) {
                         IOBINARY(ptr, ReadBinary, sizeof(AddressType), (char*)&(currBlockAddress));
                         m_blockAddresses.push(currBlockAddress);
-	            }    
+	                }
     	        }
 		return ErrorCode::Success;
 	    }
