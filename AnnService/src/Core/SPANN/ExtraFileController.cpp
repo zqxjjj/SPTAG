@@ -127,6 +127,7 @@ bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
         id = m_idQueue.front();
         m_idQueue.pop();
     }
+    /*
     while(read_complete_vec.size() <= id) {
         read_complete_vec.push_back(0);
     }
@@ -148,7 +149,7 @@ bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
     while(read_blocks_time_vec.size() <= id) {
         read_blocks_time_vec.push_back(0);
     }
-
+    */
     if (m_currIoContext.sub_io_requests.size() < m_ssdFileIoDepth) {
         int original = m_currIoContext.sub_io_requests.size();
         m_currIoContext.sub_io_requests.resize(m_ssdFileIoDepth);
@@ -245,7 +246,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
     auto blockNum = (p_data[0] + PageSize - 1) >> PageSizeEx;
-    read_submit_vec[id] += blockNum;
+    //read_submit_vec[id] += blockNum;
     if (blockNum > m_ssdFileIoDepth) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: blockNum > m_ssdFileIoDepth\n");
         return false;
@@ -326,7 +327,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         }
         if (d > 0) {
             totalDone += d;
-            read_complete_vec[id] += d;
+            //read_complete_vec[id] += d;
         }
     }
     return true;
@@ -338,7 +339,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
     auto blockNum = (p_data[0] + PageSize - 1) >> PageSizeEx;
-    read_submit_vec[id] += blockNum;
+    //read_submit_vec[id] += blockNum;
     if (blockNum > m_ssdFileIoDepth) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: blockNum > m_ssdFileIoDepth\n");
         return false;
@@ -383,7 +384,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
         currSubIo->real_size = (p_data[0] - currOffset) < PageSize ? (p_data[0] - currOffset) : PageSize;
         // currSubIo->myiocb.aio_nbytes = ((currSubIo->real_size - 1) / 512 + 1) * 512;
         currSubIo->myiocb.aio_nbytes = PageSize;
-        read_bytes_vec[id] += currSubIo->myiocb.aio_nbytes;
+        //read_bytes_vec[id] += currSubIo->myiocb.aio_nbytes;
         currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
         currSubIo->myiocb.aio_offset = p_data[dataIdx] * PageSize;
         iocbs[i] = &(currSubIo->myiocb);
@@ -419,7 +420,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
             return false;
         }
         auto end = std::chrono::high_resolution_clock::now();
-        read_blocks_time_vec[id] += std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+        //read_blocks_time_vec[id] += std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
         for (int i = totalDone; i < totalDone + d; i++) {
             auto req = reinterpret_cast<SubIoRequest*>(events[i].data);
             memcpy(req->app_buff, reinterpret_cast<void *>(req->myiocb.aio_buf), req->real_size);
@@ -428,7 +429,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
         }
         if (d > 0) {
             totalDone += d;
-            read_complete_vec[id] += d;
+            //read_complete_vec[id] += d;
         }
     }
     return true;
@@ -472,7 +473,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             currSubIo.posting_id = i;
             subIoRequests.push_back(currSubIo);
             subIoRequestCount[i]++;
-            read_submit_vec[id]++;
+            //read_submit_vec[id]++;
             currOffset += PageSize;
             dataIdx++;
         }
@@ -542,7 +543,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             }
             if (d > 0) {
                 totalDone += d;
-                read_complete_vec[id] += d;
+                //read_complete_vec[id] += d;
             }
         }
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -591,7 +592,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             currSubIo.posting_id = i;
             subIoRequests.push_back(currSubIo);
             subIoRequestCount[i]++;
-            read_submit_vec[id]++;
+            //read_submit_vec[id]++;
             currOffset += PageSize;
             dataIdx++;
         }
@@ -659,7 +660,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             }
             if (d > 0) {
                 totalDone += d;
-                read_complete_vec[id] += d;
+                //read_complete_vec[id] += d;
             }
         }
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -713,7 +714,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     }
 
     // Submit all I/Os
-    write_submit_vec[id] += p_size;
+    //write_submit_vec[id] += p_size;
     std::vector<struct iocb*> iocbs(p_size);
     for (int i = 0; i < p_size; i++) {
         auto currSubIo = m_currIoContext.free_sub_io_requests.front();
@@ -746,7 +747,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         }
         if (d > 0) {
             totalDone += d;
-            write_complete_vec[id] += d;
+            //write_complete_vec[id] += d;
         }
     }
     return true;
@@ -780,7 +781,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     }
 
     // Submit all I/Os
-    write_submit_vec[id] += p_size;
+    //write_submit_vec[id] += p_size;
     std::vector<struct iocb*> iocbs(p_size);
     for (int i = 0; i < p_size; i++) {
         auto currSubIo = m_currIoContext.free_sub_io_requests.front();
@@ -789,7 +790,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         currSubIo->real_size = (PageSize * (currBlockIdx + 1)) > totalSize ? (totalSize - currBlockIdx * PageSize) : PageSize;
         // currSubIo->myiocb.aio_nbytes = ((currSubIo->real_size - 1) / 512 + 1) * 512;
         currSubIo->myiocb.aio_nbytes = PageSize;
-        write_bytes_vec[id] += currSubIo->myiocb.aio_nbytes;
+        //write_bytes_vec[id] += currSubIo->myiocb.aio_nbytes;
         memcpy(reinterpret_cast<void *>(currSubIo->myiocb.aio_buf), currSubIo->app_buff, currSubIo->real_size);
         currSubIo->myiocb.aio_lio_opcode = IOCB_CMD_PWRITE;
         currSubIo->myiocb.aio_offset = p_data[currBlockIdx] * PageSize;
@@ -815,7 +816,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         }
         if (d > 0) {
             totalDone += d;
-            write_complete_vec[id] += d;
+            //write_complete_vec[id] += d;
         }
     }
     return true;
@@ -829,6 +830,7 @@ bool FileIO::BlockController::IOStatistics() {
     int64_t read_blocks_time = 0;
     int64_t read_bytes_count = 0;
     int64_t write_bytes_count = 0;
+    /*
     for (int i = 0; i < read_complete_vec.size(); i++) {
         currReadCount += read_complete_vec[i];
     }
@@ -850,7 +852,7 @@ bool FileIO::BlockController::IOStatistics() {
     for (int i = 0; i < read_blocks_time_vec.size(); i++) {
         read_blocks_time += read_blocks_time_vec[i];
     }
-    
+    */
     int currIOCount = currReadCount + currWriteCount;
     int diffIOCount = currIOCount - m_preIOCompleteCount;
     m_preIOCompleteCount = currIOCount;
@@ -910,6 +912,7 @@ bool FileIO::BlockController::ShutDown() {
         sr.myiocb.aio_buf = 0;
     }
     m_currIoContext.sub_io_requests.clear();
+    /*
     read_complete_vec.clear();
     read_submit_vec.clear();
     write_complete_vec.clear();
@@ -917,7 +920,7 @@ bool FileIO::BlockController::ShutDown() {
     read_bytes_vec.clear();
     write_bytes_vec.clear();
     read_blocks_time_vec.clear();
-
+    */
     while(m_currIoContext.free_sub_io_requests.size()) {
         m_currIoContext.free_sub_io_requests.pop();
     }

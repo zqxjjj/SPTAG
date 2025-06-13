@@ -65,6 +65,7 @@ namespace SPTAG::SPANN {
 
             int m_maxId = 0;
             std::queue<int> m_idQueue;
+	    /*
             std::vector<int> read_complete_vec;
             std::vector<int> read_submit_vec;
             std::vector<int> write_complete_vec;
@@ -72,7 +73,7 @@ namespace SPTAG::SPANN {
             std::vector<int64_t> read_bytes_vec;
             std::vector<int64_t> write_bytes_vec;
             std::vector<int64_t> read_blocks_time_vec;
-
+            */
             std::mutex m_uniqueResourceMutex;
 
             std::unique_ptr<char[]> m_memBuffer;
