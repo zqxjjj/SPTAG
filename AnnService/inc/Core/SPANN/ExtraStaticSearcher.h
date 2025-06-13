@@ -217,6 +217,9 @@ namespace SPTAG
                 
                 m_listPerFile = static_cast<int>((m_totalListCount + m_indexFiles.size() - 1) / m_indexFiles.size());
 
+                p_versionMap.Load(p_opt.m_indexDirectory + FolderSep + p_opt.m_deleteIDFile, p_opt.m_datasetRowsInBlock, p_opt.m_datasetCapacity);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current vector num: %d.\n", p_versionMap.Count());
+
 #ifndef _MSC_VER
                 Helper::AIOTimeout.tv_nsec = p_opt.m_iotimeout * 1000;
 #endif
@@ -627,6 +630,8 @@ namespace SPTAG
                 }
                 if (upperBound > 0) fullCount = upperBound;
 
+                p_versionMap.Initialize(fullCount, p_headIndex->m_iDataBlockSize, p_headIndex->m_iDataCapacity);
+
                 Selection selections(static_cast<size_t>(fullCount) * p_opt.m_replicaCount, p_opt.m_tmpdir);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Full vector count:%d Edge bytes:%llu selection size:%zu, capacity size:%zu\n", fullCount, sizeof(Edge), selections.m_selections.size(), selections.m_selections.capacity());
                 std::vector<std::atomic_int> replicaCount(fullCount);
@@ -931,6 +936,8 @@ namespace SPTAG
                         fullVectors,
                         curPostingListOffSet);
                 }
+
+                p_versionMap.Save(p_opt.m_indexDirectory + FolderSep + p_opt.m_deleteIDFile);
 
                 auto t5 = std::chrono::high_resolution_clock::now();
                 auto elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(t5 - t1).count();
