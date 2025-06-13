@@ -311,8 +311,10 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
             req->app_buff = nullptr;
             m_currIoContext.free_sub_io_requests.push(req);
         }
-        totalDone += d;
-        read_complete_vec[id] += d;
+        if (d > 0) {
+            totalDone += d;
+            read_complete_vec[id] += d;
+        }
     }
     return true;
 }
@@ -407,8 +409,10 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
             req->app_buff = nullptr;
             m_currIoContext.free_sub_io_requests.push(req);
         }
-        totalDone += d;
-        read_complete_vec[id] += d;
+        if (d > 0) {
+            totalDone += d;
+            read_complete_vec[id] += d;
+        }
     }
     return true;
 }
@@ -502,6 +506,8 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 int s = syscall(__NR_io_submit, iocp, totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
                 if(s > 0) {
                     totalSubmitted += s;
+                } else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
                 }
             }
             int wait = totalSubmitted - totalDone;
@@ -513,8 +519,10 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 req->app_buff = nullptr;
                 m_currIoContext.free_sub_io_requests.push(req);
             }
-            totalDone += d;
-            read_complete_vec[id] += d;
+            if (d > 0) {
+                totalDone += d;
+                read_complete_vec[id] += d;
+            }
         }
         auto t2 = std::chrono::high_resolution_clock::now();
         if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
@@ -611,6 +619,8 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 int s = syscall(__NR_io_submit, iocp, totalToSubmit - totalSubmitted, iocbs.data() + totalSubmitted);
                 if(s > 0) {
                     totalSubmitted += s;
+                }  else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
                 }
             }
             int wait = totalSubmitted - totalDone;
@@ -622,8 +632,10 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 req->app_buff = nullptr;
                 m_currIoContext.free_sub_io_requests.push(req);
             }
-            totalDone += d;
-            read_complete_vec[id] += d;
+            if (d > 0) {
+                totalDone += d;
+                read_complete_vec[id] += d;
+            }
         }
         auto t2 = std::chrono::high_resolution_clock::now();
         if(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
@@ -703,8 +715,10 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
             req->app_buff = nullptr;
             m_currIoContext.free_sub_io_requests.push(req);
         }
-        totalDone += d;
-        write_complete_vec[id] += d;
+        if (d > 0) {
+            totalDone += d;
+            write_complete_vec[id] += d;
+        }
     }
     return true;
 }
@@ -766,8 +780,10 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
             req->app_buff = nullptr;
             m_currIoContext.free_sub_io_requests.push(req);
         }
-        totalDone += d;
-        write_complete_vec[id] += d;
+        if (d > 0) {
+            totalDone += d;
+            write_complete_vec[id] += d;
+        }
     }
     return true;
 }

@@ -351,6 +351,7 @@ VectorIndex::SaveIndex(std::string& p_config, const std::vector<ByteArray>& p_in
 ErrorCode
 VectorIndex::SaveIndex(const std::string& p_folderPath)
 {
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SaveIndex(%s) begin...ready:%d GetNumSamples():%d GetNumDeleted():%d\n", p_folderPath.c_str(), m_bReady, GetNumSamples(), GetNumDeleted());
     if (!m_bReady || GetNumSamples() - GetNumDeleted() == 0) return ErrorCode::EmptyIndex;
 
     std::string folderPath(p_folderPath);
