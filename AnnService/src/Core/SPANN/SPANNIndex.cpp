@@ -418,7 +418,10 @@ namespace SPTAG
             if (!extraWorkspace) {
                 extraWorkspace.reset(new ExtraWorkSpace());
                 extraWorkspace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
+            } else{
+                extraWorkspace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_enableDataCompression);
             }
+
             extraWorkspace->m_relaxedMono = false;
             extraWorkspace->m_loadedPostingNum = 0;
             extraWorkspace->m_deduper.clear();
@@ -551,7 +554,11 @@ namespace SPTAG
                     {
                         extraWorkspace->m_postingIDs.emplace_back(res->VID);
                     }
-                    res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    else {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
                     if (res->VID == MaxSize)
                     {
                         res->VID = -1;
@@ -562,7 +569,7 @@ namespace SPTAG
                 extraWorkspace->m_loadedPostingNum += (int)(extraWorkspace->m_postingIDs.size());
             }
 
-            return m_extraSearcher->SearchIterativeNext(extraWorkspace, p_query, m_index);
+            return m_extraSearcher->SearchIterativeNext(extraWorkspace, p_headQuery, p_query, m_index);
         }
 
         template<typename T>

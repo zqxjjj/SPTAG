@@ -6,9 +6,8 @@ typedef tbb::concurrent_hash_map<int, std::pair<int, uint64_t>> fdmap;
 thread_local struct FileIO::BlockController::IoContext FileIO::BlockController::m_currIoContext;
 thread_local int FileIO::BlockController::debug_fd = -1;
 thread_local int FileIO::id = -1;
-#ifdef USE_ASYNC_IO
 thread_local fdmap FileIO::BlockController::fd_to_id_iocp;
-#endif
+
 std::atomic<int> FileIO::BlockController::m_ioCompleteCount(0);
 
 void FileIO::BlockController::InitializeFileIo() {
@@ -103,7 +102,6 @@ void FileIO::BlockController::InitializeFileIo() {
 bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
     std::lock_guard<std::mutex> lock(m_initMutex);
     m_numInitCalled++;
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d) with num of init call:%d\n", filePath.c_str(), batchSize, m_numInitCalled);
 
     if(m_numInitCalled == 1) {
         m_batchSize = batchSize;
@@ -178,8 +176,19 @@ bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "m_ssdFileIoDepth = %d, iocp = %p\n", m_ssdFileIoDepth, &iocp);
         return false;
     }
-    fd_to_id_iocp.emplace(fd, std::make_pair(id, iocp));
- 
+    
+    fdmap::accessor a;
+    if (!fd_to_id_iocp.insert(a, fd)) {
+        if (!fd_to_id_iocp.find(a, fd)) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed: insert (%d, (%d, %llu)) to fd_to_id_iocp failed\n",
+                fd, id, iocp);
+        }
+    } else {
+        a->second = std::make_pair(id, iocp);
+    }
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d) with (%d, (%d, %llu)) num of init calls:%d\n",
+        filePath.c_str(), batchSize, fd, id, iocp, m_numInitCalled);
+
 #ifdef USE_FILE_DEBUG
     auto debug_file_name = std::string("/nvme1n1/lml/") + std::to_string(m_numInitCalled) + "_debug.log";
     debug_fd = open(debug_file_name.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
@@ -244,6 +253,10 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
 
     fdmap::accessor accessor;
     bool isFound = fd_to_id_iocp.find(accessor, fd);
+    if (!isFound) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find fd=%d in thread local map!\n", fd);
+        return false;
+    }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
     // clear timeout io
@@ -333,6 +346,10 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
 
     fdmap::accessor accessor;
     bool isFound = fd_to_id_iocp.find(accessor, fd);
+    if (!isFound) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find fd=%d in thread local map!\n", fd);
+        return false;
+    }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
     // clear timeout io
@@ -463,6 +480,10 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 
     fdmap::accessor accessor;
     bool isFound = fd_to_id_iocp.find(accessor, fd);
+    if (!isFound) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find fd=%d in thread local map!\n", fd);
+        return false;
+    }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
      //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: sub_io_requests.size:%d free_io_requests.size:%d\n", (int)(m_currIoContext.sub_io_requests.size()), (int)(m_currIoContext.free_sub_io_requests.size()));
@@ -578,6 +599,10 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 
     fdmap::accessor accessor;
     bool isFound = fd_to_id_iocp.find(accessor, fd);
+    if (!isFound) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find fd=%d in thread local map!\n", fd);
+        return false;
+    }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
     // Clear timeout I/Os
@@ -667,6 +692,10 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
 
     fdmap::accessor accessor;
     bool isFound = fd_to_id_iocp.find(accessor, fd);
+    if (!isFound) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find fd=%d in thread local map!\n", fd);
+        return false;
+    }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second; 
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks: %d\n", p_size);
@@ -730,6 +759,10 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
 
     fdmap::accessor accessor;
     bool isFound = fd_to_id_iocp.find(accessor, fd);
+    if (!isFound) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find fd=%d in thread local map!\n", fd);
+        return false;
+    }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks: %d\n", p_size);
@@ -850,6 +883,9 @@ bool FileIO::BlockController::ShutDown() {
     m_numInitCalled--;
     fdmap::accessor accessor;
     bool isFound = fd_to_id_iocp.find(accessor, fd);
+    if (!isFound) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ShutDown:Cannot find fd=%d in thread local map!\n", fd);
+    }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown with num of init call:%d\n", m_numInitCalled);

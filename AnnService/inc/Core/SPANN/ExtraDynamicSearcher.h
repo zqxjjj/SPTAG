@@ -1348,6 +1348,71 @@ namespace SPTAG::SPANN {
             }
         }
 
+        virtual void SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace)
+        {
+            db->MultiGet(p_exWorkSpace->m_postingIDs, &(p_exWorkSpace->m_strBuffers), m_hardLatencyLimit);
+        }
+
+        virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+            QueryResult& p_queryResults,
+            std::shared_ptr<VectorIndex>& p_index)
+        {
+            COMMON::QueryResultSet<ValueType>& headResults = *((COMMON::QueryResultSet<ValueType>*) & p_headResults);
+            COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
+            bool foundResult = false;
+            BasicResult* head = headResults.GetResult(p_exWorkSpace->m_ri);
+            while (!foundResult && p_exWorkSpace->m_pi < p_exWorkSpace->m_postingIDs.size()) {
+                if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi) {
+                        queryResults.AddPoint(head->VID, head->Dist);
+                        head = headResults.GetResult(++p_exWorkSpace->m_ri);
+                        foundResult = true;
+                        continue;
+                }
+                std::string& buffer = (p_exWorkSpace->m_strBuffers[p_exWorkSpace->m_pi]);
+                char* p_postingListFullData = (char*)(buffer.data());
+                int vectorNum = (int)(buffer.size() / m_vectorInfoSize);
+
+                while (p_exWorkSpace->m_offset < vectorNum) {
+                        char* vectorInfo = p_postingListFullData + p_exWorkSpace->m_offset * m_vectorInfoSize;
+                        p_exWorkSpace->m_offset++;
+                        
+                        int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+                        if (m_versionMap->Deleted(vectorID)) continue;
+                        if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
+
+                        auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), vectorInfo + m_metaDataSize);
+                        queryResults.AddPoint(vectorID, distance2leaf);
+                        foundResult = true;
+                        break;
+                }
+                if (p_exWorkSpace->m_offset == vectorNum) {
+                    p_exWorkSpace->m_pi++;
+                    p_exWorkSpace->m_offset = 0;
+                }
+            }
+            if (!foundResult && head && head->VID != -1) {
+                    queryResults.AddPoint(head->VID, head->Dist);
+                    head = headResults.GetResult(++p_exWorkSpace->m_ri);
+                    foundResult = true;
+            }
+            return foundResult;
+        }
+
+        virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+            QueryResult& p_query,
+            std::shared_ptr<VectorIndex> p_index)
+        {
+            if (p_exWorkSpace->m_loadPosting) {
+                SearchIndexWithoutParsing(p_exWorkSpace);
+                p_exWorkSpace->m_ri = 0;
+                p_exWorkSpace->m_pi = 0;
+                p_exWorkSpace->m_offset = 0;
+                p_exWorkSpace->m_loadPosting = false;
+            }
+
+            return SearchNextInPosting(p_exWorkSpace, p_headResults, p_query, p_index);
+        }
+
         bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, std::shared_ptr<VectorIndex> p_headIndex, Options& p_opt, COMMON::VersionLabel& p_versionMap, SizeType upperBound = -1) override {
             m_versionMap = &p_versionMap;
             m_opt = &p_opt;

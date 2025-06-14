@@ -139,7 +139,7 @@ namespace SPTAG
             auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), p_postingListFullData + offsetVector); \
             queryResults.AddPoint(vectorID, distance2leaf); \
             foundResult = true;\
-            break;\
+            break; \
         } \
         if (p_exWorkSpace->m_offset == listInfo->listEleCount) { \
             p_exWorkSpace->m_pi++; \
@@ -492,14 +492,21 @@ namespace SPTAG
 #endif
             }
 
-            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace,
+            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
-		std::shared_ptr<VectorIndex>& p_index) override
+		        std::shared_ptr<VectorIndex>& p_index) override
             {
+                COMMON::QueryResultSet<ValueType>& headResults = *((COMMON::QueryResultSet<ValueType>*) & p_headResults);
                 COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
                 bool foundResult = false;
+                BasicResult* head = headResults.GetResult(p_exWorkSpace->m_ri);
                 while (!foundResult && p_exWorkSpace->m_pi < p_exWorkSpace->m_postingIDs.size()) {
-
+                    if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi) {
+                        queryResults.AddPoint(head->VID, head->Dist);
+                        head = headResults.GetResult(++p_exWorkSpace->m_ri);
+                        foundResult = true;
+                        continue;
+                    }
                     char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[p_exWorkSpace->m_pi]).GetBuffer());
                     ListInfo* listInfo = static_cast<ListInfo*>(p_exWorkSpace->m_diskRequests[p_exWorkSpace->m_pi].m_payload);
                     // decompress posting list
@@ -510,21 +517,27 @@ namespace SPTAG
                     }
                     ProcessPostingOffset();
                 }
-                return !(p_exWorkSpace->m_pi == p_exWorkSpace->m_postingIDs.size());
+                if (!foundResult && head && head->VID != -1) {
+                    queryResults.AddPoint(head->VID, head->Dist);
+                    head = headResults.GetResult(++p_exWorkSpace->m_ri);
+                    foundResult = true;
+                }
+                return foundResult;
             }
 
-            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace,
-                 QueryResult& p_query,
-		 std::shared_ptr<VectorIndex> p_index) override
+            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+                QueryResult& p_query,
+		        std::shared_ptr<VectorIndex> p_index) override
             {
                 if (p_exWorkSpace->m_loadPosting) {
                     SearchIndexWithoutParsing(p_exWorkSpace);
+                    p_exWorkSpace->m_ri = 0;
                     p_exWorkSpace->m_pi = 0;
                     p_exWorkSpace->m_offset = 0;
                     p_exWorkSpace->m_loadPosting = false;
                 }
 
-                return SearchNextInPosting(p_exWorkSpace, p_query, p_index);
+                return SearchNextInPosting(p_exWorkSpace, p_headResults, p_query, p_index);
             }
 
             std::string GetPostingListFullData(

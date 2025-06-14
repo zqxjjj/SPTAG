@@ -257,6 +257,8 @@ namespace SPTAG {
 
             std::vector<PageBuffer<std::uint8_t>> m_pageBuffers;
 
+            std::vector<std::string> m_strBuffers;
+
             bool m_enableDataCompression;
             PageBuffer<std::uint8_t> m_decompressBuffer;
 
@@ -264,7 +266,8 @@ namespace SPTAG {
 
             int m_spaceID;
 
-            uint32_t m_pi;
+            int m_ri;
+            int m_pi;
 
             int m_offset;
 
@@ -295,15 +298,15 @@ namespace SPTAG {
                 std::shared_ptr<VectorIndex> p_index,
                 SearchStats* p_stats, std::set<int>* truth = nullptr, std::map<int, std::set<int>>* found = nullptr) = 0;
 
-            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace,
+            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
                 std::shared_ptr<VectorIndex> p_index) { return false; }
 
             virtual void SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace) { return; }
 
-            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace,
+            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
-		std::shared_ptr<VectorIndex>& p_index) { return false; }
+		        std::shared_ptr<VectorIndex>& p_index) { return false; }
 
             virtual bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, 
                 std::shared_ptr<VectorIndex> p_index, 
