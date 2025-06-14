@@ -888,7 +888,7 @@ bool FileIO::BlockController::ShutDown() {
     }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown with num of init call:%d\n", m_numInitCalled);
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown (%d, (%d, %d)) with num of init call:%d\n", m_numInitCalled, fd, id, iocp);
     if (m_numInitCalled == 0) {
         m_fileIoThreadExiting = true;
         //pthread_join(m_fileIoTid, NULL);
@@ -906,7 +906,7 @@ bool FileIO::BlockController::ShutDown() {
     for (auto &sr : m_currIoContext.sub_io_requests) {
         sr.app_buff = nullptr;
         auto buf_ptr = reinterpret_cast<void *>(sr.myiocb.aio_buf);
-        BLOCK_FREE(buf_ptr, PageSize);
+        if (buf_ptr) BLOCK_FREE(buf_ptr, PageSize);
         sr.myiocb.aio_buf = 0;
     }
     m_currIoContext.sub_io_requests.clear();
