@@ -105,7 +105,6 @@ bool FileIO::BlockController::Initialize(std::string filePath, int batchSize) {
 
     if(m_numInitCalled == 1) {
         m_batchSize = batchSize;
-        if (m_filePath == nullptr) m_filePath = new char[1024];
 	strcpy(m_filePath, (filePath + "_postings").c_str());
         m_startTime = std::chrono::high_resolution_clock::now();
         //pthread_create(&m_fileIoTid, NULL, &InitializeFileIo, this);
@@ -313,6 +312,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
             }
             else {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
+		exit(1);
             }
         }
 
@@ -408,6 +408,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
             }
             else {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
+		exit(1);
             }
         }
         auto begin = std::chrono::high_resolution_clock::now();
@@ -417,7 +418,6 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, ByteArray& p_value
         auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, &timeout_ts);
         if (d < 0) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_getevents failed\n");
-            return false;
         }
         auto end = std::chrono::high_resolution_clock::now();
         //read_blocks_time_vec[id] += std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
@@ -530,6 +530,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                     totalSubmitted += s;
                 } else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
+		    exit(1);
                 }
             }
             int wait = totalSubmitted - totalDone;
@@ -647,6 +648,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                     totalSubmitted += s;
                 }  else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: io_submit failed\n");
+		    exit(1);
                 }
             }
             int wait = totalSubmitted - totalDone;
@@ -737,6 +739,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         }
         else {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: io_submit failed\n");
+	    exit(1);
         }
         int wait = totalSubmitted - totalDone;
         auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, nullptr);
@@ -806,6 +809,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         }
         else {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: io_submit failed\n");
+	    exit(1);
         }
         int wait = totalSubmitted - totalDone;
         auto d = syscall(__NR_io_getevents, iocp, wait, wait, events.data() + totalDone, nullptr);
@@ -890,7 +894,7 @@ bool FileIO::BlockController::ShutDown() {
     }
     int id = (accessor->second).first;
     uint64_t iocp = (accessor->second).second;
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown (%d, (%d, %d)) with num of init call:%d\n", m_numInitCalled, fd, id, iocp);
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ShutDown (%d, (%d, %llu)) with num of init call:%d\n", fd, id, iocp, m_numInitCalled);
     if (m_numInitCalled == 0) {
         m_fileIoThreadExiting = true;
         //pthread_join(m_fileIoTid, NULL);

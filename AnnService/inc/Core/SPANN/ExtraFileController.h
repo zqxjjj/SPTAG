@@ -22,7 +22,7 @@ namespace SPTAG::SPANN {
     class FileIO : public Helper::KeyValueIO {
         class BlockController {
         private:
-            char* m_filePath = nullptr;
+            char m_filePath[1024];
             int fd = -1;
 
             static constexpr AddressType kSsdImplMaxNumBlocks = (300ULL << 30) >> PageSizeEx; // 300G
