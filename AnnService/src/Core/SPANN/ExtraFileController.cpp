@@ -197,9 +197,9 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 #endif
     m_batchReadTimes++;
     std::uint32_t reqcount = 0;
+    std::uint32_t emptycount = 0;
     for (size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
-        std::uint8_t* p_value = p_values[i].GetBuffer();
         int numPages = (p_values[i].GetPageSize() >> PageSizeEx);
         
         if (p_data_i == nullptr) {
@@ -208,6 +208,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 Helper::AsyncReadRequest& curr = reqs->at(reqcount);
                 curr.m_readSize = 0;
                 reqcount++;
+		emptycount++;
             }
             continue;
         }
@@ -221,35 +222,39 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  block (%d) >= buffer page size (%d)\n", dataIdx - 1, numPages);
                 return false;
             }
+
+            if (reqcount >= reqs->size()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  req (%u) >= req array size (%u)\n", reqcount, reqs->size());
+                return false;
+            }
+ 
             Helper::AsyncReadRequest& curr = reqs->at(reqcount);
             curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
             curr.m_offset = p_data_i[dataIdx] * PageSize;
             currOffset += PageSize;
             dataIdx++;
             reqcount++;
+        }
+
+        while (dataIdx - 1  < numPages) {
             if (reqcount >= reqs->size()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  req (%u) >= req array size (%u)\n", reqcount, reqs->size());
                 return false;
             }
-        }
-
-        while (dataIdx - 1  < numPages) {
+ 
             Helper::AsyncReadRequest& curr = reqs->at(reqcount);
             curr.m_readSize = 0;
             dataIdx++;
             reqcount++;
-            if (reqcount >= reqs->size()) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  req (%u) >= req array size (%u)\n", reqcount, reqs->size());
-                return false;
-            }
+	    emptycount++;
         }
     }
 
-    read_submit_vec += reqcount;
+    read_submit_vec += reqcount - emptycount;
     std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), reqcount, timeout, m_batchSize);
     read_complete_vec += totalReads;
-    if (totalReads < reqcount) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount);
+    if (totalReads < reqcount - emptycount) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount - emptycount);
         m_batchReadTimeouts++;
     }
     return true;

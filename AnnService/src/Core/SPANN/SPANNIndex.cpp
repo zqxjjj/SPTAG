@@ -911,12 +911,12 @@ namespace SPTAG
 
         template <typename T>
         ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader) {
-            if (!m_options.m_indexDirectory.empty() && !direxists(m_options.m_indexDirectory.c_str()))
+            if (!(m_options.m_indexDirectory.empty()) && !(direxists(m_options.m_indexDirectory.c_str()))) {
                 mkdir(m_options.m_indexDirectory.c_str());
-
-	        if (!m_options.m_persistentBufferPath.empty() && !direxists(m_options.m_persistentBufferPath.c_str())) 
+            }
+            if (!(m_options.m_persistentBufferPath.empty()) && !(direxists(m_options.m_persistentBufferPath.c_str()))) {
                 mkdir(m_options.m_persistentBufferPath.c_str());
-
+            }
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin Select Head...\n");
             auto t1 = std::chrono::high_resolution_clock::now();
             if (m_options.m_selectHead) {

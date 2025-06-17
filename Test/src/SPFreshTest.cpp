@@ -53,9 +53,7 @@ NumberOfThreads=16\n\
 PostingPageLimit=4\n\
 SearchPostingPageLimit=4\n\
 TmpDir=tmpdir\n\
-UseFileIO=true\n\
-UseSPDKIO=false\n\
-UseKV=false\n\
+Storage=FILEIO\n\
 SpdkBatchSize=64\n\
 ExcludeHead=false\n\
 ResultNum=10\n\
@@ -73,6 +71,7 @@ MergeThreshold=10\n\
 Sampling=4\n\
 BufferLength=6\n\
 InPlace=true\n\
+MaxFileSizeGB=10\n\
 ";
 
     SPTAG::Helper::IniReader iniReader;
@@ -119,7 +118,6 @@ void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& 
     std::cout << "Search time: " << (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / (float)(queryset->Count())) << "us" << std::endl;
 
     float eps = 1e-4f, recall = 0;
-    bool deleted;
     int truthDimension = min(k, truth->Dimension());
     for (SizeType i = 0; i < queryset->Count(); i++)
     {
@@ -332,7 +330,7 @@ void InsertVectors(SPANN::Index<ValueType>* p_index,
     std::vector<std::thread> threads;
 
     std::atomic_size_t vectorsSent(0);
-    //std::vector<double> latency_vector(step);
+    std::vector<double> latency_vector(step, 0);
 
     auto func = [&]()
     {
@@ -353,7 +351,7 @@ void InsertVectors(SPANN::Index<ValueType>* p_index,
                 std::shared_ptr<SPTAG::MetadataSet> meta(new SPTAG::MemMetadataSet(p_meta, ByteArray((std::uint8_t*)offsets, 2 * sizeof(std::uint64_t), true), 1));
                 p_index->AddIndex(addset->GetVector((SizeType)index), 1, p_opts.m_dim, meta, true);
                 auto insertEnd = std::chrono::high_resolution_clock::now();
-                //latency_vector[index] = std::chrono::duration_cast<std::chrono::microseconds>(insertEnd - insertBegin).count();
+                latency_vector[index] = std::chrono::duration_cast<std::chrono::microseconds>(insertEnd - insertBegin).count();
             }
             else
             {

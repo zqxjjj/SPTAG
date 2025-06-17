@@ -32,7 +32,8 @@ int main(int argc, char* argv[]) {
     }
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Data generated\n");
     SPTAG::SPANN::Options opt;
-    opt.m_spdkMappingPath = "/tmp/pbfile";
+    opt.m_indexDirectory = "/tmp";
+    opt.m_ssdMappingFile = "pbfile";
     opt.m_postingPageLimit = max_blocks * 2;
     opt.m_spdkBatchSize = 64;
     SPANN::FileIO fileIO(opt);

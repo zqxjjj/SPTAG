@@ -439,6 +439,8 @@ namespace SPTAG
                     return false;
                 }
                 close(m_fileHandle);
+		std::uint64_t actualSize = filesize(filePath);
+                if (actualSize != maxFileSize) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot fallocate enough space actural size (%llu) < max size (%llu)\n", actualSize, maxFileSize);
 
                 m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
                 if (m_fileHandle == -1) {
@@ -467,7 +469,7 @@ namespace SPTAG
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open a file\n");
                     auto actualFileSize = filesize(filePath);
-                    if (openMode == (O_RDONLY | O_DIRECT) || actualFileSize == maxFileSize) {
+                    if (openMode == (O_RDONLY | O_DIRECT) || true) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file has been created with enough space.\n");
                         m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
                         if (m_fileHandle == -1) {
@@ -476,6 +478,7 @@ namespace SPTAG
                             return false;
                         }
                     } else {
+			SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open failed! actualFileSize(%llu) < maxFileSize(%llu)\n", actualFileSize, maxFileSize);
                         if (!CreateFile(filePath, maxFileSize)) return false;
                    }
                 }
@@ -532,7 +535,7 @@ namespace SPTAG
 		        struct timespec timeout_ts {0, 0};
 		        while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
  
-                uint32_t realcount = 0;
+                uint32_t realCount = 0;
                 for (int i = 0; i < requestCount; i++) {
                     AsyncReadRequest* readRequest = readRequests + i;
                     struct iocb* myiocb = &(readRequest->myiocb);
@@ -544,18 +547,21 @@ namespace SPTAG
                     //myiocb->aio_nbytes = readRequest->m_readSize;
                     myiocb->aio_nbytes = PageSize;
                     myiocb->aio_offset = static_cast<std::int64_t>(readRequest->m_offset);
-                    if (readRequest->m_readSize > 0) realcount++;
+                    if (readRequest->m_readSize > 0) realCount++;
                 }
                 uint32_t batchTotalDone = 0;
                 uint32_t reqidx = 0;
-                for (int currSubIoStartId = 0; currSubIoStartId < realcount; currSubIoStartId += batchSize) {
-                    int currSubIoEndId = (currSubIoStartId + batchSize) > requestCount ? requestCount : currSubIoStartId + batchSize;
+                for (int currSubIoStartId = 0; currSubIoStartId < realCount; currSubIoStartId += batchSize) {
+                    int currSubIoEndId = (currSubIoStartId + batchSize) > realCount ? realCount : currSubIoStartId + batchSize;
                     int totalToSubmit = currSubIoEndId - currSubIoStartId;
                     int totalSubmitted = 0, totalDone = 0;
                     for (int i = 0; i < totalToSubmit; i++) {
-                        while (readRequests[reqidx].m_readSize == 0) reqidx++;
-                        iocbs[i] = &(readRequests[reqidx].myiocb);
-                        reqidx++;
+                        while (reqidx < requestCount && readRequests[reqidx].m_readSize == 0) reqidx++;
+			if (reqidx >= requestCount) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: error reqidx(%d) >= requestCount(%d)\n", reqidx, requestCount);
+			else {
+                            iocbs[i] = &(readRequests[reqidx].myiocb);
+                            reqidx++;
+			}
                     }
 
                     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: iocp:%d totalToSubmit:%d\n", iocp, totalToSubmit);
