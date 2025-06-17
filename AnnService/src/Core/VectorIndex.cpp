@@ -11,8 +11,11 @@
 #include "inc/Core/KDT/Index.h"
 #include "inc/Core/SPANN/Index.h"
 
+#include <filesystem>
+
 typedef typename SPTAG::Helper::Concurrent::ConcurrentMap<std::string, SPTAG::SizeType> MetadataMap;
 
+namespace fs = std::filesystem;
 using namespace SPTAG;
 
 Helper::LoggerHolder& SPTAG::GetLoggerHolder() {
@@ -67,6 +70,48 @@ namespace SPTAG {
             readSize = input->ReadBinary(bufferSize, bufferHolder.get());
         }
         input->ShutDown(); output->ShutDown();
+        return true;
+    }
+
+    bool copydirectory(const fs::path& sourceDir, const fs::path& destinationDir) {
+        try {
+            // Ensure the destination directory exists.
+            // create_directories will create parent directories if they don't exist.
+            if (!fs::exists(destinationDir)) {
+                if (!fs::create_directories(destinationDir)) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error: Could not create destination directory %s\n", destinationDir.string().c_str());
+                    return false;
+                }
+            } else if (!fs::is_directory(destinationDir)) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error: Destination path %s exists but is not a directory.\n", destinationDir.string().c_str());
+                return false;
+            }
+
+            // Iterate through all entries in the source directory
+            for (const auto& entry : fs::directory_iterator(sourceDir)) {
+                fs::path currentPath = entry.path();
+                fs::path destinationPath = destinationDir / currentPath.filename(); // Append filename to destination path
+
+                if (fs::is_directory(currentPath)) {
+                    // If it's a subdirectory, recursively copy its contents
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Copying directory: %s to %s\n", currentPath.string().c_str(), destinationPath.string().c_str());
+                    if (!copydirectory(currentPath, destinationPath)) {
+                        return false; // Propagate error from recursive call
+                    }
+                } else {
+                    // If it's a file, copy it directly
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Copying file: %s to %s\n", currentPath.string().c_str(), destinationPath.string().c_str());
+                    // Use copy_options::overwrite_existing to replace files if they exist in destination
+                    fs::copy(currentPath, destinationPath, fs::copy_options::overwrite_existing);
+                }
+            }
+        } catch (const fs::filesystem_error& e) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Filesystem error: %s\n", e.what());
+            return false;
+        } catch (const std::exception& e) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "General error: %s\n", e.what());
+            return false;
+        }
         return true;
     }
 
@@ -306,6 +351,7 @@ VectorIndex::SaveIndex(std::string& p_config, const std::vector<ByteArray>& p_in
 ErrorCode
 VectorIndex::SaveIndex(const std::string& p_folderPath)
 {
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SaveIndex(%s) begin...ready:%d GetNumSamples():%d GetNumDeleted():%d\n", p_folderPath.c_str(), m_bReady, GetNumSamples(), GetNumDeleted());
     if (!m_bReady || GetNumSamples() - GetNumDeleted() == 0) return ErrorCode::EmptyIndex;
 
     std::string folderPath(p_folderPath);
@@ -652,6 +698,10 @@ VectorIndex::LoadIndex(const std::string& p_loaderFilePath, std::shared_ptr<Vect
         handles.push_back(std::move(ptr));
     }
 
+    if (algoType == IndexAlgoType::SPANN) {
+        p_vectorIndex->SetParameter("IndexDirectory", p_loaderFilePath, "Base");
+    }
+    
     if ((ret = p_vectorIndex->LoadIndexData(handles)) != ErrorCode::Success) return ret;
 
     size_t metaStart = p_vectorIndex->GetIndexFiles()->size();
@@ -791,6 +841,20 @@ VectorIndex::LoadIndex(const std::string& p_config, const std::vector<ByteArray>
     return ErrorCode::Success;
 }
 
+std::shared_ptr<VectorIndex> VectorIndex::Clone(std::string p_original, std::string p_clone) {
+    if (!copydirectory(p_original, p_clone)) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to copy index directory contents to %s!\n", p_clone.c_str());
+        return nullptr;
+    }     
+    
+    std::shared_ptr<VectorIndex> clone;
+    auto status = LoadIndex(p_clone, clone);
+    if (status != ErrorCode::Success) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to load index from %s!\n", p_clone.c_str());
+        return nullptr;
+    }
+    return clone;
+}
 
 std::uint64_t VectorIndex::EstimatedVectorCount(std::uint64_t p_memory, DimensionType p_dimension, VectorValueType p_valuetype, SizeType p_vectorsInBlock, SizeType p_maxmeta, IndexAlgoType p_algo, int p_treeNumber, int p_neighborhoodSize)
 {

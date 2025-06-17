@@ -79,6 +79,8 @@
     <Import Project="..\..\packages\Microsoft.Windows.CppWinRT.2.0.220531.1\build\native\Microsoft.Windows.CppWinRT.targets" Condition="Exists('..\..\packages\Microsoft.Windows.CppWinRT.2.0.220531.1\build\native\Microsoft.Windows.CppWinRT.targets')" />
     <Import Project="..\..\packages\Microsoft.Windows.CppWinRT.2.0.230207.1\build\native\Microsoft.Windows.CppWinRT.targets" Condition="Exists('..\..\packages\Microsoft.Windows.CppWinRT.2.0.230207.1\build\native\Microsoft.Windows.CppWinRT.targets')" />
     <Import Project="..\..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets" Condition="Exists('..\..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets')" />
+    <Import Project="..\..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets" Condition="Exists('..\..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets')" />
+    <Import Project="..\..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets" Condition="Exists('..\..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets')" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
@@ -159,5 +161,7 @@
     <Error Condition="!Exists('..\..\packages\Microsoft.Windows.CppWinRT.2.0.230207.1\build\native\Microsoft.Windows.CppWinRT.props')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\Microsoft.Windows.CppWinRT.2.0.230207.1\build\native\Microsoft.Windows.CppWinRT.props'))" />
     <Error Condition="!Exists('..\..\packages\Microsoft.Windows.CppWinRT.2.0.230207.1\build\native\Microsoft.Windows.CppWinRT.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\Microsoft.Windows.CppWinRT.2.0.230207.1\build\native\Microsoft.Windows.CppWinRT.targets'))" />
     <Error Condition="!Exists('..\..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets'))" />
+    <Error Condition="!Exists('..\..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets'))" />
+    <Error Condition="!Exists('..\..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets'))" />
   </Target>
 </Project>

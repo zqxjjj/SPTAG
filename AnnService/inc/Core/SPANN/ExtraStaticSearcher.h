@@ -210,6 +210,9 @@ namespace SPTAG
                 
                 m_listPerFile = static_cast<int>((m_totalListCount + m_indexFiles.size() - 1) / m_indexFiles.size());
 
+                p_versionMap.Load(p_opt.m_indexDirectory + FolderSep + p_opt.m_deleteIDFile, p_opt.m_datasetRowsInBlock, p_opt.m_datasetCapacity);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Current vector num: %d.\n", p_versionMap.Count());
+
 #ifndef _MSC_VER
                 Helper::AIOTimeout.tv_nsec = p_opt.m_iotimeout * 1000;
 #endif
@@ -480,14 +483,21 @@ namespace SPTAG
 #endif
             }
 
-            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace,
+            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
-		std::shared_ptr<VectorIndex>& p_index) override
+		        std::shared_ptr<VectorIndex>& p_index) override
             {
+                COMMON::QueryResultSet<ValueType>& headResults = *((COMMON::QueryResultSet<ValueType>*) & p_headResults);
                 COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
                 bool foundResult = false;
+                BasicResult* head = headResults.GetResult(p_exWorkSpace->m_ri);
                 while (!foundResult && p_exWorkSpace->m_pi < p_exWorkSpace->m_postingIDs.size()) {
-
+                    if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi) {
+                        queryResults.AddPoint(head->VID, head->Dist);
+                        head = headResults.GetResult(++p_exWorkSpace->m_ri);
+                        foundResult = true;
+                        continue;
+                    }
                     char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[p_exWorkSpace->m_pi]).GetBuffer());
                     ListInfo* listInfo = static_cast<ListInfo*>(p_exWorkSpace->m_diskRequests[p_exWorkSpace->m_pi].m_payload);
                     // decompress posting list
@@ -498,21 +508,27 @@ namespace SPTAG
                     }
                     ProcessPostingOffset();
                 }
-                return !(p_exWorkSpace->m_pi == p_exWorkSpace->m_postingIDs.size());
+                if (!foundResult && head && head->VID != -1) {
+                    queryResults.AddPoint(head->VID, head->Dist);
+                    head = headResults.GetResult(++p_exWorkSpace->m_ri);
+                    foundResult = true;
+                }
+                return foundResult;
             }
 
-            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace,
-                 QueryResult& p_query,
-		 std::shared_ptr<VectorIndex> p_index) override
+            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+                QueryResult& p_query,
+		        std::shared_ptr<VectorIndex> p_index) override
             {
                 if (p_exWorkSpace->m_loadPosting) {
                     SearchIndexWithoutParsing(p_exWorkSpace);
+                    p_exWorkSpace->m_ri = 0;
                     p_exWorkSpace->m_pi = 0;
                     p_exWorkSpace->m_offset = 0;
                     p_exWorkSpace->m_loadPosting = false;
                 }
 
-                return SearchNextInPosting(p_exWorkSpace, p_query, p_index);
+                return SearchNextInPosting(p_exWorkSpace, p_headResults, p_query, p_index);
             }
 
             std::string GetPostingListFullData(
@@ -585,7 +601,7 @@ namespace SPTAG
 
                 int numThreads = p_opt.m_iSSDNumberOfThreads;
                 int candidateNum = p_opt.m_internalResultNum;
-                std::unordered_set<SizeType> headVectorIDS;
+                std::unordered_map<SizeType, SizeType> headVectorIDS;
                 if (p_opt.m_headIDFile.empty()) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Not found VectorIDTranslate!\n");
                     return false;
@@ -600,9 +616,11 @@ namespace SPTAG
                     }
 
                     std::uint64_t vid;
+                    SizeType i = 0;
                     while (ptr->ReadBinary(sizeof(vid), reinterpret_cast<char*>(&vid)) == sizeof(vid))
                     {
-                        headVectorIDS.insert(static_cast<SizeType>(vid));
+                        headVectorIDS[static_cast<SizeType>(vid)] = i;
+                        i++;
                     }
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
                 }
@@ -615,6 +633,8 @@ namespace SPTAG
                     vectorInfoSize = fullVectors->PerVectorDataSize() + sizeof(int);
                 }
                 if (upperBound > 0) fullCount = upperBound;
+
+                p_versionMap.Initialize(fullCount, p_headIndex->m_iDataBlockSize, p_headIndex->m_iDataCapacity);
 
                 Selection selections(static_cast<size_t>(fullCount) * p_opt.m_replicaCount, p_opt.m_tmpdir);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Full vector count:%d Edge bytes:%llu selection size:%zu, capacity size:%zu\n", fullCount, sizeof(Edge), selections.m_selections.size(), selections.m_selections.capacity());
@@ -648,12 +668,14 @@ namespace SPTAG
                                 return false;
                             }
                             emptySet.clear();
-                            for (auto vid : headVectorIDS) {
-                                if (vid >= start && vid < end) emptySet.insert(vid - start);
+                            for (auto& pair : headVectorIDS) {
+                                if (pair.first >= start && pair.first < end) emptySet.insert(pair.first - start);
                             }
                         }
                         else {
-                            emptySet = headVectorIDS;
+                            for (auto& pair : headVectorIDS) {
+                                emptySet.insert(pair.first);
+                            }
                         }
 
                         int sampleNum = 0;
@@ -683,6 +705,11 @@ namespace SPTAG
                                     selections[vecOffset + resNum].tonode = j;
                                     ++replicaCount[j];
                                 }
+                            } else if (!p_opt.m_excludehead) {
+                                selections[vecOffset].node = headVectorIDS[j];
+                                selections[vecOffset].tonode = j;
+                                ++postingListSize[selections[vecOffset].node];
+                                ++replicaCount[j];
                             }
                         }
 
@@ -915,6 +942,8 @@ namespace SPTAG
                         curPostingListOffSet);
                 }
 
+                p_versionMap.Save(p_opt.m_indexDirectory + FolderSep + p_opt.m_deleteIDFile);
+
                 auto t5 = std::chrono::high_resolution_clock::now();
                 auto elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(t5 - t1).count();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Total used time: %.2lf minutes (about %.2lf hours).\n", elapsedSeconds / 60.0, elapsedSeconds / 3600.0);
@@ -945,13 +974,11 @@ namespace SPTAG
 #endif
 
                 size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
-                char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[0]).GetBuffer());
 
 #ifdef ASYNC_READ       
                 auto& request = p_exWorkSpace->m_diskRequests[0];
                 request.m_offset = listInfo->listOffset;
                 request.m_readSize = totalBytes;
-                request.m_buffer = buffer;
                 request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
                 request.m_payload = (void*)listInfo;
                 request.m_success = false;
@@ -994,6 +1021,7 @@ namespace SPTAG
                 }
 #endif
 #else // sync read
+                char* buffer = (char*)((p_exWorkSpace->m_pageBuffers[0]).GetBuffer());
                 auto numRead = indexFile->ReadBinary(totalBytes, buffer, listInfo->listOffset);
                 if (numRead != totalBytes) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "File %s read bytes, expected: %zu, acutal: %llu.\n", m_extraFullGraphFile.c_str(), totalBytes, numRead);

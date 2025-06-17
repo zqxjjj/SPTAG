@@ -130,11 +130,15 @@ namespace SPTAG
 #define ALIGN_FREE(ptr) _mm_free(ptr)
 #define PAGE_ALLOC(size) _mm_malloc(size, 512)
 #define PAGE_FREE(ptr) _mm_free(ptr)
+#define BLOCK_ALLOC(size, val) _mm_malloc(size, val)
+#define BLOCK_FREE(ptr, val) _mm_free(ptr)
 #else
 #define ALIGN_ALLOC(size) ::operator new(size, (std::align_val_t)32)
 #define ALIGN_FREE(ptr) ::operator delete(ptr, (std::align_val_t)32)
 #define PAGE_ALLOC(size) ::operator new(size, (std::align_val_t)512)
 #define PAGE_FREE(ptr) ::operator delete(ptr, (std::align_val_t)512)
+#define BLOCK_ALLOC(size, val) ::operator new(size, (std::align_val_t)val)
+#define BLOCK_FREE(ptr, val) ::operator delete(ptr, (std::align_val_t)val)
 #endif
 
 #define ALIGN_ROUND(size) ((size) + 31) / 32 * 32

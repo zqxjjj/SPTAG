@@ -156,13 +156,13 @@
     <ClCompile Include="src\IniReaderTest.cpp" />
     <ClCompile Include="src\KVTest.cpp" />
     <ClCompile Include="src\IterativeScanTest.cpp" />
-    <ClCompile Include="src\KVTest.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\MultiIndexExperiment.cpp" />
     <ClCompile Include="src\MultiIndexScanTest.cpp" />
     <ClCompile Include="src\PerfTest.cpp" />
     <ClCompile Include="src\ReconstructIndexSimilarityTest.cpp" />
     <ClCompile Include="src\SIMDTest.cpp" />
+    <ClCompile Include="src\SPFreshTest.cpp" />
     <ClCompile Include="src\SSDServingTest.cpp" />
     <ClCompile Include="src\StringConvertTest.cpp" />
   </ItemGroup>
@@ -184,6 +184,8 @@
     <Import Project="..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets" Condition="Exists('..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets')" />
     <Import Project="..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets" Condition="Exists('..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets')" />
     <Import Project="..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets" Condition="Exists('..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets')" />
+    <Import Project="..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets" Condition="Exists('..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets')" />
+    <Import Project="..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets" Condition="Exists('..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -199,5 +201,7 @@
     <Error Condition="!Exists('..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets'))" />
     <Error Condition="!Exists('..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets'))" />
     <Error Condition="!Exists('..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets'))" />
+    <Error Condition="!Exists('..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets'))" />
+    <Error Condition="!Exists('..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets'))" />
   </Target>
 </Project>

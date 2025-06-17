@@ -352,7 +352,7 @@ namespace SPTAG::SPANN
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "RocksDB: checkpoint\n");
             rocksdb::Checkpoint* checkpoint_ptr;
             rocksdb::Checkpoint::Create(db, &checkpoint_ptr);
-            std::string filename = prefix + "_rocksdb";
+            std::string filename = prefix + FolderSep + dbPath.substr(dbPath.find_last_of(FolderSep) + 1);
             checkpoint_ptr->CreateCheckpoint(filename);
             return ErrorCode::Success;
         }

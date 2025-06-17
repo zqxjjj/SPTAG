@@ -22,21 +22,21 @@ namespace SPTAG::SPANN {
     class FileIO : public Helper::KeyValueIO {
         class BlockController {
         private:
-            char* m_filePath = nullptr;
+            char m_filePath[1024];
             std::shared_ptr <Helper::DiskIO> m_fileHandle = nullptr;
 
             tbb::concurrent_queue<AddressType> m_blockAddresses;
             tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
 
             thread_local static int debug_fd;
-            
-	    std::atomic<int64_t> read_complete_vec = 0;
-	    std::atomic<int64_t> read_submit_vec = 0;
-	    std::atomic<int64_t> write_complete_vec = 0;
-	    std::atomic<int64_t> write_submit_vec = 0;
-	    std::atomic<int64_t> read_bytes_vec = 0;
-	    std::atomic<int64_t> write_bytes_vec = 0;
-	    std::atomic<int64_t> read_blocks_time_vec = 0;
+
+	        std::atomic<int64_t> read_complete_vec = 0;
+	        std::atomic<int64_t> read_submit_vec = 0;
+	        std::atomic<int64_t> write_complete_vec = 0;
+	        std::atomic<int64_t> write_submit_vec = 0;
+	        std::atomic<int64_t> read_bytes_vec = 0;
+	        std::atomic<int64_t> write_bytes_vec = 0;
+	        std::atomic<int64_t> read_blocks_time_vec = 0;
 
             std::mutex m_initMutex;
             int m_numInitCalled = 0;
@@ -60,7 +60,7 @@ namespace SPTAG::SPANN {
             // static void Stop(void* args);
 
         public:
-            bool Initialize(SPANN::Options& p_opt, bool p_recovery);
+            bool Initialize(SPANN::Options& p_opt);
 
             bool GetBlocks(AddressType* p_data, int p_size);
 
@@ -91,11 +91,11 @@ namespace SPTAG::SPANN {
                     m_blockAddresses_reserve.try_pop(currBlockAddress);
                     m_blockAddresses.push(currBlockAddress);
                 }
+                int blocks = RemainBlocks();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Reload Finish!\n");
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save blockpool To %s\n", filename.c_str());
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save blockpool To %s with %d remain blocks\n", filename.c_str(), blocks);
                 auto ptr = f_createIO();
                 if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::out)) return ErrorCode::FailedCreateFile;
-                int blocks = RemainBlocks();
                 IOBINARY(ptr, WriteBinary, sizeof(SizeType), (char*)&blocks);
                 for (auto it = m_blockAddresses.unsafe_begin(); it != m_blockAddresses.unsafe_end(); it++) {
                     IOBINARY(ptr, WriteBinary, sizeof(AddressType), (char*)&(*it));
@@ -128,7 +128,7 @@ namespace SPTAG::SPANN {
 	                }    
     	        }
 		        return ErrorCode::Success;
-	        }
+	        } 
         };
 
         class LRUCache {
@@ -316,7 +316,7 @@ namespace SPTAG::SPANN {
 
     public:
         FileIO(SPANN::Options& p_opt) {
-            m_mappingPath = p_opt.m_spdkMappingPath;
+            m_mappingPath = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile;
             m_blockLimit = p_opt.m_postingPageLimit + p_opt.m_bufferLength + 1;
             m_bufferLimit = 1024;
 
@@ -363,14 +363,25 @@ namespace SPTAG::SPANN {
             }
 
             if (p_opt.m_recovery) {
-                Load(p_opt.m_persistentBufferPath + "_blockmapping", 1024 * 1024, MaxSize);
-		        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery load block mapping successfully!\n");
-            } else if(fileexists(m_mappingPath.c_str())) {
-                Load(m_mappingPath, 1024 * 1024, MaxSize);
-		        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully!\n");
-            } else {
-		        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize block mapping successfully!\n");
-                m_pBlockMapping.Initialize(0, 1, 1024 * 1024, MaxSize);
+                std::string recoverpath = p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile;
+                if (fileexists(recoverpath.c_str())) {
+                    m_pBlockMapping.Load(recoverpath, 1024 * 1024, MaxSize);
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully from %s!\n", recoverpath.c_str());
+                }
+                else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot recover block mapping from %s!\n", recoverpath.c_str());
+                    exit(1);
+                }
+            }
+            else {
+                if (fileexists(m_mappingPath.c_str())) {
+                    m_pBlockMapping.Load(m_mappingPath, 1024 * 1024, MaxSize);
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully from %s!\n", m_mappingPath.c_str());
+                }
+                else {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize block mapping successfully!\n");
+                    m_pBlockMapping.Initialize(0, 1, 1024 * 1024, MaxSize);
+                }
             }
             for (int i = 0; i < m_bufferLimit; i++) {
                 m_buffer.push((uintptr_t)(new AddressType[m_blockLimit]));
@@ -378,7 +389,7 @@ namespace SPTAG::SPANN {
             m_compactionThreadPool = std::make_shared<Helper::ThreadPool>();
             m_compactionThreadPool->init(1);
 
-            if (!m_pBlockController.Initialize(p_opt, p_opt.m_recovery)) {
+            if (!m_pBlockController.Initialize(p_opt)) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize FileIO!\n");
                 exit(0);
             }
@@ -403,7 +414,6 @@ namespace SPTAG::SPANN {
                 uintptr_t ptr = 0xffffffffffffffff;
                 if (m_buffer.try_pop(ptr)) delete[]((AddressType*)ptr);
             }
-            m_pBlockController.ShutDown();
             if (m_fileIoUseCache) {
                 delete m_pShardedLRUCache;
             }
@@ -881,10 +891,10 @@ namespace SPTAG::SPANN {
         }
 
         ErrorCode Checkpoint(std::string prefix) override {
-            std::string filename = prefix + "_blockmapping";
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: saving block mapping\n");
+            std::string filename = prefix + FolderSep + m_mappingPath.substr(m_mappingPath.find_last_of(FolderSep) + 1);
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: saving block mapping to %s\n", filename.c_str());
             Save(filename);
-            return m_pBlockController.Checkpoint(prefix);
+            return m_pBlockController.Checkpoint(filename + "_postings");
         }
 
     private:

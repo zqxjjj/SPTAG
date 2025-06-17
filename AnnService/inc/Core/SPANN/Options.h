@@ -99,8 +99,8 @@ namespace SPTAG {
             int m_postingVectorLimit;
             std::string m_fullDeletedIDFile;
             Storage m_storage;
-            std::string m_KVPath;
-            std::string m_spdkMappingPath;
+            std::string m_KVFile;
+            std::string m_ssdMappingFile;
             std::string m_ssdInfoFile;
             bool m_useDirectIO;
             bool m_preReassign;

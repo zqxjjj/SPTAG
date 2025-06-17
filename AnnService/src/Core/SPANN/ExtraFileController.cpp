@@ -5,15 +5,14 @@ namespace SPTAG::SPANN
 extern std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO;
 thread_local int FileIO::BlockController::debug_fd = -1;
 
-bool FileIO::BlockController::Initialize(SPANN::Options &p_opt, bool recovery) {
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d)\n", p_opt.m_spdkMappingPath.c_str(), p_opt.m_spdkBatchSize);
+bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d)\n", p_opt.m_ssdMappingFile.c_str(), p_opt.m_spdkBatchSize);
     std::lock_guard<std::mutex> lock(m_initMutex);
     m_numInitCalled++;
 
     if(m_numInitCalled == 1) {
         m_batchSize = p_opt.m_spdkBatchSize;
-        if (m_filePath == nullptr) m_filePath = new char[1024];
-	    strcpy(m_filePath, (p_opt.m_spdkMappingPath + "_postings").c_str());
+        strcpy(m_filePath, (p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings").c_str());
         m_startTime = std::chrono::high_resolution_clock::now();
 
         int numblocks = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit + 1) * p_opt.m_searchInternalResultNum;
@@ -28,9 +27,9 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt, bool recovery) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
             return false;
         }
-        std::string blockpoolPath = (recovery) ? p_opt.m_persistentBufferPath : m_filePath;
+        std::string blockpoolPath = (p_opt.m_recovery) ? p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile + "_postings" : m_filePath;
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool from file:%s\n", blockpoolPath.c_str());
-        ErrorCode ret = LoadBlockPool(blockpoolPath, (std::uint64_t)p_opt.m_maxFileSize << (30 - PageSizeEx), !recovery);
+        ErrorCode ret = LoadBlockPool(blockpoolPath, (std::uint64_t)p_opt.m_maxFileSize << (30 - PageSizeEx), !p_opt.m_recovery);
         if (ErrorCode::Success != ret) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool failed!\n");
             return false;
@@ -96,12 +95,10 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         return false;
     }
     
-    p_value->resize(blockNum << PageSizeEx);
     AddressType currOffset = 0;
     AddressType dataIdx = 1;
     for (int i = 0; i < blockNum; i++) {
         Helper::AsyncReadRequest& curr = reqs->at(i);
-        curr.m_buffer = (char*)p_value->data() + currOffset;
         curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
         curr.m_offset = p_data[dataIdx] * PageSize;
         currOffset += PageSize;
@@ -114,7 +111,12 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, blockNum);
         m_batchReadTimeouts++;
     }
+
     p_value->resize(postingSize);
+    for (int i = 0; i < blockNum; i++) {
+        Helper::AsyncReadRequest& curr = reqs->at(i);
+        memcpy(p_value->data() + i * PageSize, curr.m_buffer, curr.m_readSize);
+    }
     return true;
 }
 
@@ -128,23 +130,20 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     fsync(debug_fd);
 #endif
     m_batchReadTimes++;
-    p_values->resize(p_data.size());
+
     std::uint32_t reqcount = 0;
     for(size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
-        std::string* p_value = &((*p_values)[i]);
 
         if (p_data_i == nullptr) {
             continue;
         }
 
         std::size_t postingSize = (std::size_t)p_data_i[0];
-        p_value->resize(((postingSize + PageSize - 1) >> PageSizeEx) << PageSizeEx);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
         while(currOffset < postingSize) {
             Helper::AsyncReadRequest& curr = reqs->at(reqcount);
-            curr.m_buffer = (char*)p_value->data() + currOffset;
             curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
             curr.m_offset = p_data_i[dataIdx] * PageSize;
             currOffset += PageSize;
@@ -163,15 +162,26 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount);
         m_batchReadTimeouts++;
     }
-
-    for (int i = 0; i < p_data.size(); i++) {
+    
+    p_values->resize(p_data.size());
+    std::uint32_t reqdone = 0;
+    for (size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
         std::string* p_value = &((*p_values)[i]);
 
         if (p_data_i == nullptr) {
             continue;
         }
-        p_value->resize(p_data_i[0]);
+
+        std::size_t postingSize = (std::size_t)p_data_i[0];
+        p_value->resize(postingSize);
+        AddressType currOffset = 0;
+        while (currOffset < postingSize) {
+            Helper::AsyncReadRequest& curr = reqs->at(reqdone);
+            memcpy(p_value->data() + currOffset, curr.m_buffer, curr.m_readSize);
+            currOffset += PageSize;
+            reqdone++;
+        }
     }
     return true;
 }
@@ -190,32 +200,51 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
     for (size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
         std::uint8_t* p_value = p_values[i].GetBuffer();
-
+        int numPages = (p_values[i].GetPageSize() >> PageSizeEx);
+        
         if (p_data_i == nullptr) {
+            p_values[i].SetAvailableSize(0);   
+            for (std::uint32_t r = 0; r < numPages; r++) {
+                Helper::AsyncReadRequest& curr = reqs->at(reqcount);
+                curr.m_readSize = 0;
+                reqcount++;
+            }
             continue;
         }
+
         std::size_t postingSize = (std::size_t)p_data_i[0];
         p_values[i].SetAvailableSize(postingSize);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
         while (currOffset < postingSize) {
-            if (dataIdx > p_values[i].GetPageSize()) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  block(%d) > buffer page size (%d)\n", dataIdx - 1, p_values[i].GetPageSize());
+            if (dataIdx > numPages) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  block (%d) >= buffer page size (%d)\n", dataIdx - 1, numPages);
                 return false;
             }
             Helper::AsyncReadRequest& curr = reqs->at(reqcount);
-            curr.m_buffer = (char*)p_value + currOffset;
             curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
             curr.m_offset = p_data_i[dataIdx] * PageSize;
             currOffset += PageSize;
             dataIdx++;
             reqcount++;
             if (reqcount >= reqs->size()) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  %u >= %u\n", reqcount, reqs->size());
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  req (%u) >= req array size (%u)\n", reqcount, reqs->size());
+                return false;
+            }
+        }
+
+        while (dataIdx - 1  < numPages) {
+            Helper::AsyncReadRequest& curr = reqs->at(reqcount);
+            curr.m_readSize = 0;
+            dataIdx++;
+            reqcount++;
+            if (reqcount >= reqs->size()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  req (%u) >= req array size (%u)\n", reqcount, reqs->size());
                 return false;
             }
         }
     }
+
     read_submit_vec += reqcount;
     std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), reqcount, timeout, m_batchSize);
     read_complete_vec += totalReads;
@@ -236,15 +265,13 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     fsync(debug_fd);
 #endif
 
-    std::string tmp(((p_value.size() + PageSize - 1) >> PageSizeEx) << PageSizeEx, '\0');
-    memcpy(tmp.data(), p_value.data(), p_value.size());
     AddressType currOffset = 0;
     int totalSize = p_value.size();
     for (int i = 0; i < p_size; i++) {
         Helper::AsyncReadRequest& curr = reqs->at(i);
-        curr.m_buffer = (char*)tmp.data() + currOffset;
         curr.m_readSize = (totalSize - currOffset) < PageSize ? (totalSize - currOffset) : PageSize;
         curr.m_offset = p_data[i] * PageSize;
+        memcpy(curr.m_buffer, p_value.data() + currOffset, curr.m_readSize);
         currOffset += PageSize;
     }
 

@@ -127,10 +127,10 @@ void* SPDKIO::BlockController::InitializeSpdk(void *arg) {
     pthread_exit(NULL);
 }
 
-bool SPDKIO::BlockController::Initialize(std::string filePath, int batchSize) {
+bool SPDKIO::BlockController::Initialize(SPANN::Options& p_opt) {
     std::lock_guard<std::mutex> lock(m_initMutex);
     m_numInitCalled++;
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController::Initialize(%s, %d)\n", filePath.c_str(), batchSize);
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController::Initialize(%s, %d)\n", p_opt.m_ssdMappingFile.c_str(), p_opt.m_spdkBatchSize);
     const char* useMemImplEnvStr = getenv(kUseMemImplEnv);
     m_useMemImpl = useMemImplEnvStr && !strcmp(useMemImplEnvStr, "1");
     const char* useSsdImplEnvStr = getenv(kUseSsdImplEnv);
@@ -147,15 +147,21 @@ bool SPDKIO::BlockController::Initialize(std::string filePath, int batchSize) {
         return true;
     } else if (m_useSsdImpl) {
         if (m_numInitCalled == 1) {
-            m_batchSize = batchSize;
+            m_batchSize = p_opt.m_spdkBatchSize;
+            m_filePath = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings";
             pthread_create(&m_ssdSpdkTid, NULL, &InitializeSpdk, this);
             while (!m_ssdSpdkThreadReady && !m_ssdSpdkThreadStartFailed);
             if (m_ssdSpdkThreadStartFailed) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPDKIO::BlockController::Initialize failed\n");
                 return false;
             }
-	    m_filePath = filePath;
-	    LoadBlockPool(m_filePath, true);
+            std::string blockpoolPath = (p_opt.m_recovery) ? p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile + "_postings" : m_filePath;
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool from file:%s\n", blockpoolPath.c_str());
+            ErrorCode ret = LoadBlockPool(blockpoolPath, (std::uint64_t)p_opt.m_maxFileSize << (30 - PageSizeEx), !p_opt.m_recovery);
+            if (ErrorCode::Success != ret) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController:Loading block pool failed!\n");
+                return false;
+            }
         }
         // Create sub I/O request pool
         m_currIoContext.sub_io_requests.resize(m_ssdSpdkIoDepth);
@@ -556,7 +562,7 @@ bool SPDKIO::BlockController::ShutDown() {
             m_ssdSpdkThreadExiting = true;
             spdk_app_start_shutdown();
             pthread_join(m_ssdSpdkTid, NULL);
-	    Checkpoint(m_filePath);
+	        Checkpoint(m_filePath);
             while (!m_blockAddresses.empty()) {
                 AddressType currBlockAddress;
                 m_blockAddresses.try_pop(currBlockAddress);

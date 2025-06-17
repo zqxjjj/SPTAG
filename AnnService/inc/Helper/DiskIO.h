@@ -108,7 +108,7 @@ namespace SPTAG
                 if (m_pageBufferSize < p_size)
                 {
                     m_pageBufferSize = p_size;
-                    m_pageBuffer.reset(static_cast<T*>(PAGE_ALLOC(sizeof(T) * m_pageBufferSize)), [=](T* ptr) { PAGE_FREE(ptr); });
+                    m_pageBuffer.reset(static_cast<T*>(BLOCK_ALLOC(sizeof(T) * m_pageBufferSize, PageSize)), [=](T* ptr) { BLOCK_FREE(ptr, PageSize); });
                 }
             }
 

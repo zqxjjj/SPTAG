@@ -89,6 +89,8 @@ namespace SPTAG
         {
             /** Need to modify **/
             m_index->SetQuantizer(m_pQuantizer);
+	        if (!m_options.m_persistentBufferPath.empty() && !direxists(m_options.m_persistentBufferPath.c_str())) mkdir(m_options.m_persistentBufferPath.c_str());
+
             if (m_index->LoadIndexDataFromMemory(p_indexBlobs) != ErrorCode::Success) return ErrorCode::Fail;
 
             m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
@@ -121,13 +123,14 @@ namespace SPTAG
         ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
             m_index->SetQuantizer(m_pQuantizer);
+	    if (!m_options.m_persistentBufferPath.empty() && !direxists(m_options.m_persistentBufferPath.c_str())) mkdir(m_options.m_persistentBufferPath.c_str());
 
             auto headfiles = m_index->GetIndexFiles();
             if (m_options.m_recovery) {
                 std::shared_ptr<std::vector<std::string>> files(new std::vector<std::string>);
                 auto headfiles = m_index->GetIndexFiles();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Recovery: Loading another in-memory index\n");
-                std::string filename = m_options.m_persistentBufferPath + "_headIndex";
+                std::string filename = m_options.m_persistentBufferPath + FolderSep + m_options.m_headIndexFolder;
                 for (auto file : *headfiles) {
                     files->push_back(filename + FolderSep + file);
                 }
@@ -148,10 +151,16 @@ namespace SPTAG
             m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
             m_index->UpdateIndex();
             m_index->SetReady(true);
+         
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
+            m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
+            IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
 
+	        std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
+	        std::string ssdmappingpath = m_options.m_indexDirectory + FolderSep + m_options.m_ssdMappingFile;
             if (m_options.m_recovery) {
-                m_options.m_KVPath = m_options.m_persistentBufferPath + "_rocksdb";
-                m_options.m_spdkMappingPath = m_options.m_persistentBufferPath;
+                kvpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_KVFile;
+                ssdmappingpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_ssdMappingFile;
             }
 
             if (m_pQuantizer || (m_options.m_storage == Storage::STATIC))
@@ -166,11 +175,6 @@ namespace SPTAG
                 m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
             }
 
-            if (!m_options.m_recovery && m_options.m_excludehead) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
-                m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
-                IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
-            }
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
 
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading storage\n");
@@ -243,8 +247,9 @@ namespace SPTAG
             ErrorCode ret;
             if ((ret = m_index->SaveIndexData(p_indexStreams)) != ErrorCode::Success) return ret;
 
-            if (m_options.m_excludehead) IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], WriteBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
-            m_versionMap.Save(m_options.m_deleteIDFile);
+            IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], WriteBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
+            
+            m_extraSearcher->Checkpoint(m_options.m_indexDirectory);
             return ErrorCode::Success;
         }
 
@@ -276,25 +281,42 @@ namespace SPTAG
                 workSpace->m_postingIDs.clear();
 
                 float limitDist = p_queryResults->GetResult(0)->Dist * m_options.m_maxDistRatio;
-                for (int i = 0; i < p_queryResults->GetResultNum(); ++i)
+                int i = 0;
+		        for (; i < m_options.m_searchInternalResultNum; ++i)
                 {
                     auto res = p_queryResults->GetResult(i);
-                    if (res->VID == -1) break;
-                    auto postingID = res->VID;
+                    if (res->VID == -1 || (limitDist > 0.1 && res->Dist > limitDist)) break;
+		            if (m_extraSearcher->CheckValidPosting(res->VID))
+                    {
+                        workSpace->m_postingIDs.emplace_back(res->VID);
+                    }
                     if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
                     }
-
-                    // Don't do disk reads for irrelevant pages
-                    if (workSpace->m_postingIDs.size() >= m_options.m_searchInternalResultNum ||
-                        (limitDist > 0.1 && res->Dist > limitDist) || 
-                        !m_extraSearcher->CheckValidPosting(postingID)) 
-                        continue;
-                    workSpace->m_postingIDs.emplace_back(postingID);
+                    if (res->VID == MaxSize) 
+                    {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
                 }
 
+		        for (; i < p_queryResults->GetResultNum(); ++i)
+                {
+                    auto res = p_queryResults->GetResult(i);
+                    if (res->VID == -1) break;
+                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    else {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
+                    if (res->VID == MaxSize)
+                    {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
+                }
                 p_queryResults->Reverse();
                 m_extraSearcher->SearchIndex(workSpace.get(), *p_queryResults, m_index, nullptr);
                 m_workSpaceFactory->ReturnWorkSpace(std::move(workSpace));
@@ -311,6 +333,7 @@ namespace SPTAG
                 for (int i = 0; i < p_query.GetResultNum(); ++i)
                 {
                     SizeType result = p_query.GetResult(i)->VID;
+		            //if (result > m_pMetadata->Count()) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "vid return is beyond the metadata set:(%d > (%d, %d))\n", result, GetNumSamples(), m_pMetadata->Count());
                     p_query.SetMetadata(i, (result < 0) ? ByteArray::c_empty : m_pMetadata->GetMetadataCopy(result));
                 }
             }
@@ -506,7 +529,11 @@ namespace SPTAG
                     {
                         extraWorkspace->m_postingIDs.emplace_back(res->VID);
                     }
-                    res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    else {
+                        res->VID = -1;
+                        res->Dist = MaxDist;
+                    }
                     if (res->VID == MaxSize)
                     {
                         res->VID = -1;
@@ -517,7 +544,7 @@ namespace SPTAG
                 extraWorkspace->m_loadedPostingNum += (int)(extraWorkspace->m_postingIDs.size());
             }
 
-            return m_extraSearcher->SearchIterativeNext(extraWorkspace, p_query, m_index);
+            return m_extraSearcher->SearchIterativeNext(extraWorkspace, p_headQuery, p_query, m_index);
         }
 
         template<typename T>
@@ -884,12 +911,11 @@ namespace SPTAG
 
         template <typename T>
         ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Helper::VectorSetReader>& p_reader) {
-            if (!m_options.m_indexDirectory.empty()) {
-                if (!direxists(m_options.m_indexDirectory.c_str()))
-                {
-                    mkdir(m_options.m_indexDirectory.c_str());
-                }
-            }
+            if (!m_options.m_indexDirectory.empty() && !direxists(m_options.m_indexDirectory.c_str()))
+                mkdir(m_options.m_indexDirectory.c_str());
+
+	        if (!m_options.m_persistentBufferPath.empty() && !direxists(m_options.m_persistentBufferPath.c_str())) 
+                mkdir(m_options.m_persistentBufferPath.c_str());
 
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin Select Head...\n");
             auto t1 = std::chrono::high_resolution_clock::now();
@@ -983,6 +1009,16 @@ namespace SPTAG
                 }
 
                 if (m_options.m_buildSsdIndex) {
+                    if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap)) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "BuildSSDIndex Failed!\n");
+                        if (m_options.m_buildSsdIndex) {
+                            return ErrorCode::Fail;
+                        }
+                        else {
+                            m_extraSearcher.reset();
+                        }
+                    }
+
                     if (!m_options.m_excludehead) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Include all vectors into SSD index...\n");
                         std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
@@ -995,17 +1031,8 @@ namespace SPTAG
                             IOBINARY(ptr, WriteBinary, sizeof(std::uint64_t), (char*)(&vid));
                         }
                     }
-
-                    if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap)) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "BuildSSDIndex Failed!\n");
-                        if (m_options.m_buildSsdIndex) {
-                            return ErrorCode::Fail;
-                        }
-                        else {
-                            m_extraSearcher.reset();
-                        }
-                    }
                 }
+
                 if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index)) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot Load SSDIndex!\n");
                     if (m_options.m_buildSsdIndex) {

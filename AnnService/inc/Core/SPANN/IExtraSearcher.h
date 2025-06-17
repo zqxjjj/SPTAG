@@ -196,7 +196,7 @@ namespace SPTAG {
                     if (p_blockIO) {
                         int numPages = (p_maxPages >> PageSizeEx);
                         m_diskRequests.resize(p_internalResultNum * numPages);
-			//SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d*%d reqs\n", p_internalResultNum, numPages);
+			            //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d*%d reqs\n", p_internalResultNum, numPages);
                         for (int pi = 0; pi < p_internalResultNum; pi++) {
                             for (int pg = 0; pg < numPages; pg++) {
                                 int rid = pi * numPages + pg;
@@ -217,7 +217,7 @@ namespace SPTAG {
                     }
                     else {
                         m_diskRequests.resize(p_internalResultNum);
-			//SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d reqs\n", p_internalResultNum);
+			            //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d reqs\n", p_internalResultNum);
                         for (int pi = 0; pi < p_internalResultNum; pi++) {
                             auto& req = m_diskRequests[pi];
                             req.m_extension = m_processIocp.handle();
@@ -260,7 +260,9 @@ namespace SPTAG {
 
             int m_spaceID = 0;
 
-            uint32_t m_pi = 0;
+            int m_ri = 0;
+
+            int m_pi = 0;
 
             int m_offset = 0;
 
@@ -291,13 +293,13 @@ namespace SPTAG {
                 std::shared_ptr<VectorIndex> p_index,
                 SearchStats* p_stats, std::set<int>* truth = nullptr, std::map<int, std::set<int>>* found = nullptr) = 0;
 
-            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace,
+            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
                 std::shared_ptr<VectorIndex> p_index) = 0;
 
             virtual void SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace) = 0;
 
-            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace,
+            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
                 std::shared_ptr<VectorIndex>& p_index) = 0;
 
