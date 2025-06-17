@@ -365,7 +365,7 @@ namespace SPTAG::SPANN {
             if (p_opt.m_recovery) {
                 std::string recoverpath = p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile;
                 if (fileexists(recoverpath.c_str())) {
-                    m_pBlockMapping.Load(recoverpath, 1024 * 1024, MaxSize);
+                    Load(recoverpath, 1024 * 1024, MaxSize);
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully from %s!\n", recoverpath.c_str());
                 }
                 else {
@@ -375,8 +375,22 @@ namespace SPTAG::SPANN {
             }
             else {
                 if (fileexists(m_mappingPath.c_str())) {
-                    m_pBlockMapping.Load(m_mappingPath, 1024 * 1024, MaxSize);
+                    Load(m_mappingPath, 1024 * 1024, MaxSize);
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully from %s!\n", m_mappingPath.c_str());
+                    for (int i = 0; i < 10; i++) {
+                        std::cout << "i=" << i << ": ";
+                        for (int j = 0; j < 10; j++) {
+                            std::cout << m_pBlockMapping[i][j] << " ";
+                        }
+                        std::cout << std::endl;
+                    }
+                    for (int i = m_pBlockMapping.R() - 10; i < m_pBlockMapping.R(); i++) {
+                        std::cout << "i=" << i << ": ";
+                        for (int j = 0; j < 10; j++) {
+                            std::cout << m_pBlockMapping[i][j] << " ";
+                        }
+                        std::cout << std::endl;
+                    }
                 }
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize block mapping successfully!\n");
@@ -877,6 +891,20 @@ namespace SPTAG::SPANN {
                 }
             }
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save mapping (%d,%d) Finish!\n", CR, m_blockLimit);
+            for (int i = 0; i < 10; i++) {
+                std::cout << "i=" << i << ": ";
+                for (int j = 0; j < 10; j++) {
+                    std::cout << m_pBlockMapping[i][j] << " ";
+                }
+                std::cout << std::endl;
+            }
+            for (int i = m_pBlockMapping.R() - 10; i < m_pBlockMapping.R(); i++) {
+                std::cout << "i=" << i << ": ";
+                for (int j = 0; j < 10; j++) {
+                    std::cout << m_pBlockMapping[i][j] << " ";
+                }
+                std::cout << std::endl;
+            }
             return ErrorCode::Success;
         }
 
