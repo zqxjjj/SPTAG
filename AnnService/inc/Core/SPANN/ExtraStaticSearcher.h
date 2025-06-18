@@ -619,15 +619,15 @@ namespace SPTAG
                 if (fileexists((p_opt.m_indexDirectory + FolderSep + p_opt.m_headIDFile).c_str()))
                 {
                     auto ptr = SPTAG::f_createIO();
-                    if (ptr == nullptr || !ptr->Initialize((m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "failed open VectorIDTranslate: %s\n", m_opt->m_headIDFile.c_str());
+                    if (ptr == nullptr || !ptr->Initialize((p_opt.m_indexDirectory + FolderSep + p_opt.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "failed open VectorIDTranslate: %s\n", p_opt.m_headIDFile.c_str());
                         return false;
                     }
                     COMMON::Dataset<std::uint64_t> vectorTranslateMap;
                     vectorTranslateMap.Load(ptr, p_headIndex->m_iDataBlockSize, p_headIndex->m_iDataCapacity);
                     for (int i = 0; i < vectorTranslateMap.R(); i++)
                     {
-                        headVectorIDS[static_cast<SizeType>(vectorTranslateMap[i])] = i;
+                        headVectorIDS[static_cast<SizeType>(*(vectorTranslateMap[i]))] = i;
                     }
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
                 }

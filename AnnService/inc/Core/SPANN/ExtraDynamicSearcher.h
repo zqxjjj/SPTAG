@@ -626,7 +626,7 @@ namespace SPTAG::SPANN {
                             std::lock_guard<std::mutex> tmplock(m_runningLock);
                             m_vectorTranslateMap->AddBatch(1);    
                         }
-                        (*m_vectorTranslateMap)[begin] = MaxSize;
+                        *(m_vectorTranslateMap->At(begin)) = MaxSize;
                         newHeadVID = begin;
                         newHeadsID.push_back(begin);
                         auto splitPutBegin = std::chrono::high_resolution_clock::now();
@@ -1443,7 +1443,7 @@ namespace SPTAG::SPANN {
                 vectorTranslateMap.Load(ptr, p_headIndex->m_iDataBlockSize, p_headIndex->m_iDataCapacity);
                 for (int i = 0; i < vectorTranslateMap.R(); i++)
                 {
-                    headVectorIDS[static_cast<SizeType>(vectorTranslateMap[i])] = i;
+                    headVectorIDS[static_cast<SizeType>(*(vectorTranslateMap[i]))] = i;
                 }
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
             }

@@ -315,7 +315,7 @@ namespace SPTAG
                     {
                         workSpace->m_postingIDs.emplace_back(res->VID);
                     }
-                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
+                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
@@ -331,7 +331,7 @@ namespace SPTAG
                 {
                     auto res = p_queryResults->GetResult(i);
                     if (res->VID == -1) break;
-                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
+                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
@@ -496,8 +496,9 @@ namespace SPTAG
                 if (m_extraSearcher->CheckValidPosting(res->VID)) 
                 {
                     workSpace->m_postingIDs.emplace_back(res->VID);
-                }
-                if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
+		}
+
+                if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
                 else {
                     res->VID = -1;
                     res->Dist = MaxDist;
@@ -513,7 +514,8 @@ namespace SPTAG
             {
                 auto res = p_queryResults->GetResult(i);
                 if (res->VID == -1) break;
-                if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
+
+                if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
                 else {
                     res->VID = -1;
                     res->Dist = MaxDist;
@@ -553,7 +555,7 @@ namespace SPTAG
                     {
                         extraWorkspace->m_postingIDs.emplace_back(res->VID);
                     }
-                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
+                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
@@ -591,7 +593,7 @@ namespace SPTAG
                 if (res->VID == -1) break;
 
                 auto global_VID = -1;
-                if (m_vectorTranslateMap.R() != 0) global_VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
+                if (m_vectorTranslateMap.R() != 0) global_VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
                 if (truth && truth->count(global_VID)) (*found)[res->VID].insert(global_VID);
                 res->VID = global_VID;
             }
