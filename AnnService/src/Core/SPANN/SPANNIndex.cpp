@@ -125,7 +125,7 @@ namespace SPTAG
 
             if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index)) return ErrorCode::Fail;
 
-            m_vectorTranslateMap.reset((std::uint64_t*)(p_indexBlobs.back().Data()), [=](std::uint64_t* ptr) {});
+            m_vectorTranslateMap.Initialize(m_index->GetNumSamples(), 1, m_index->m_iDataBlockSize, m_index->m_iDataCapacity, p_indexBlobs.back().Data(), false);
 
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
             return ErrorCode::Success;
@@ -165,8 +165,7 @@ namespace SPTAG
             m_index->SetReady(true);
          
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
-            m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
-            IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), reinterpret_cast<char*>(m_vectorTranslateMap.get()));
+            m_vectorTranslateMap.Load(p_indexStreams[m_index->GetIndexFiles()->size()], m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
 
 	        std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
 	        std::string ssdmappingpath = m_options.m_indexDirectory + FolderSep + m_options.m_ssdMappingFile;
@@ -268,12 +267,12 @@ namespace SPTAG
         template<typename T>
         ErrorCode Index<T>::SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
-            if (m_index == nullptr || m_vectorTranslateMap == nullptr) return ErrorCode::EmptyIndex;
+            if (m_index == nullptr || m_vectorTranslateMap.R() == 0) return ErrorCode::EmptyIndex;
             
             ErrorCode ret;
             if ((ret = m_index->SaveIndexData(p_indexStreams)) != ErrorCode::Success) return ret;
 
-            IOBINARY(p_indexStreams[m_index->GetIndexFiles()->size()], WriteBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
+            m_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()]);
             
             m_extraSearcher->Checkpoint(m_options.m_indexDirectory);
             return ErrorCode::Success;
@@ -316,7 +315,7 @@ namespace SPTAG
                     {
                         workSpace->m_postingIDs.emplace_back(res->VID);
                     }
-                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
@@ -332,7 +331,7 @@ namespace SPTAG
                 {
                     auto res = p_queryResults->GetResult(i);
                     if (res->VID == -1) break;
-                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
@@ -498,7 +497,7 @@ namespace SPTAG
                 {
                     workSpace->m_postingIDs.emplace_back(res->VID);
                 }
-                if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
                 else {
                     res->VID = -1;
                     res->Dist = MaxDist;
@@ -514,7 +513,7 @@ namespace SPTAG
             {
                 auto res = p_queryResults->GetResult(i);
                 if (res->VID == -1) break;
-                if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
                 else {
                     res->VID = -1;
                     res->Dist = MaxDist;
@@ -554,7 +553,7 @@ namespace SPTAG
                     {
                         extraWorkspace->m_postingIDs.emplace_back(res->VID);
                     }
-                    if (m_vectorTranslateMap.get() != nullptr) res->VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                    if (m_vectorTranslateMap.R() != 0) res->VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
                     else {
                         res->VID = -1;
                         res->Dist = MaxDist;
@@ -591,7 +590,8 @@ namespace SPTAG
                 auto res = newResults.GetResult(i);
                 if (res->VID == -1) break;
 
-                auto global_VID = static_cast<SizeType>((m_vectorTranslateMap.get())[res->VID]);
+                auto global_VID = -1;
+                if (m_vectorTranslateMap.R() != 0) global_VID = static_cast<SizeType>(m_vectorTranslateMap[res->VID]);
                 if (truth && truth->count(global_VID)) (*found)[res->VID].insert(global_VID);
                 res->VID = global_VID;
             }
@@ -908,12 +908,20 @@ namespace SPTAG
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to write output file!\n");
                     return false;
                 }
+                if (outputIDs->WriteBinary(sizeof(val), reinterpret_cast<char*>(&val)) != sizeof(val)) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to write outputID file!\n");
+                    return false;
+                }
                 DimensionType dt = data.C();
                 if (output->WriteBinary(sizeof(dt), reinterpret_cast<char*>(&dt)) != sizeof(dt)) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to write output file!\n");
                     return false;
                 }
-
+                dt = 1;
+                if (outputIDs->WriteBinary(sizeof(dt), reinterpret_cast<char*>(&dt)) != sizeof(dt)) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to write outputID file!\n");
+                    return false;
+                }
                 for (int i = 0; i < selected.size(); i++)
                 {
                     uint64_t vid = static_cast<uint64_t>(selected[i]);
@@ -1078,8 +1086,12 @@ namespace SPTAG
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s for overwrite\n", (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
                             return ErrorCode::Fail;
                         }
+                        SizeType rows = m_index->GetNumSamples();
+                        DimensionType cols = 1;
+                        IOBINARY(ptr, WriteBinary, sizeof(SizeType), (char*)(&rows));
+                        IOBINARY(ptr, WriteBinary, sizeof(DimensionType), (char*)(&cols));
                         std::uint64_t vid = (std::uint64_t)MaxSize;
-                        for (int i = 0; i < m_index->GetNumSamples(); i++) {
+                        for (int i = 0; i < rows; i++) {
                             IOBINARY(ptr, WriteBinary, sizeof(std::uint64_t), (char*)(&vid));
                         }
                     }
@@ -1096,13 +1108,12 @@ namespace SPTAG
                 }
 
                 if (m_extraSearcher != nullptr) {
-                    m_vectorTranslateMap.reset(new std::uint64_t[m_index->GetNumSamples()], std::default_delete<std::uint64_t[]>());
                     std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
                     if (ptr == nullptr || !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
                         return ErrorCode::Fail;
                     }
-                    IOBINARY(ptr, ReadBinary, sizeof(std::uint64_t) * m_index->GetNumSamples(), (char*)(m_vectorTranslateMap.get()));
+                    m_vectorTranslateMap.Load(ptr, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
                     if ((m_options.m_useKV || m_options.m_useSPDK || m_options.m_useFileIO) && m_options.m_preReassign) {
                         m_extraSearcher->RefineIndex(p_reader, m_index);
                     }

@@ -162,7 +162,7 @@ namespace SPTAG
             {
             }
 
-            virtual bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap, std::shared_ptr<std::uint64_t> m_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) {
+            virtual bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& p_vectorTranslateMap, std::shared_ptr<VectorIndex> m_index) {
                 m_extraFullGraphFile = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdIndex;
                 std::string curFile = m_extraFullGraphFile;
                 p_opt.m_searchPostingPageLimit = max(p_opt.m_searchPostingPageLimit, static_cast<int>((p_opt.m_postingVectorLimit * (p_opt.m_dim * sizeof(ValueType) + sizeof(int)) + PageSize - 1) / PageSize));
@@ -619,17 +619,15 @@ namespace SPTAG
                 if (fileexists((p_opt.m_indexDirectory + FolderSep + p_opt.m_headIDFile).c_str()))
                 {
                     auto ptr = SPTAG::f_createIO();
-                    if (ptr == nullptr || !ptr->Initialize((p_opt.m_indexDirectory + FolderSep +  p_opt.m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "failed open VectorIDTranslate: %s\n", p_opt.m_headIDFile.c_str());
+                    if (ptr == nullptr || !ptr->Initialize((m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "failed open VectorIDTranslate: %s\n", m_opt->m_headIDFile.c_str());
                         return false;
                     }
-
-                    std::uint64_t vid;
-                    SizeType i = 0;
-                    while (ptr->ReadBinary(sizeof(vid), reinterpret_cast<char*>(&vid)) == sizeof(vid))
+                    COMMON::Dataset<std::uint64_t> vectorTranslateMap;
+                    vectorTranslateMap.Load(ptr, p_headIndex->m_iDataBlockSize, p_headIndex->m_iDataCapacity);
+                    for (int i = 0; i < vectorTranslateMap.R(); i++)
                     {
-                        headVectorIDS[static_cast<SizeType>(vid)] = i;
-                        i++;
+                        headVectorIDS[static_cast<SizeType>(vectorTranslateMap[i])] = i;
                     }
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
                 }

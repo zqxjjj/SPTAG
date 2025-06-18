@@ -622,6 +622,11 @@ namespace SPTAG::SPANN {
                     else {
                         int begin, end = 0;
                         p_index->AddIndexId(args.centers + k * args._D, 1, m_opt->m_dim, begin, end);
+                        {
+                            std::lock_guard<std::mutex> tmplock(m_runningLock);
+                            m_vectorTranslateMap->AddBatch(1);    
+                        }
+                        (*m_vectorTranslateMap)[begin] = MaxSize;
                         newHeadVID = begin;
                         newHeadsID.push_back(begin);
                         auto splitPutBegin = std::chrono::high_resolution_clock::now();
@@ -1112,8 +1117,9 @@ namespace SPTAG::SPANN {
             m_stat.m_reAssignCost += elapsedMSeconds;
         }
 
-        bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap, std::shared_ptr<std::uint64_t> m_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) override {
+        bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& p_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) override {
             m_versionMap = &p_versionMap;
+            m_vectorTranslateMap = &p_vectorTranslateMap;
             m_opt = &p_opt;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "DataBlockSize: %d, Capacity: %d\n", m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
             std::string versionmapPath = m_opt->m_indexDirectory + FolderSep + m_opt->m_deleteIDFile;
@@ -1139,7 +1145,7 @@ namespace SPTAG::SPANN {
 			SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Copying data from static to SPDK\n");
 			std::shared_ptr<IExtraSearcher> storeExtraSearcher;
 			storeExtraSearcher.reset(new ExtraStaticSearcher<ValueType>());
-			if (!storeExtraSearcher->LoadIndex(*m_opt, *m_versionMap, m_vectorTranslateMap, m_index)) {
+			if (!storeExtraSearcher->LoadIndex(*m_opt, *m_versionMap, p_vectorTranslateMap, m_index)) {
 			    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize Error\n");
 			    exit(1);
 			}
@@ -1425,6 +1431,7 @@ namespace SPTAG::SPANN {
                 return false;
             }
 
+            
             if (fileexists((m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile).c_str()))
             {
                 auto ptr = SPTAG::f_createIO();
@@ -1432,13 +1439,11 @@ namespace SPTAG::SPANN {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "failed open VectorIDTranslate: %s\n", m_opt->m_headIDFile.c_str());
                     return false;
                 }
-
-                std::uint64_t vid;
-                SizeType i = 0;
-                while (ptr->ReadBinary(sizeof(vid), reinterpret_cast<char*>(&vid)) == sizeof(vid))
+                COMMON::Dataset<std::uint64_t> vectorTranslateMap;
+                vectorTranslateMap.Load(ptr, p_headIndex->m_iDataBlockSize, p_headIndex->m_iDataCapacity);
+                for (int i = 0; i < vectorTranslateMap.R(); i++)
                 {
-                    headVectorIDS[static_cast<SizeType>(vid)] = i;
-                    i++;
+                    headVectorIDS[static_cast<SizeType>(vectorTranslateMap[i])] = i;
                 }
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
             }
@@ -1886,6 +1891,8 @@ namespace SPTAG::SPANN {
         std::chrono::microseconds m_hardLatencyLimit = std::chrono::microseconds(2000);
 
         int m_mergeThreshold = 10;
+
+        COMMON::Dataset<std::uint64_t>* m_vectorTranslateMap;
 
         std::shared_ptr<SPDKThreadPool> m_splitThreadPool;
         std::shared_ptr<SPDKThreadPool> m_reassignThreadPool;
