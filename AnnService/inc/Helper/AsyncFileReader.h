@@ -532,8 +532,8 @@ namespace SPTAG
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
                 int iocp = readRequests[0].m_status % m_iocps.size();
-		        struct timespec timeout_ts {0, 0};
-		        while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
+		        //struct timespec timeout_ts {0, 0};
+		        //while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
  
                 uint32_t realCount = 0;
                 for (int i = 0; i < requestCount; i++) {
@@ -605,8 +605,8 @@ namespace SPTAG
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
                 int iocp = readRequests[0].m_status % m_iocps.size();
-	         	struct timespec timeout_ts {0, 0};
-		        while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
+	         	//struct timespec timeout_ts {0, 0};
+		        //while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
 		
  
                 for (int i = 0; i < requestCount; i++) {
@@ -644,7 +644,7 @@ namespace SPTAG
 			                }
                         }
                         int wait = totalSubmitted - totalDone;
-                        auto d = syscall(__NR_io_getevents, m_iocps[iocp], wait, wait, events.data() + totalDone, nullptr);
+                        auto d = syscall(__NR_io_getevents, m_iocps[iocp], wait, wait, events.data() + totalDone, &AIOTimeout);
 			            if (d > 0) {
                             totalDone += d;
                         }
@@ -658,7 +658,7 @@ namespace SPTAG
                         break;
                     }
                 }
-                //if (iocp == 1) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: %d reqs finish\n", requestCount);
+                //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: %d reqs finish\n", requestCount);
                 return batchTotalDone;
             }
 

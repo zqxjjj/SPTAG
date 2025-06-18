@@ -161,7 +161,7 @@ namespace SPTAG {
         {
             ExtraWorkSpace() {}
 
-            ~ExtraWorkSpace() { g_spaceCount--; }
+            ~ExtraWorkSpace() {}
 
             ExtraWorkSpace(ExtraWorkSpace& other) {
                 Initialize(other.m_deduper.MaxCheck(), other.m_deduper.HashTableExponent(), (int)other.m_pageBuffers.size(), (int)(other.m_pageBuffers[0].GetPageSize()), other.m_blockIO, other.m_enableDataCompression);
@@ -169,7 +169,7 @@ namespace SPTAG {
 
             void Initialize(int p_maxCheck, int p_hashExp, int p_internalResultNum, int p_maxPages, bool p_blockIO, bool enableDataCompression) {
                 m_deduper.Init(p_maxCheck, p_hashExp);
-                m_spaceID = g_spaceCount++;
+                m_spaceID = g_spaceCount.fetch_add(1);
                 Clear(p_internalResultNum, p_maxPages, p_blockIO, enableDataCompression);
                 m_relaxedMono = false;
             }
@@ -286,7 +286,7 @@ namespace SPTAG {
             {
             }
 
-            virtual bool LoadIndex(Options& p_options, COMMON::VersionLabel& p_versionMap, std::shared_ptr<std::uint64_t> m_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) = 0;
+            virtual bool LoadIndex(Options& p_options, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& m_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) = 0;
 
             virtual void SearchIndex(ExtraWorkSpace* p_exWorkSpace,
                 QueryResult& p_queryResults,

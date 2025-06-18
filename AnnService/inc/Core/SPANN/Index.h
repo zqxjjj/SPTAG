@@ -50,7 +50,7 @@ namespace SPTAG
         {
         private:
             std::shared_ptr<VectorIndex> m_index;
-            std::shared_ptr<std::uint64_t> m_vectorTranslateMap;
+	    COMMON::Dataset<std::uint64_t> m_vectorTranslateMap;
             std::unordered_map<std::string, std::string> m_headParameters;
 
             COMMON::VersionLabel m_versionMap;
@@ -201,7 +201,7 @@ namespace SPTAG
 
             SizeType GetGlobalVID(SizeType vid)
             {
-                return static_cast<SizeType>((m_vectorTranslateMap.get())[vid]);
+                return static_cast<SizeType>(*(m_vectorTranslateMap[vid]));
             }
 
             ErrorCode GetPostingDebug(SizeType vid, std::vector<SizeType>& VIDs, std::shared_ptr<VectorSet>& vecs);

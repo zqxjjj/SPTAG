@@ -19,7 +19,7 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
         m_fileHandle = f_createAsyncIO();
         if (m_fileHandle == nullptr || !m_fileHandle->Initialize(m_filePath,
 #ifndef _MSC_VER
-            O_RDWR | O_DIRECT, numblocks, 2, 2, max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads) + p_opt.m_insertThreadNum + p_opt.m_reassignThreadNum + p_opt.m_appendThreadNum, ((std::uint64_t)p_opt.m_maxFileSize) << 30
+            O_RDWR | O_DIRECT, numblocks, 2, 2, 10 * max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads) + p_opt.m_insertThreadNum + p_opt.m_reassignThreadNum + p_opt.m_appendThreadNum, ((std::uint64_t)p_opt.m_maxFileSize) << 30
 #else
             GENERIC_READ, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, ((std::uint64_t)p_opt.m_maxFileSize) << 30
 #endif
@@ -131,6 +131,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 #endif
     m_batchReadTimes++;
 
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ReadBlocks from string array!\n");
     std::uint32_t reqcount = 0;
     for(size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
@@ -270,6 +271,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
     fsync(debug_fd);
 #endif
 
+    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks to string with blocknum=%d size=%u!\n", p_size, p_value.size());
     AddressType currOffset = 0;
     int totalSize = p_value.size();
     for (int i = 0; i < p_size; i++) {

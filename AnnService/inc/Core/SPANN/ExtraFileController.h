@@ -100,6 +100,15 @@ namespace SPTAG::SPANN {
                 for (auto it = m_blockAddresses.unsafe_begin(); it != m_blockAddresses.unsafe_end(); it++) {
                     IOBINARY(ptr, WriteBinary, sizeof(AddressType), (char*)&(*it));
                 }
+		/*
+		int i = 0;
+                for (auto it = m_blockAddresses.unsafe_begin(); it != m_blockAddresses.unsafe_end(); it++) {
+		    std::cout << *it << " ";
+		    i++;
+		    if (i == 10) break;
+		}
+		std::cout << std::endl;
+		*/
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save Finish!\n");
                 return ErrorCode::Success;
             }
@@ -127,8 +136,17 @@ namespace SPTAG::SPANN {
                         m_blockAddresses.push(currBlockAddress);
 	                }    
     	        }
-		        return ErrorCode::Success;
-	        } 
+		/*
+		int i = 0;
+                for (auto it = m_blockAddresses.unsafe_begin(); it != m_blockAddresses.unsafe_end(); it++) {
+		    std::cout << *it << " ";
+		    i++;
+		    if (i == 10) break;
+		}
+		std::cout << std::endl;
+                */
+                return ErrorCode::Success;
+            } 
         };
 
         class LRUCache {
@@ -377,6 +395,7 @@ namespace SPTAG::SPANN {
                 if (fileexists(m_mappingPath.c_str())) {
                     Load(m_mappingPath, 1024 * 1024, MaxSize);
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load block mapping successfully from %s!\n", m_mappingPath.c_str());
+		    /*
                     for (int i = 0; i < 10; i++) {
                         std::cout << "i=" << i << ": ";
                         for (int j = 0; j < 10; j++) {
@@ -391,6 +410,7 @@ namespace SPTAG::SPANN {
                         }
                         std::cout << std::endl;
                     }
+		    */
                 }
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Initialize block mapping successfully!\n");
@@ -891,6 +911,7 @@ namespace SPTAG::SPANN {
                 }
             }
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Save mapping (%d,%d) Finish!\n", CR, m_blockLimit);
+	    /*
             for (int i = 0; i < 10; i++) {
                 std::cout << "i=" << i << ": ";
                 for (int j = 0; j < 10; j++) {
@@ -905,6 +926,7 @@ namespace SPTAG::SPANN {
                 }
                 std::cout << std::endl;
             }
+	    */
             return ErrorCode::Success;
         }
 
