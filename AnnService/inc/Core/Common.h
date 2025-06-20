@@ -20,6 +20,7 @@
 #include <limits>
 #include <vector>
 #include <cmath>
+#include <filesystem>
 #include "inc/Helper/Logging.h"
 
 #ifndef _MSC_VER
@@ -47,11 +48,13 @@ inline bool fileexists(const char* path) {
     struct stat info;
     return stat(path, &info) == 0 && (info.st_mode & S_IFDIR) == 0;
 }
+/*
 inline int64_t filesize(const char* path) {
     struct stat info;
     if (stat(path, &info) == 0) return info.st_blocks * info.st_blksize;
     return 0;
 }
+*/
 
 template <class T>
 inline T min(T a, T b) {
@@ -92,6 +95,7 @@ inline bool fileexists(const TCHAR* path) {
     auto dwAttr = GetFileAttributes(path);
     return (dwAttr != INVALID_FILE_ATTRIBUTES) && (dwAttr & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
+/*
 inline int64_t filesize(const char* path) {
     WIN32_FILE_ATTRIBUTE_DATA fad;
     if (!GetFileAttributesEx(path, GetFileExInfoStandard, &fad)) return -1;
@@ -100,6 +104,8 @@ inline int64_t filesize(const char* path) {
     size.LowPart = fad.nFileSizeLow;
     return size.QuadPart;
 }
+*/
+
 #define mkdir(a) CreateDirectory(a, NULL)
 
 #ifndef max
@@ -122,6 +128,11 @@ InterlockedCompareExchange(
 }
 
 #endif
+
+inline int64_t filesize(const char* path) {
+    std::filesystem::path p{path};
+    return std::filesystem::file_size(p);
+}
 
 namespace SPTAG
 {

@@ -120,14 +120,7 @@ option(GPU "GPU" OFF)
 option(LIBRARYONLY "LIBRARYONLY" OFF)
 option(ROCKSDB "ROCKSDB" OFF)
 option(SPDK "SPDK" OFF)
-
-if (ROCKSDB)
-    add_definitions(-DROCKSDB)
-endif()
-
-if (SPDK)
-    add_definitions(-DSPDK)
-endif()
+option(TBB "TBB" ON)
 
 add_subdirectory (ThirdParty/zstd/build/cmake)
 

@@ -737,6 +737,23 @@ namespace SPTAG::SPANN {
             return Put(std::stoi(key), value, timeout, reqs);
         }
 
+        void PrintPostingDiff(std::string& p1, std::string& p2, const char* pos) {
+            if (p1.size() != p2.size()) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge %s: p1 and p2 have different sizes: before=%u after=%u\n", pos, p1.size(), p2.size());
+                exit(1);
+            }
+            std::string diff = "";
+            for (size_t i = 0; i < p1.size(); i+=4) {
+                if (p1[i] != p2[i]) {
+                    diff += "[" + std::to_string(i) + "]:" + std::to_string(int(p1[i])) + "^" + std::to_string(int(p2[i])) + " ";
+                }
+            }
+            if (diff.size() != 0) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge %s: %s\n", pos, diff.c_str());
+                exit(1);
+            }
+        }
+
         ErrorCode Merge(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].lock();
@@ -775,6 +792,9 @@ namespace SPTAG::SPANN {
                 return ErrorCode::Fail;
             }
 
+            std::string before;
+            Get(key, &before, timeout, reqs);
+
             auto sizeInPage = (*postingSize) % PageSize;    // 最后一个块的实际大小
             int oldblocks = (*postingSize >> PageSizeEx);
             int allocblocks = newblocks - oldblocks;
@@ -783,6 +803,8 @@ namespace SPTAG::SPANN {
                 std::string newValue;
                 AddressType readreq[] = { sizeInPage, *(postingSize + 1 + oldblocks) };
                 m_pBlockController.ReadBlocks(readreq, &newValue, timeout, reqs);
+                std::string lastblock = before.substr(before.size() - sizeInPage);
+                PrintPostingDiff(lastblock, newValue, "0");
                 newValue += value;
 
                 uintptr_t tmpblocks = 0xffffffffffffffff;
@@ -796,11 +818,21 @@ namespace SPTAG::SPANN {
                 m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, 1);
                 At(key) = tmpblocks;
                 m_buffer.push((uintptr_t)postingSize);
+                
+                std::string after;
+                Get(key, &after, timeout, reqs);
+                before += value;
+                PrintPostingDiff(before, after, "1");
             }
             else {  // 否则直接分配一组块接在后面
                 m_pBlockController.GetBlocks(postingSize + 1 + oldblocks, allocblocks);
                 m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs);
                 *postingSize = newSize;
+
+                std::string after;
+                Get(key, &after, timeout, reqs);
+                before += value;
+                PrintPostingDiff(before, after, "2");
             }
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock();

@@ -209,7 +209,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
                 Helper::AsyncReadRequest& curr = reqs->at(reqcount);
                 curr.m_readSize = 0;
                 reqcount++;
-		emptycount++;
+		        emptycount++;
             }
             continue;
         }
@@ -247,7 +247,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             curr.m_readSize = 0;
             dataIdx++;
             reqcount++;
-	    emptycount++;
+	        emptycount++;
         }
     }
 

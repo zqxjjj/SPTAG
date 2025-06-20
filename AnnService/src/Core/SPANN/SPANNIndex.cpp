@@ -24,6 +24,7 @@ namespace SPTAG
     namespace SPANN
     {
         std::atomic_int ExtraWorkSpace::g_spaceCount(0);
+        Helper::Concurrent::ConcurrentQueue<int> ExtraWorkSpace::g_freeIds;
         EdgeCompare Selection::g_edgeComparer;
 
         std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO = []() -> std::shared_ptr<Helper::DiskIO> { return std::shared_ptr<Helper::DiskIO>(new Helper::AsyncFileIO()); };

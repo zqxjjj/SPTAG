@@ -439,7 +439,7 @@ namespace SPTAG
                     return false;
                 }
                 close(m_fileHandle);
-		std::uint64_t actualSize = filesize(filePath);
+		        std::uint64_t actualSize = filesize(filePath);
                 if (actualSize != maxFileSize) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot fallocate enough space actural size (%llu) < max size (%llu)\n", actualSize, maxFileSize);
 
                 m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
@@ -469,7 +469,7 @@ namespace SPTAG
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open a file\n");
                     auto actualFileSize = filesize(filePath);
-                    if (openMode == (O_RDONLY | O_DIRECT) || true) {
+                    if (openMode == (O_RDONLY | O_DIRECT) || actualFileSize >= maxFileSize) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file has been created with enough space.\n");
                         m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
                         if (m_fileHandle == -1) {
@@ -478,7 +478,7 @@ namespace SPTAG
                             return false;
                         }
                     } else {
-			SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open failed! actualFileSize(%llu) < maxFileSize(%llu)\n", actualFileSize, maxFileSize);
+			            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open failed! actualFileSize(%llu) < maxFileSize(%llu)\n", actualFileSize, maxFileSize);
                         if (!CreateFile(filePath, maxFileSize)) return false;
                    }
                 }

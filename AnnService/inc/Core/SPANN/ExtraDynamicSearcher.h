@@ -10,6 +10,7 @@
 #include "ExtraStaticSearcher.h"
 #include "inc/Core/Common/TruthSet.h"
 #include "inc/Helper/KeyValueIO.h"
+#include "inc/Helper/ConcurrentSet.h"
 #include "inc/Core/Common/FineGrainedLock.h"
 #include "PersistentBuffer.h"
 #include "inc/Core/Common/PostingSizeRecord.h"
@@ -164,8 +165,6 @@ namespace SPTAG::SPANN {
         IndexStats m_stat;
 
         std::shared_ptr<PersistentBuffer> m_wal;
-
-        // tbb::concurrent_hash_map<SizeType, SizeType> m_splitList;
 
         std::mutex m_runningLock;
         std::unordered_set<SizeType>m_splitList;

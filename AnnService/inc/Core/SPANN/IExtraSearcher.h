@@ -10,7 +10,7 @@
 #include "inc/Core/Common/VersionLabel.h"
 #include "inc/Helper/AsyncFileReader.h"
 #include "inc/Helper/VectorSetReader.h"
-
+#include "inc/Helper/ConcurrentSet.h"
 #include <memory>
 #include <vector>
 #include <chrono>
@@ -161,7 +161,7 @@ namespace SPTAG {
         {
             ExtraWorkSpace() {}
 
-            ~ExtraWorkSpace() {}
+            ~ExtraWorkSpace() { g_freeIds.push(m_spaceID); }
 
             ExtraWorkSpace(ExtraWorkSpace& other) {
                 Initialize(other.m_deduper.MaxCheck(), other.m_deduper.HashTableExponent(), (int)other.m_pageBuffers.size(), (int)(other.m_pageBuffers[0].GetPageSize()), other.m_blockIO, other.m_enableDataCompression);
@@ -169,7 +169,9 @@ namespace SPTAG {
 
             void Initialize(int p_maxCheck, int p_hashExp, int p_internalResultNum, int p_maxPages, bool p_blockIO, bool enableDataCompression) {
                 m_deduper.Init(p_maxCheck, p_hashExp);
-                m_spaceID = g_spaceCount.fetch_add(1);
+                if (!g_freeIds.try_pop(m_spaceID)) {
+                    m_spaceID = g_spaceCount.fetch_add(1);
+                }
                 Clear(p_internalResultNum, p_maxPages, p_blockIO, enableDataCompression);
                 m_relaxedMono = false;
             }
@@ -240,7 +242,11 @@ namespace SPTAG {
                 }
             }
 
-            static void Reset() { g_spaceCount = 0; }
+            static void Reset() { 
+                g_spaceCount = 0;
+                int freeId = 0;
+                while (g_freeIds.try_pop(freeId));  
+            }
 
             std::vector<int> m_postingIDs;
 
@@ -273,6 +279,8 @@ namespace SPTAG {
             int m_loadedPostingNum = 0;
 
             static std::atomic_int g_spaceCount;
+            
+            static Helper::Concurrent::ConcurrentQueue<int> g_freeIds;
         };
 
         class IExtraSearcher
