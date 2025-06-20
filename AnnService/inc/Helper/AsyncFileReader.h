@@ -132,6 +132,10 @@ namespace SPTAG
                 return m_fileIocp.IsValid();
             }
 
+            virtual bool ExpandFile(uint64_t expandSize) {
+                return false;
+            }
+
             virtual std::uint64_t ReadBinary(std::uint64_t readSize, char* buffer, std::uint64_t offset = UINT64_MAX)
             {
                 ResourceType resource;
@@ -439,16 +443,21 @@ namespace SPTAG
                     return false;
                 }
                 close(m_fileHandle);
-		        std::uint64_t actualSize = filesize(filePath);
-                if (actualSize != maxFileSize) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot fallocate enough space actural size (%llu) < max size (%llu)\n", actualSize, maxFileSize);
+		        m_currSize = filesize(filePath);
+                if (m_currSize != maxFileSize) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot fallocate enough space actural size (%llu) < max size (%llu)\n", m_currSize, maxFileSize);
+                return true;
+            }
 
-                m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
-                if (m_fileHandle == -1) {
-                    auto err_str = strerror(errno);
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileIO::InitializeFileIo failed: open failed:%s\n", err_str);
+            virtual bool ExpandFile(uint64_t expandSize) {
+                if (fallocate(m_fileHandle, 0, m_currSize, expandSize) != 0) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                        "AsyncFileReader:[ExpandFile] fallocate failed at offset %lld for size %lld bytes: %s\n",
+                        static_cast<long long>(m_currSize),
+                        static_cast<long long>(expandSize),
+                        strerror(errno));
                     return false;
                 }
-                //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s created, fd=%d\n", filePath, m_fileHandle);
+                m_currSize += expandSize;
                 return true;
             }
 
@@ -468,19 +477,19 @@ namespace SPTAG
                 }
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open a file\n");
-                    auto actualFileSize = filesize(filePath);
-                    if (openMode == (O_RDONLY | O_DIRECT) || actualFileSize >= maxFileSize) {
+                    auto m_currSize = filesize(filePath);
+                    if (openMode == (O_RDONLY | O_DIRECT) || m_currSize >= maxFileSize) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file has been created with enough space.\n");
-                        m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
-                        if (m_fileHandle == -1) {
-                            auto err_str = strerror(errno);
-                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileIO::Open failed: %s\n", err_str);
-                            return false;
-                        }
                     } else {
-			            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open failed! actualFileSize(%llu) < maxFileSize(%llu)\n", actualFileSize, maxFileSize);
+			            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::Open failed! currSize(%llu) < maxFileSize(%llu)\n", m_currSize, maxFileSize);
                         if (!CreateFile(filePath, maxFileSize)) return false;
                    }
+                }
+                m_fileHandle = open(filePath, O_RDWR | O_DIRECT);
+                if (m_fileHandle == -1) {
+                    auto err_str = strerror(errno);
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileIO::Open failed: %s\n", err_str);
+                    return false;
                 }
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s opened, fd=%d threads=%d maxNumBlocks=%d\n", filePath, m_fileHandle, threadPoolSize, maxNumBlocks);
                 m_iocps.resize(threadPoolSize);
@@ -723,6 +732,8 @@ namespace SPTAG
                     }
                 }
             }
+
+            uint64_t m_currSize;
 
             bool m_shutdown;
 

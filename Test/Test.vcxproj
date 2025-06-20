@@ -165,9 +165,11 @@
     <ClCompile Include="src\SPFreshTest.cpp" />
     <ClCompile Include="src\SSDServingTest.cpp" />
     <ClCompile Include="src\StringConvertTest.cpp" />
+    <ClCompile Include="src\TestDataGenerator.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="inc\Test.h" />
+    <ClInclude Include="inc\TestDataGenerator.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

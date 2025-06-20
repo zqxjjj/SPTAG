@@ -174,6 +174,8 @@ namespace SPTAG
 
             virtual bool BatchCleanRequests(SPTAG::Helper::AsyncReadRequest* readRequests, std::uint32_t requestCount) { return false; }
 
+            virtual bool ExpandFile(uint64_t expandSize) { return false; }
+
             virtual std::uint64_t TellP() = 0;
 
             virtual void ShutDown() = 0; 

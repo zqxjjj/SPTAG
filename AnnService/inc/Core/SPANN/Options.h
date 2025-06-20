@@ -177,6 +177,9 @@ namespace SPTAG {
             bool m_stressTest;
             int m_bufferLength;
             int m_maxFileSize;
+            int m_startFileSize;
+            int m_growthFileSize;
+            float m_growThreshold;
 
             // Iterative
             int m_headBatch;

@@ -107,7 +107,7 @@ namespace SPTAG
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "GetDistance NOT SUPPORT FOR SPANN");
                 return -1;
             }
-            inline bool ContainSample(const SizeType idx) const { return idx < m_options.m_vectorSize; }
+            inline bool ContainSample(const SizeType idx) const { return idx >= 0 && idx < m_versionMap.Count() && !m_versionMap.Deleted(idx); }
 
             std::shared_ptr<std::vector<std::uint64_t>> BufferSize() const
             {

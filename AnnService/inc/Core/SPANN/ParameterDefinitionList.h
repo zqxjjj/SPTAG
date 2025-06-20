@@ -195,6 +195,9 @@ DefineSSDParameter(m_searchDuringUpdate, bool, false, "SearchDuringUpdate")
 DefineSSDParameter(m_reassignK, int, 0, "ReassignK")
 DefineSSDParameter(m_recovery, bool, false, "Recovery")
 DefineSSDParameter(m_maxFileSize, int, 300, "MaxFileSizeGB")
+DefineSSDParameter(m_startFileSize, int, 10, "StartFileSizeGB")
+DefineSSDParameter(m_growthFileSize, int, 10, "GrowthFileSizeGB")
+DefineSSDParameter(m_growThreshold, float, 0.05, "GrowthThreshold")
 
 // Iterative
 DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch")

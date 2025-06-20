@@ -3,40 +3,42 @@
 namespace SPTAG::SPANN
 {
 extern std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO;
+
+#ifdef DEBUG
 thread_local int FileIO::BlockController::debug_fd = -1;
+#endif
 
 bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d)\n", p_opt.m_ssdMappingFile.c_str(), p_opt.m_spdkBatchSize);
-    std::lock_guard<std::mutex> lock(m_initMutex);
-    m_numInitCalled++;
 
-    if(m_numInitCalled == 1) {
-        m_batchSize = p_opt.m_spdkBatchSize;
-        strcpy(m_filePath, (p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings").c_str());
-        m_startTime = std::chrono::high_resolution_clock::now();
+    m_growthThreshold = p_opt.m_growThreshold;
+    m_growthBlocks = ((std::uint64_t)p_opt.m_growthFileSize) << (30 - PageSizeEx);
+    m_maxBlocks = ((std::uint64_t)p_opt.m_maxFileSize) << (30 - PageSizeEx);
+    m_batchSize = p_opt.m_spdkBatchSize;
+    strcpy(m_filePath, (p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings").c_str());
+    m_startTime = std::chrono::high_resolution_clock::now();
 
-        int numblocks = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit + 1) * p_opt.m_searchInternalResultNum;
-        m_fileHandle = f_createAsyncIO();
-        if (m_fileHandle == nullptr || !m_fileHandle->Initialize(m_filePath,
+    int numblocks = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit + 1) * p_opt.m_searchInternalResultNum;
+    m_fileHandle = f_createAsyncIO();
+    if (m_fileHandle == nullptr || !m_fileHandle->Initialize(m_filePath,
 #ifndef _MSC_VER
-            O_RDWR | O_DIRECT, numblocks, 2, 2, 10 * max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads) + p_opt.m_insertThreadNum + p_opt.m_reassignThreadNum + p_opt.m_appendThreadNum, ((std::uint64_t)p_opt.m_maxFileSize) << 30
+        O_RDWR | O_DIRECT, numblocks, 2, 2, 10 * (max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads) + p_opt.m_insertThreadNum + p_opt.m_reassignThreadNum + p_opt.m_appendThreadNum), ((std::uint64_t)p_opt.m_startFileSize) << 30
 #else
-            GENERIC_READ, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, ((std::uint64_t)p_opt.m_maxFileSize) << 30
+        GENERIC_READ, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, ((std::uint64_t)p_opt.m_startFileSize) << 30
 #endif
-        )) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
-            return false;
-        }
-        std::string blockpoolPath = (p_opt.m_recovery) ? p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile + "_postings" : m_filePath;
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool from file:%s\n", blockpoolPath.c_str());
-        ErrorCode ret = LoadBlockPool(blockpoolPath, (std::uint64_t)p_opt.m_maxFileSize << (30 - PageSizeEx), !p_opt.m_recovery);
-        if (ErrorCode::Success != ret) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool failed!\n");
-            return false;
-        }
+    )) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");
+        return false;
+    }
+    std::string blockpoolPath = (p_opt.m_recovery) ? p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile + "_postings" : m_filePath;
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool from file:%s\n", blockpoolPath.c_str());
+    ErrorCode ret = LoadBlockPool(blockpoolPath, ((std::uint64_t)p_opt.m_startFileSize) << (30 - PageSizeEx), !p_opt.m_recovery);
+    if (ErrorCode::Success != ret) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool failed!\n");
+        return false;
     }
  
-#ifdef USE_FILE_DEBUG
+#ifdef DEBUG
     auto debug_file_name = std::string("/nvme1n1/lml/") + std::to_string(m_numInitCalled) + "_debug.log";
     debug_fd = open(debug_file_name.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
     if (debug_fd == -1) {
@@ -47,9 +49,60 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
     return true;
 }
 
+bool FileIO::BlockController::NeedsExpansion()
+{
+    // TODO: Replace RemainBlocks() which internally uses tbb::concurrent_queue::unsafe_size().
+    // unsafe_size() is *not thread-safe* and may yield inconsistent results under concurrent access.
+    size_t available = RemainBlocks();
+    size_t total = m_totalAllocatedBlocks.load();
+    float ratio = static_cast<float>(available) / static_cast<float>(total);
+
+    return (ratio < m_growthThreshold);
+}
+
+bool FileIO::BlockController::ExpandFile(AddressType blocksToAdd)
+{
+    AddressType currentTotal = m_totalAllocatedBlocks.load();
+
+    // Cap the growth so we do not exceed the limit
+    AddressType allowedBlocks = min(blocksToAdd, m_maxBlocks - currentTotal);
+    if (allowedBlocks <= 0) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Warning,
+            "[ExpandFile] File is already at max capacity (%llu blocks = %.2f GB). Expansion aborted.\n",
+            static_cast<unsigned long long>(m_maxBlocks),
+            static_cast<float>(m_maxBlocks >> (30 - PageSizeEx)));
+    }
+
+    if (!m_fileHandle->ExpandFile(allowedBlocks * PageSize)) return false;
+
+    for (AddressType i = 0; i < allowedBlocks; ++i) {
+        m_blockAddresses.push(currentTotal + i);
+    }
+
+    AddressType newTotal = currentTotal + allowedBlocks;
+    m_totalAllocatedBlocks.store(newTotal);
+
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info,
+        "[ExpandFile] Expanded file from %llu to %llu blocks (added %llu blocks = %.2f GB)\n",
+        static_cast<unsigned long long>(currentTotal),
+        static_cast<unsigned long long>(newTotal),
+        static_cast<unsigned long long>(allowedBlocks),
+        static_cast<float>(allowedBlocks << (30 - PageSizeEx)));
+
+    if (allowedBlocks < blocksToAdd) {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Warning,
+            "[ExpandFile] Requested %llu blocks, but only %llu were allowed due to cap (%llu max)\n",
+            static_cast<unsigned long long>(blocksToAdd),
+            static_cast<unsigned long long>(allowedBlocks),
+            static_cast<unsigned long long>(m_maxBlocks));
+    }
+
+    return true;
+}
+
 bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
     AddressType currBlockAddress = 0;
-#ifdef USE_FILE_DEBUG
+#ifdef DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 1";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
@@ -57,6 +110,26 @@ bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
     }
     fsync(debug_fd);
 #endif
+
+    // Trigger expansion if we're below threshold
+    if (NeedsExpansion()) {
+        std::unique_lock<std::mutex> lock(m_expandLock); // ensure only one thread tries expandingAdd commentMore actions
+        if (NeedsExpansion()) { // recheck inside lock
+            AddressType growBy = static_cast<AddressType>(m_growthBlocks);
+            AddressType total = m_totalAllocatedBlocks.load();
+            if (total + growBy <= m_maxBlocks) {
+                if (!ExpandFile(growBy)) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::GetBlocks: expansion failed\n");
+                    return false;
+                }
+            }
+            else {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "FileIO::BlockController::GetBlocks: cannot expand beyond cap (%llu)\n",
+                    static_cast<unsigned long long>(m_maxBlocks));
+            }
+        }
+    }
+
     for(int i = 0; i < p_size; i++) {
         while(!m_blockAddresses.try_pop(currBlockAddress));
         p_data[i] = currBlockAddress;
@@ -65,7 +138,7 @@ bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
-#ifdef USE_FILE_DEBUG
+#ifdef DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 2";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
@@ -80,7 +153,7 @@ bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef USE_FILE_DEBUG
+#ifdef DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 3";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
@@ -104,9 +177,11 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         currOffset += PageSize;
         dataIdx++;
     }
-    read_submit_vec += blockNum;
+    
     std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), blockNum, timeout, m_batchSize);
+    read_submit_vec += blockNum;
     read_complete_vec += totalReads;
+
     if (totalReads < blockNum) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, blockNum);
         m_batchReadTimeouts++;
@@ -121,7 +196,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
 }
 
 bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef USE_FILE_DEBUG
+#ifdef DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
@@ -131,7 +206,6 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 #endif
     m_batchReadTimes++;
 
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ReadBlocks from string array!\n");
     std::uint32_t reqcount = 0;
     for(size_t i = 0; i < p_data.size(); i++) {
         AddressType* p_data_i = p_data[i];
@@ -156,9 +230,11 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
             }
         }
     }
-    read_submit_vec += reqcount;
+    
     std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), reqcount, timeout, m_batchSize);
+    read_submit_vec += reqcount;
     read_complete_vec += totalReads;
+
     if (totalReads < reqcount) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount);
         m_batchReadTimeouts++;
@@ -188,7 +264,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 }
 
 bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_values, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef USE_FILE_DEBUG
+#ifdef DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
@@ -251,8 +327,9 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         }
     }
 
-    read_submit_vec += reqcount - emptycount;
+    
     std::uint32_t totalReads = m_fileHandle->BatchReadFile(reqs->data(), reqcount, timeout, m_batchSize);
+    read_submit_vec += reqcount - emptycount;
     read_complete_vec += totalReads;
     if (totalReads < reqcount - emptycount) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads, reqcount - emptycount);
@@ -262,7 +339,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 }
 
 bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef USE_FILE_DEBUG
+#ifdef DEBUG
     auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 5";
     auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
     if (result == -1) {
@@ -282,8 +359,8 @@ bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         currOffset += PageSize;
     }
 
-    write_submit_vec += p_size;
     std::uint32_t totalWrites = m_fileHandle->BatchWriteFile(reqs->data(), p_size, timeout, m_batchSize);
+    write_submit_vec += p_size;
     write_complete_vec += totalWrites;
     if (totalWrites < p_size) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::WriteBlocks: %u < %d\n", totalWrites, p_size);
@@ -326,17 +403,13 @@ bool FileIO::BlockController::IOStatistics() {
 }
 
 bool FileIO::BlockController::ShutDown() {
-    std::lock_guard<std::mutex> lock(m_initMutex);
-    m_numInitCalled--;
-    if (m_numInitCalled == 0) {
-        Checkpoint(m_filePath);
-        while (!m_blockAddresses.empty()) {
-            AddressType currBlockAddress;
-            m_blockAddresses.try_pop(currBlockAddress);
-        }
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Close file handler\n");
-        m_fileHandle->ShutDown();
+    Checkpoint(m_filePath);
+    while (!m_blockAddresses.empty()) {
+        AddressType currBlockAddress;
+        m_blockAddresses.try_pop(currBlockAddress);
     }
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Close file handler\n");
+    m_fileHandle->ShutDown();
     return true;
 }
 
