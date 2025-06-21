@@ -488,6 +488,7 @@ namespace SPTAG::SPANN {
                 uintptr_t ptr = 0xffffffffffffffff;
                 if (m_buffer.try_pop(ptr)) delete[]((AddressType*)ptr);
             }
+	    m_pBlockController.ShutDown();
             if (m_fileIoUseCache) {
                 delete m_pShardedLRUCache;
             }
@@ -838,8 +839,8 @@ namespace SPTAG::SPANN {
                 return ErrorCode::Fail;
             }
 
-            std::string before;
-            Get(key, &before, timeout, reqs);
+            //std::string before;
+            //Get(key, &before, timeout, reqs);
 
             auto sizeInPage = (*postingSize) % PageSize;    // Actual size of the last block
             int oldblocks = (*postingSize >> PageSizeEx);
@@ -849,8 +850,8 @@ namespace SPTAG::SPANN {
                 std::string newValue;
                 AddressType readreq[] = { sizeInPage, *(postingSize + 1 + oldblocks) };
                 m_pBlockController.ReadBlocks(readreq, &newValue, timeout, reqs);
-                std::string lastblock = before.substr(before.size() - sizeInPage);
-                PrintPostingDiff(lastblock, newValue, "0");
+                //std::string lastblock = before.substr(before.size() - sizeInPage);
+                //PrintPostingDiff(lastblock, newValue, "0");
                 newValue += value;
 
                 uintptr_t tmpblocks = 0xffffffffffffffff;
@@ -864,22 +865,18 @@ namespace SPTAG::SPANN {
                 m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, 1);
                 At(key) = tmpblocks;
                 m_buffer.push((uintptr_t)postingSize);
-                
-                std::string after;
-                Get(key, &after, timeout, reqs);
-                before += value;
-                PrintPostingDiff(before, after, "1");
             }
             else {  // Otherwise, directly allocate a new batch of blocks to append after the current ones.
                 m_pBlockController.GetBlocks(postingSize + 1 + oldblocks, allocblocks);
                 m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs);
                 *postingSize = newSize;
-
-                std::string after;
-                Get(key, &after, timeout, reqs);
-                before += value;
-                PrintPostingDiff(before, after, "2");
             }
+	    /*
+            std::string after;
+            Get(key, &after, timeout, reqs);
+            before += value;
+            PrintPostingDiff(before, after, "1");
+            */
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock();
             }

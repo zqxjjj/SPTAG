@@ -429,7 +429,7 @@ namespace SPTAG
                 ShutDown(); 
 	    }
 
-            bool CreateFile(const char* filePath, uint64_t maxFileSize) {
+            virtual bool CreateFile(const char* filePath, uint64_t maxFileSize) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO: Create a file\n");
                 m_fileHandle = open(filePath, O_CREAT | O_WRONLY, 0666);
                 if (m_fileHandle == -1) {
@@ -443,7 +443,7 @@ namespace SPTAG
                     return false;
                 }
                 close(m_fileHandle);
-		        m_currSize = filesize(filePath);
+		m_currSize = filesize(filePath);
                 if (m_currSize != maxFileSize) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot fallocate enough space actural size (%llu) < max size (%llu)\n", m_currSize, maxFileSize);
                 return true;
             }
@@ -501,9 +501,9 @@ namespace SPTAG
                         return false;
                     }
                 }
+                m_shutdown = false;
 
 #ifndef BATCH_READ
-                m_shutdown = false;
                 for (int i = 0; i < threadPoolSize; ++i)
                 {
                     m_fileIocpThreads.emplace_back(std::thread(std::bind(&AsyncFileIO::ListionIOCP, this, i)));
@@ -695,11 +695,13 @@ namespace SPTAG
 
             virtual void ShutDown()
             {
-		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader: ShutDown!\n");
+                if (m_shutdown) return;
+
+                m_shutdown = true;
                 for (int i = 0; i < m_iocps.size(); i++) syscall(__NR_io_destroy, m_iocps[i]);
                 close(m_fileHandle);
+		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader: ShutDown!\n");
 #ifndef BATCH_READ
-                m_shutdown = true;
                 for (auto& th : m_fileIocpThreads)
                 {
                     if (th.joinable())
@@ -733,15 +735,15 @@ namespace SPTAG
                 }
             }
 
-            uint64_t m_currSize;
-
-            bool m_shutdown;
-
             std::vector<std::thread> m_fileIocpThreads;
 #endif
+            bool m_shutdown;
+
             int m_fileHandle;
 
-            std::vector<aio_context_t> m_iocps;
+            uint64_t m_currSize;
+
+	    std::vector<aio_context_t> m_iocps;
         };
 #endif
         void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>>& handlers, AsyncReadRequest* readRequests, int num);

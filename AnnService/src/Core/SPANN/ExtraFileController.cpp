@@ -403,6 +403,7 @@ bool FileIO::BlockController::IOStatistics() {
 }
 
 bool FileIO::BlockController::ShutDown() {
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO:BlockController:ShutDown!\n");
     Checkpoint(m_filePath);
     while (!m_blockAddresses.empty()) {
         AddressType currBlockAddress;
