@@ -84,6 +84,7 @@ namespace SPFreshTest {
             Sampling=4
             BufferLength=6
             InPlace=true
+	    StartFileSizeGB=1
         )";
 
         std::shared_ptr<Helper::DiskIO> buffer(new Helper::SimpleBufferIO());
