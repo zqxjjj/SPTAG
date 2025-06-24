@@ -166,16 +166,16 @@ namespace SPTAG::SPANN {
     public:
         ExtraDynamicSearcher(const char* dbPath, int dim, int postingBlockLimit, bool useDirectIO, float searchLatencyHardLimit, int mergeThreshold, bool useSPDK = false, int batchSize = 64, int bufferLength = 3, bool recovery = false, bool useFileIO = false) {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:dbPath:%s\n", dbPath);
+            m_postingSizeLimit = postingBlockLimit * PageSize / (sizeof(ValueType) * dim + sizeof(int) + sizeof(uint8_t));
+            m_bufferSizeLimit = bufferLength * PageSize / (sizeof(ValueType) * dim + sizeof(int) + sizeof(uint8_t));
             if(useFileIO) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:UseFileIO\n");
                 db.reset(new FileIO(dbPath, 1024 * 1024, MaxSize, postingBlockLimit + bufferLength, 1024, batchSize, recovery));
-                m_postingSizeLimit = postingBlockLimit * PageSize / (sizeof(ValueType) * dim + sizeof(int) + sizeof(uint8_t));
             }
             else if (useSPDK) {
 #ifdef SPDK
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:UseSPDK\n");
                 db.reset(new SPDKIO(dbPath, 1024 * 1024, MaxSize, postingBlockLimit + bufferLength, 1024, batchSize, recovery));
-                m_postingSizeLimit = postingBlockLimit * PageSize / (sizeof(ValueType) * dim + sizeof(int) + sizeof(uint8_t));
 #else
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ExtraDynamicSearcher:SPDK unsupport!\n");
                 exit(1);
@@ -1036,6 +1036,13 @@ namespace SPTAG::SPANN {
                 if (!p_index->ContainSample(headID)) {
                     goto checkDeleted;
                 }
+
+                if (m_postingSizes.GetSize(headID) + appendNum > (m_postingSizeLimit + m_bufferSizeLimit)) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "After appending, the number of vectors exceeds the postingsize + buffersize (%d + %d)! Do split now...\n", m_postingSizeLimit, m_bufferSizeLimit);
+                    Split(p_index, headID, !m_opt->m_disableReassign);
+                    goto checkDeleted;
+                }
+
                 auto appendIOBegin = std::chrono::high_resolution_clock::now();
                 if (db->Merge(headID, appendPosting) != ErrorCode::Success) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge failed! Posting Size:%d, limit: %d\n", m_postingSizes.GetSize(headID), m_postingSizeLimit);
@@ -1564,13 +1571,17 @@ namespace SPTAG::SPANN {
             auto t3 = std::chrono::high_resolution_clock::now();
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Time to sort selections:%.2lf sec.\n", ((double)std::chrono::duration_cast<std::chrono::seconds>(t3 - t2).count()) + ((double)std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count()) / 1000);
 
-            auto postingSizeLimit = m_postingSizeLimit;
             if (m_opt->m_postingPageLimit > 0)
             {
-                postingSizeLimit = static_cast<int>(m_opt->m_postingPageLimit * PageSize / m_vectorInfoSize);
+                m_opt->m_postingPageLimit = max(m_opt->m_postingPageLimit, static_cast<int>((m_opt->m_postingVectorLimit * m_vectorInfoSize + PageSize - 1) / PageSize));
+                m_opt->m_searchPostingPageLimit = m_opt->m_postingPageLimit;
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Build index with posting page limit:%d\n", m_opt->m_postingPageLimit);
+
+                m_postingSizeLimit = static_cast<int>(m_opt->m_postingPageLimit * PageSize / m_vectorInfoSize);
+                m_bufferSizeLimit = static_cast<int>(m_opt->m_bufferLength * PageSize / m_vectorInfoSize);
             }
 
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Posting size limit: %d\n", postingSizeLimit);
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Posting size limit: %d\n", m_postingSizeLimit);
 
 
             {
@@ -1591,16 +1602,16 @@ namespace SPTAG::SPANN {
     #pragma omp parallel for schedule(dynamic)
             for (int i = 0; i < postingListSize.size(); ++i)
             {
-                if (postingListSize[i] <= postingSizeLimit) continue;
+                if (postingListSize[i] <= m_postingSizeLimit) continue;
 
                 std::size_t selectIdx = std::lower_bound(selections.m_selections.begin(), selections.m_selections.end(), i, Selection::g_edgeComparer) - selections.m_selections.begin();
 
-                for (size_t dropID = postingSizeLimit; dropID < postingListSize[i]; ++dropID)
+                for (size_t dropID = m_postingSizeLimit; dropID < postingListSize[i]; ++dropID)
                 {
                     int tonode = selections.m_selections[selectIdx + dropID].tonode;
                     --replicaCount[tonode];
                 }
-                postingListSize[i] = postingSizeLimit;
+                postingListSize[i] = m_postingSizeLimit;
             }
             {
                 std::vector<int> replicaCountDist(m_opt->m_replicaCount + 1, 0);
@@ -1887,6 +1898,8 @@ namespace SPTAG::SPANN {
         int m_vectorInfoSize = 0;
 
         int m_postingSizeLimit = INT_MAX;
+
+        int m_bufferSizeLimit = INT_MAX;
 
         std::chrono::microseconds m_hardLatencyLimit = std::chrono::microseconds(2000);
 
