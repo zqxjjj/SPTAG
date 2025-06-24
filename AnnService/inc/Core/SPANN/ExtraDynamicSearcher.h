@@ -497,14 +497,15 @@ namespace SPTAG::SPANN {
             }
         }
 
-        ErrorCode Split(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, const SizeType headID, bool reassign = false, bool preReassign = false)
+        ErrorCode Split(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, const SizeType headID, bool reassign = false, bool preReassign = false, bool requirelock = true)
         {
             auto splitBegin = std::chrono::high_resolution_clock::now();
             std::vector<SizeType> newHeadsID;
             std::vector<std::string> newPostingLists;
             double elapsedMSeconds;
             {
-                std::unique_lock<std::shared_timed_mutex> lock(m_rwLocks[headID]);
+                std::unique_lock<std::shared_timed_mutex> lock(m_rwLocks[headID], std::defer_lock);
+                if (requirelock) lock.lock();
 
                 std::string postingList;
                 auto splitGetBegin = std::chrono::high_resolution_clock::now();
@@ -544,7 +545,7 @@ namespace SPTAG::SPANN {
                 // double gcEndTime = sw.getElapsedMs();
                 // m_splitGcCost += gcEndTime;
 		
-                if (m_opt->m_inPlace || (!preReassign && index < m_postingSizeLimit))
+                if (!preReassign && index < m_postingSizeLimit)
                 {
 
                     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "DEBUG: in place or not prereassign & index < m_postingSizeLimit. GC begin...\n");
@@ -1062,7 +1063,7 @@ namespace SPTAG::SPANN {
                 }
                 if (m_postingSizes.GetSize(headID) + appendNum > (m_postingSizeLimit + m_bufferSizeLimit)) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "After appending, the number of vectors exceeds the postingsize + buffersize (%d + %d)! Do split now...\n", m_postingSizeLimit, m_bufferSizeLimit);
-                    Split(p_exWorkSpace, p_index, headID, !m_opt->m_disableReassign);
+                    Split(p_exWorkSpace, p_index, headID, !m_opt->m_disableReassign, false, false);
                     goto checkDeleted;
                 }
 

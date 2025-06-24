@@ -11,6 +11,7 @@
 #include "inc/Core/Common/CommonUtils.h"
 #include "inc/Core/Common/QueryResultSet.h"
 #include "inc/Core/Common/DistanceUtils.h"
+#include "inc/COre/SPANN/SPANNResultIterator.h"
 
 #include <memory>
 #include <vector>
@@ -328,6 +329,36 @@ bool CompareDirectoriesWithLogging(const std::filesystem::path& dir1,
     }
 
     return matched;
+}
+
+void NormalizeVector(float* embedding, int dimension) {
+    // get magnitude
+    float magnitude = 0.0f;
+    {
+        float sum = 0.0;
+        for (int i = 0; i < dimension; i++) {
+            sum += embedding[i] * embedding[i];
+        }
+        magnitude = std::sqrt(sum);
+    }
+
+    // normalized target vector
+    for (int i = 0; i < dimension; i++) {
+        embedding[i] /= magnitude;
+    }
+}
+
+template<typename T>
+std::shared_ptr<VectorSet> get_embeddings(uint32_t row_id, uint32_t end_id, uint32_t embedding_dim, uint32_t array_index) {
+    uint32_t count = end_id - row_id;
+    ByteArray vec = ByteArray::Alloc(sizeof(T) * count * embedding_dim);
+    for (uint32_t rid = 0; rid < count; rid++) {
+        for (int idx = 0; idx < embedding_dim; ++idx) {
+            ((T*)vec.Data())[rid * embedding_dim + idx] = (row_id + rid) * 17 + idx * 19 + (array_index + 1) * 23;
+        }
+        NormalizeVector(((T*)vec.Data()) + rid * embedding_dim, embedding_dim);
+    }
+    return std::make_shared<BasicVectorSet>(vec, GetEnumValueType<T>(), embedding_dim, count);
 }
 
 BOOST_AUTO_TEST_SUITE(SPFreshTest)
@@ -841,6 +872,53 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
         std::string shadow = "shadow_index_" + std::to_string(iter);
         std::filesystem::remove_all(shadow);
     }
+}
+
+BOOST_AUTO_TEST_CASE(IterativeSearch)
+{
+    using namespace SPFreshTest;
+
+    constexpr int insertIterations = 4;
+    constexpr int insertBatchSize = 100;
+    constexpr int dimension = 1024;
+    std::shared_ptr<SPTAG::VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
+    std::shared_ptr<SPTAG::MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, 0);
+
+    auto originalIndex = BuildIndex<float>("original_index", vecset, metaset);
+    BOOST_REQUIRE(originalIndex != nullptr);
+    BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
+    
+    SPANN::Index<float>* spannIndex = static_cast<SPANN::Index<float>*>(originalIndex.get());
+    for (int iter = 0; iter < insertIterations; iter++) {
+        std::shared_ptr<SPTAG::VectorSet> tmpvecs = get_embeddings<float>((iter + 1) * insertBatchSize, (iter + 2) * insertBatchSize, dimension, -1);
+        std::shared_ptr<SPTAG::MetadataSet> tmpmetas = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, (iter + 1) * insertBatchSize);
+        InsertVectors<float>(spannIndex, 1, insertBatchSize, tmpvecs, tmpmetas);
+    }
+
+    std::shared_ptr<SPTAG::VectorSet> embedding = get_embeddings<float>(150, 151, dimension, -1);
+    std::shared_ptr<ResultIterator> resultIterator = spannIndex->GetIterator(embedding->GetData(), false);
+    int batch = 10;
+    int ri = 0;
+    float current = INT_MAX, previous = INT_MAX;
+    while  (current <= previous) {
+        auto results = resultIterator->Next(batch);
+        int resultCount = results->GetResultNum();
+        if (resultCount <= 0) break;
+        BOOST_CHECK(resultCount == batch);
+        previous = current;
+        current = 0;
+        for (int j = 0; j < resultCount; j++) {
+            std::cout << "Result[" << ri << "] VID:" << results->GetResult(j)->VID << " Dist:" << results->GetResult(j)->Dist << " RelaxedMono:"
+                << results->GetResult(j)->RelaxedMono << std::endl;
+            current += results->GetResult(j)->Dist;
+            ri++;
+        }
+        current /= resultCount;
+    }
+    resultIterator->Close();
+    
+    std::filesystem::remove_all("original_index");
+    originalIndex = nullptr;
 }
 
 BOOST_AUTO_TEST_SUITE_END()
