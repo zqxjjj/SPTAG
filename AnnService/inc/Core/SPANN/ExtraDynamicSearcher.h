@@ -178,7 +178,8 @@ namespace SPTAG::SPANN {
             m_vectorInfoSize = p_opt.m_dim * sizeof(ValueType) + m_metaDataSize;
             p_opt.m_postingPageLimit = max(p_opt.m_postingPageLimit, static_cast<int>((p_opt.m_postingVectorLimit * m_vectorInfoSize + PageSize - 1) / PageSize));
             m_postingSizeLimit = p_opt.m_postingPageLimit * PageSize / m_vectorInfoSize;
-            
+            m_bufferSizeLimit = p_opt.m_bufferLength * PageSize / m_vectorInfoSize;
+
             if(p_opt.m_storage == Storage::FILEIO) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ExtraDynamicSearcher:UseFileIO\n");
                 db.reset(new FileIO(p_opt));
@@ -1059,6 +1060,12 @@ namespace SPTAG::SPANN {
                 if (!p_index->ContainSample(headID)) {
                     goto checkDeleted;
                 }
+                if (m_postingSizes.GetSize(headID) + appendNum > (m_postingSizeLimit + m_bufferSizeLimit)) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "After appending, the number of vectors exceeds the postingsize + buffersize (%d + %d)! Do split now...\n", m_postingSizeLimit, m_bufferSizeLimit);
+                    Split(p_exWorkSpace, p_index, headID, !m_opt->m_disableReassign);
+                    goto checkDeleted;
+                }
+
                 auto appendIOBegin = std::chrono::high_resolution_clock::now();
                 if (db->Merge(headID, appendPosting, MaxTimeout, &(p_exWorkSpace->m_diskRequests)) != ErrorCode::Success) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge failed! Posting Size:%d, limit: %d\n", m_postingSizes.GetSize(headID), m_postingSizeLimit);
@@ -1644,6 +1651,7 @@ namespace SPTAG::SPANN {
                 m_opt->m_searchPostingPageLimit = m_opt->m_postingPageLimit;
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Build index with posting page limit:%d\n", m_opt->m_postingPageLimit);
                 m_postingSizeLimit = static_cast<int>(m_opt->m_postingPageLimit * PageSize / m_vectorInfoSize);
+                m_bufferSizeLimit = static_cast<int>(m_opt->m_bufferLength * PageSize / m_vectorInfoSize);
             }
 
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Posting size limit: %d\n", m_postingSizeLimit);
@@ -1961,6 +1969,8 @@ namespace SPTAG::SPANN {
         int m_vectorInfoSize = 0;
 
         int m_postingSizeLimit = INT_MAX;
+
+        int m_bufferSizeLimit = INT_MAX;
 
         std::chrono::microseconds m_hardLatencyLimit = std::chrono::microseconds(2000);
 
