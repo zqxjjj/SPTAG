@@ -16,13 +16,13 @@ public:
         std::string tmp(filePath);
         opt.m_indexDirectory = tmp.substr(0, tmp.find_last_of(FolderSep));
         opt.m_ssdMappingFile = tmp.substr(tmp.find_last_of(FolderSep) + 1);
-        opt.m_startFileSize = (postingBlocks >> (30 - PageSizeEx));
+        opt.m_startFileSize = (postingBlocks >> (30 - SPTAG::PageSizeEx));
         opt.m_bufferLength = bufferSize;
         opt.m_spdkBatchSize = batchSize;
 
         m_fileIO = std::make_unique<SPTAG::SPANN::FileIO>(opt);
         m_workSpace = std::make_unique<SPTAG::SPANN::ExtraWorkSpace>();
-        m_workSpace->Initialize(opt.m_maxCheck, opt.m_hashExp, opt.m_searchInternalResultNum, max(opt.m_postingPageLimit, opt.m_searchPostingPageLimit + 1) << PageSizeEx, true, opt.m_enableDataCompression);
+        m_workSpace->Initialize(opt.m_maxCheck, opt.m_hashExp, opt.m_searchInternalResultNum, max(opt.m_postingPageLimit, opt.m_searchPostingPageLimit + 1) << SPTAG::PageSizeEx, true, opt.m_enableDataCompression);
     }
 
     void ShutDown() {
@@ -30,7 +30,7 @@ public:
     }
 
     bool Get(SizeType key, std::string& value) {
-        ErrorCode result = m_fileIO->Get(key, &value, MaxTimeout, &(m_workSpace->m_diskRequests));
+        ErrorCode result = m_fileIO->Get(key, &value, SPTAG::MaxTimeout, &(m_workSpace->m_diskRequests));
         if (result != ErrorCode::Success) {
             value = "";
         }
@@ -39,7 +39,7 @@ public:
 
     std::string Get(SizeType key) {
         std::string value;
-        ErrorCode result = m_fileIO->Get(key, &value, MaxTimeout, &(m_workSpace->m_diskRequests));
+        ErrorCode result = m_fileIO->Get(key, &value, SPTAG::MaxTimeout, &(m_workSpace->m_diskRequests));
         if (result != ErrorCode::Success) {
             return "";
         }
@@ -48,7 +48,7 @@ public:
 
     std::string Get(const std::string& key) {
         std::string value;
-        ErrorCode result = m_fileIO->Get(key, &value, MaxTimeout, &(m_workSpace->m_diskRequests));
+        ErrorCode result = m_fileIO->Get(key, &value, SPTAG::MaxTimeout, &(m_workSpace->m_diskRequests));
         if (result != ErrorCode::Success) {
             return "";
         }
@@ -64,23 +64,19 @@ public:
     }
 
     bool Put(SizeType key, const std::string& value) {
-        return m_fileIO->Put(key, value, MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
-    }
-
-    bool Put(SizeType key, ByteArray value) {
-        return m_fileIO->Put(key, value, MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
+        return m_fileIO->Put(key, value, SPTAG::MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
     }
 
     bool Put(const std::string& key, const std::string& value) {
-        return m_fileIO->Put(key, value, MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
+        return m_fileIO->Put(key, value, SPTAG::MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
     }
 
     bool Merge(SizeType key, const std::string& value) {
-        return m_fileIO->Merge(key, value, MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
+        return m_fileIO->Merge(key, value, SPTAG::MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
     }
 
     bool Merge(const std::string& key, const std::string& value) {
-        return m_fileIO->Merge(key, value, MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
+        return m_fileIO->Merge(key, value, SPTAG::MaxTimeout, &(m_workSpace->m_diskRequests)) == ErrorCode::Success;
     }
 
     bool Delete(SizeType key) {
