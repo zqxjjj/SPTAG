@@ -18,7 +18,7 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
     strcpy(m_filePath, (p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings").c_str());
     m_startTime = std::chrono::high_resolution_clock::now();
 
-    int numblocks = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit + 1) * p_opt.m_searchInternalResultNum;
+    int numblocks = m_batchSize;
     m_fileHandle = f_createAsyncIO();
     if (m_fileHandle == nullptr || !m_fileHandle->Initialize(m_filePath,
 #ifndef _MSC_VER

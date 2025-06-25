@@ -11,7 +11,7 @@
 #include "inc/Core/Common/CommonUtils.h"
 #include "inc/Core/Common/QueryResultSet.h"
 #include "inc/Core/Common/DistanceUtils.h"
-#include "inc/COre/SPANN/SPANNResultIterator.h"
+#include "inc/Core/SPANN/SPANNResultIterator.h"
 
 #include <memory>
 #include <vector>
@@ -64,8 +64,8 @@ namespace SPFreshTest {
             InternalResultNum=64
             SearchInternalResultNum=64
             NumberOfThreads=16
-            PostingPageLimit=4
-            SearchPostingPageLimit=4
+	    PostingPageLimit=)" + std::to_string(4 * sizeof(T)) + R"(
+            SearchPostingPageLimit=)" + std::to_string(4 * sizeof(T)) + R"(
             TmpDir=tmpdir
             Storage=FILEIO
             SpdkBatchSize=64
@@ -897,9 +897,10 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
 
     std::shared_ptr<SPTAG::VectorSet> embedding = get_embeddings<float>(150, 151, dimension, -1);
     std::shared_ptr<ResultIterator> resultIterator = spannIndex->GetIterator(embedding->GetData(), false);
-    int batch = 10;
+    int batch = 100;
     int ri = 0;
     float current = INT_MAX, previous = INT_MAX;
+    bool relaxMono = false;
     while  (current <= previous) {
         auto results = resultIterator->Next(batch);
         int resultCount = results->GetResultNum();
@@ -909,7 +910,8 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
         current = 0;
         for (int j = 0; j < resultCount; j++) {
             std::cout << "Result[" << ri << "] VID:" << results->GetResult(j)->VID << " Dist:" << results->GetResult(j)->Dist << " RelaxedMono:"
-                << results->GetResult(j)->RelaxedMono << std::endl;
+                << results->GetResult(j)->RelaxedMono << " current:" << current << " previous:" << previous <<std::endl;
+	    relaxMono = results->GetResult(j)->RelaxedMono;
             current += results->GetResult(j)->Dist;
             ri++;
         }
@@ -917,8 +919,8 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
     }
     resultIterator->Close();
     
-    std::filesystem::remove_all("original_index");
     originalIndex = nullptr;
+    std::filesystem::remove_all("original_index");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

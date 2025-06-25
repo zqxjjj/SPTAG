@@ -128,7 +128,7 @@ namespace TestUtils {
             offset += id.length();
         }
         ((std::uint64_t*)metaoffset.Data())[count] = offset;
-        return std::make_shared<MemMetadataSet>(meta, metaoffset, count, count * 2, count * 2, 10);
+        return std::make_shared<MemMetadataSet>(meta, metaoffset, count, count * 2, MaxSize, 10);
     }
 
     template <typename T>
@@ -151,4 +151,5 @@ namespace TestUtils {
     // Explicit instantiation
     template class TestDataGenerator<int8_t>;
     template class TestDataGenerator<uint8_t>;
+    template class TestDataGenerator<float>;
 }
