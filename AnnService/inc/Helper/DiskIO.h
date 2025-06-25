@@ -23,6 +23,16 @@
 #endif
 #endif
 
+#ifdef SPDK
+extern "C" {
+#include "spdk/env.h"
+#include "spdk/event.h"
+#include "spdk/log.h"
+#include "spdk/thread.h"
+#include "spdk/bdev.h"
+}
+#endif
+
 namespace SPTAG
 {
     namespace Helper
@@ -84,6 +94,7 @@ namespace SPTAG
 
             // Carry exension metadata needed by some DiskIO implementations
             void* m_extension;
+            void* m_ctrl;
 
 #ifdef _MSC_VER
             DiskUtils::PrioritizedDiskFileReaderResource myres;

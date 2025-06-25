@@ -4,10 +4,6 @@ namespace SPTAG::SPANN
 {
 extern std::function<std::shared_ptr<Helper::DiskIO>(void)> f_createAsyncIO;
 
-#ifdef DEBUG
-thread_local int FileIO::BlockController::debug_fd = -1;
-#endif
-
 bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Initialize(%s, %d)\n", p_opt.m_ssdMappingFile.c_str(), p_opt.m_spdkBatchSize);
 
@@ -37,15 +33,6 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController:Loading block pool failed!\n");
         return false;
     }
- 
-#ifdef DEBUG
-    auto debug_file_name = std::string("/nvme1n1/lml/") + std::to_string(m_numInitCalled) + "_debug.log";
-    debug_fd = open(debug_file_name.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if (debug_fd == -1) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed: open debug file failed\n");
-        return false;
-    }
-#endif
     return true;
 }
 
@@ -102,14 +89,6 @@ bool FileIO::BlockController::ExpandFile(AddressType blocksToAdd)
 
 bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
     AddressType currBlockAddress = 0;
-#ifdef DEBUG
-    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 1";
-    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
-    if (result == -1) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::GetBlocks: %s\n", strerror(errno));
-    }
-    fsync(debug_fd);
-#endif
 
     // Trigger expansion if we're below threshold
     if (NeedsExpansion()) {
@@ -138,14 +117,6 @@ bool FileIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
-#ifdef DEBUG
-    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 2";
-    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
-    if (result == -1) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReleaseBlocks: pwrite failed\n");
-    }
-    fsync(debug_fd);
-#endif
     for(int i = 0; i < p_size; i++) {
         m_blockAddresses_reserve.push(p_data[i]);
     }
@@ -153,14 +124,6 @@ bool FileIO::BlockController::ReleaseBlocks(AddressType* p_data, int p_size) {
 }
 
 bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef DEBUG
-    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 3";
-    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
-    if (result == -1) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
-    }
-    fsync(debug_fd);
-#endif
     size_t postingSize = (size_t)p_data[0];
     auto blockNum = (postingSize + PageSize - 1) >> PageSizeEx;
     if (blockNum > reqs->size()) {
@@ -196,14 +159,6 @@ bool FileIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
 }
 
 bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_values, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef DEBUG
-    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
-    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
-    if (result == -1) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
-    }
-    fsync(debug_fd);
-#endif
     m_batchReadTimes++;
 
     std::uint32_t reqcount = 0;
@@ -264,14 +219,6 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 }
 
 bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_values, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef DEBUG
-    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 4";
-    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
-    if (result == -1) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks: pwrite failed\n");
-    }
-    fsync(debug_fd);
-#endif
     m_batchReadTimes++;
     std::uint32_t reqcount = 0;
     std::uint32_t emptycount = 0;
@@ -339,15 +286,6 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
 }
 
 bool FileIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const std::string& p_value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) {
-#ifdef DEBUG
-    auto debug_string = std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now() - m_startTime).count()) + " 5";
-    auto result = pwrite(debug_fd, debug_string.c_str(), debug_string.size(), 0);
-    if (result == -1) {
-        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::WriteBlocks: pwrite failed\n");
-    }
-    fsync(debug_fd);
-#endif
-
     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WriteBlocks to string with blocknum=%d size=%u!\n", p_size, p_value.size());
     AddressType currOffset = 0;
     int totalSize = p_value.size();

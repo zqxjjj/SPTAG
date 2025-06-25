@@ -1,7 +1,7 @@
 #ifndef _SPTAG_SPANN_EXTRAFILECONTROLLER_H_
 #define _SPTAG_SPANN_EXTRAFILECONTROLLER_H_
 #define USE_ASYNC_IO
-// #define USE_FILE_DEBUG
+
 #include "inc/Helper/KeyValueIO.h"
 #include "inc/Core/Common/Dataset.h"
 #include "inc/Core/VectorIndex.h"
@@ -28,9 +28,6 @@ namespace SPTAG::SPANN {
             tbb::concurrent_queue<AddressType> m_blockAddresses;
             tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
 
-#ifdef DEBUG
-            thread_local static int debug_fd;
-#endif
 	        std::atomic<int64_t> read_complete_vec = 0;
 	        std::atomic<int64_t> read_submit_vec = 0;
 	        std::atomic<int64_t> write_complete_vec = 0;
