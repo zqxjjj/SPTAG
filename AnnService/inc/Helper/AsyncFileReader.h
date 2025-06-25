@@ -88,6 +88,20 @@ namespace SPTAG
                 return true;
             }
 
+            bool try_pop(AsyncReadRequest*& j) {
+                DWORD cBytes;
+                ULONG_PTR key;
+                OVERLAPPED* ol;
+                BOOL ret = ::GetQueuedCompletionStatus(m_handle.GetHandle(),
+                    &cBytes,
+                    &key,
+                    &ol,
+                    0);
+                if (FALSE == ret || nullptr == ol) return false;
+                j = reinterpret_cast<AsyncReadRequest*>(ol);
+                return true;
+            }
+
             void* handle() {
                 return m_handle.GetHandle();
             }
@@ -409,9 +423,16 @@ namespace SPTAG
                 return true;
             }
 
+            bool try_pop(AsyncReadRequest*& j) {
+                if (m_front == m_end) return false;
+                j = m_queue[m_front++];
+                if (m_front == m_capacity) m_front = 0;
+                return true;
+            }
+
             void* handle() 
             {
-                return nullptr;
+                return (void*)(this);
             }
 
         protected:

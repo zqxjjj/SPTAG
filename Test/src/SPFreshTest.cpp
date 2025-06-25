@@ -113,8 +113,6 @@ namespace SPFreshTest {
         int k)
     {
         auto* p_index = static_cast<SPTAG::SPANN::Index<T>*>(vecIndex.get());
-        p_index->Initialize();
-
         std::vector<QueryResult> res(queryset->Count(), QueryResult(nullptr, k, true));
 
         auto t1 = std::chrono::high_resolution_clock::now();
@@ -122,7 +120,6 @@ namespace SPFreshTest {
             res[i].SetTarget(queryset->GetVector(i));
             vecIndex->SearchIndex(res[i]);
         }
-        p_index->ExitBlockController();
         auto t2 = std::chrono::high_resolution_clock::now();
 
         float avgUs = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / static_cast<float>(queryset->Count());
@@ -208,7 +205,6 @@ namespace SPFreshTest {
         std::atomic_size_t vectorsSent(0);
         auto func = [&]()
             {
-                p_index->Initialize();
                 size_t index = 0;
                 while (true)
                 {
@@ -229,7 +225,6 @@ namespace SPFreshTest {
                     }
                     else
                     {
-                        p_index->ExitBlockController();
                         return;
                     }
                 }
@@ -674,7 +669,6 @@ BOOST_AUTO_TEST_CASE(IndexSaveDuringQuery)
     BOOST_REQUIRE(index != nullptr);
 
     auto* spannIndex = static_cast<SPTAG::SPANN::Index<int8_t>*>(index.get());
-    spannIndex->Initialize();
 
     std::atomic<bool> keepQuerying(true);
     std::thread queryThread([&]() {
@@ -746,8 +740,6 @@ BOOST_AUTO_TEST_CASE(IndexMultiThreadedQuerySanity)
     for (int t = 0; t < threadCount; ++t) {
         threads.emplace_back([&, t]() {
             auto* p_index = static_cast<SPTAG::SPANN::Index<int8_t>*>(loaded.get());
-            p_index->Initialize();
-
             QueryResult result(nullptr, K, true);
             while (true) {
                 int i = nextQuery.fetch_add(1);
@@ -758,8 +750,6 @@ BOOST_AUTO_TEST_CASE(IndexMultiThreadedQuerySanity)
 
                 ++completedQueries;
             }
-
-            p_index->ExitBlockController();
             });
     }
 
@@ -804,12 +794,10 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
 
         // Query check
         auto* index = static_cast<SPTAG::SPANN::Index<int8_t>*>(loaded.get());
-        index->Initialize();
         for (int i = 0; i < std::min<SizeType>(queryset->Count(), 5); ++i) {
             QueryResult result(queryset->GetVector(i), K, true);
             loaded->SearchIndex(result);
         }
-        index->ExitBlockController();
 
         // Cleanup previous base index after first iteration
         if (iter == 1) {
@@ -823,7 +811,7 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
         std::shared_ptr<VectorIndex> shadowLoaded;
         BOOST_REQUIRE(VectorIndex::LoadIndex(shadowIndexName, shadowLoaded) == ErrorCode::Success);
         BOOST_REQUIRE(shadowLoaded != nullptr);
-	auto* shadowIndex = static_cast<SPTAG::SPANN::Index<int8_t>*>(shadowLoaded.get());
+	    auto* shadowIndex = static_cast<SPTAG::SPANN::Index<int8_t>*>(shadowLoaded.get());
 
         // Prepare insert batch
         const int insertOffset = (iter * insertBatchSize) % static_cast<int>(addvecset->Count());
@@ -850,7 +838,6 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
         const void* vectorStart = addvecset->GetVector(insertOffset);
 
         shadowIndex->AddIndex(vectorStart, insertCount, shadowIndex->GetOptions()->m_dim, batchMeta, true);
-        shadowIndex->ExitBlockController();
 
         while (!shadowIndex->AllFinished()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));

@@ -124,7 +124,6 @@ namespace SPTAG::SPANN {
                 for (int i = 0; i < numberOfThreads; i++)
                 {
                     m_threads.emplace_back([this, extraIndex] {
-                        extraIndex->Initialize();
                         Job *j;
                         ExtraWorkSpace workSpace;
                         extraIndex->InitWorkSpace(&workSpace);
@@ -142,7 +141,6 @@ namespace SPTAG::SPANN {
                             
                             delete j;
                         }
-                        extraIndex->ExitBlockController();
                     });
                 }
             }
@@ -447,7 +445,6 @@ namespace SPTAG::SPANN {
                 auto func = [&]()
                 {
                     int index = 0;
-                    Initialize();
                     ExtraWorkSpace workSpace;
                     InitWorkSpace(&workSpace);
                     while (true)
@@ -467,7 +464,6 @@ namespace SPTAG::SPANN {
                         }
                         else
                         {
-                            ExitBlockController();
                             return;
                         }
                     }
@@ -1189,8 +1185,6 @@ namespace SPTAG::SPANN {
 
 			        auto func = [&]()
 			        {
-			            Initialize();
-
                         ExtraWorkSpace workSpace;
                         InitWorkSpace(&workSpace);
 			            size_t index = 0;
@@ -1224,7 +1218,6 @@ namespace SPTAG::SPANN {
 				}
 				else
 				{
-				    ExitBlockController();
 				    return;
 				}
 			    }
@@ -1769,7 +1762,6 @@ namespace SPTAG::SPANN {
             std::atomic_size_t vectorsSent(0);
             auto func = [&]()
             {
-                Initialize();
                 ExtraWorkSpace workSpace;
                 InitWorkSpace(&workSpace);
                 size_t index = 0;
@@ -1796,7 +1788,6 @@ namespace SPTAG::SPANN {
                     }
                     else
                     {
-                        ExitBlockController();
                         return;
                     }
                 }
@@ -1887,14 +1878,6 @@ namespace SPTAG::SPANN {
 
         bool CheckValidPosting(SizeType postingID) override {
             return (postingID < m_postingSizes.GetPostingNum()) && (m_postingSizes.GetSize(postingID) > 0);
-        }
-
-        bool Initialize() override {
-            return db->Initialize();
-        }
-
-        bool ExitBlockController() override {
-            return db->ExitBlockController();
         }
 
         void GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) override {

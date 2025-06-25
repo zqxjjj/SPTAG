@@ -42,10 +42,6 @@ namespace SPTAG
 
             virtual void GetStat() {}
 
-            virtual bool Initialize(bool debug = false) { return false; }
-
-            virtual bool ExitBlockController(bool debug = false) { return false; }
-
             virtual ErrorCode Checkpoint(std::string prefix) {return ErrorCode::Undefined;}
 
             virtual ErrorCode StartToScan(SizeType& key, std::string* value) {return ErrorCode::Undefined;}

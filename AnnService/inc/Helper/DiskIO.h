@@ -108,7 +108,11 @@ namespace SPTAG
                 if (m_pageBufferSize < p_size)
                 {
                     m_pageBufferSize = p_size;
+#ifdef SPDK
+                    m_pageBuffer.reset(static_cast<T*>(spdk_dma_zmalloc(sizeof(T) * m_pageBufferSize, PageSize, NULL)), [=](T* ptr) { spdk_free(ptr); });
+#else
                     m_pageBuffer.reset(static_cast<T*>(BLOCK_ALLOC(sizeof(T) * m_pageBufferSize, PageSize)), [=](T* ptr) { BLOCK_FREE(ptr, PageSize); });
+#endif
                 }
             }
 

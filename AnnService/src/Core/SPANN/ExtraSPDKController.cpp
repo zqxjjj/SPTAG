@@ -112,8 +112,6 @@ void* SPDKIO::BlockController::InitializeSpdk(void *arg) {
     opts.json_config_file = spdkConf ? spdkConf : "";
     const char* spdkBdevName = getenv(kSpdkBdevNameEnv);
     ctrl->m_ssdSpdkBdevName = spdkBdevName ? spdkBdevName : "";
-    const char* spdkIoDepth = getenv(kSpdkIoDepth);
-    if (spdkIoDepth) ctrl->m_ssdSpdkIoDepth = atoi(spdkIoDepth);
 
     int rc;
     rc = spdk_app_start(&opts, &SPTAG::SPANN::SPDKIO::BlockController::SpdkStart, arg);
@@ -126,43 +124,39 @@ void* SPDKIO::BlockController::InitializeSpdk(void *arg) {
 }
 
 bool SPDKIO::BlockController::Initialize(SPANN::Options& p_opt) {
-    std::lock_guard<std::mutex> lock(m_initMutex);
-    m_numInitCalled++;
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController::Initialize(%s, %d)\n", p_opt.m_ssdMappingFile.c_str(), p_opt.m_spdkBatchSize);
+
     const char* useMemImplEnvStr = getenv(kUseMemImplEnv);
     m_useMemImpl = useMemImplEnvStr && !strcmp(useMemImplEnvStr, "1");
     const char* useSsdImplEnvStr = getenv(kUseSsdImplEnv);
     m_useSsdImpl = useSsdImplEnvStr && !strcmp(useSsdImplEnvStr, "1");
     if (m_useMemImpl) {
-        if (m_numInitCalled == 1) {
-            if (m_memBuffer == nullptr) {
-                m_memBuffer.reset(new char[kMemImplMaxNumBlocks * PageSize]);
-            }
-            for (AddressType i = 0; i < kMemImplMaxNumBlocks; i++) {
-                m_blockAddresses.push(i);
-            }
+        std::uint64_t memoryBlocks = ((std::uint64_t)p_opt.m_startFileSize) << (30 - PageSizeEx);
+        if (m_memBuffer == nullptr) {
+            m_memBuffer.reset(new char[memoryBlocks >> PageSizeEx]);
+        }
+        for (AddressType i = 0; i < memoryBlocks; i++) {
+            m_blockAddresses.push(i);
         }
         return true;
     } else if (m_useSsdImpl) {
-        if (m_numInitCalled == 1) {
-            m_growthThreshold = p_opt.m_growThreshold;
-            m_growthBlocks = ((std::uint64_t)p_opt.m_growthFileSize) << (30 - PageSizeEx);
-            m_maxBlocks = ((std::uint64_t)p_opt.m_maxFileSize) << (30 - PageSizeEx);
-            m_batchSize = p_opt.m_spdkBatchSize;
-            m_filePath = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings";
-            pthread_create(&m_ssdSpdkTid, NULL, &InitializeSpdk, this);
-            while (!m_ssdSpdkThreadReady && !m_ssdSpdkThreadStartFailed);
-            if (m_ssdSpdkThreadStartFailed) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPDKIO::BlockController::Initialize failed\n");
-                return false;
-            }
-            std::string blockpoolPath = (p_opt.m_recovery) ? p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile + "_postings" : m_filePath;
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController:Loading block pool from file:%s\n", blockpoolPath.c_str());
-            ErrorCode ret = LoadBlockPool(blockpoolPath, ((std::uint64_t)p_opt.m_startFileSize) << (30 - PageSizeEx), !p_opt.m_recovery);
-            if (ErrorCode::Success != ret) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController:Loading block pool failed!\n");
-                return false;
-            }
+        m_growthThreshold = p_opt.m_growThreshold;
+        m_growthBlocks = ((std::uint64_t)p_opt.m_growthFileSize) << (30 - PageSizeEx);
+        m_maxBlocks = ((std::uint64_t)p_opt.m_maxFileSize) << (30 - PageSizeEx);
+        m_batchSize = p_opt.m_spdkBatchSize;
+        m_filePath = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings";
+        pthread_create(&m_ssdSpdkTid, NULL, &InitializeSpdk, this);
+        while (!m_ssdSpdkThreadReady && !m_ssdSpdkThreadStartFailed);
+        if (m_ssdSpdkThreadStartFailed) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPDKIO::BlockController::Initialize failed\n");
+            return false;
+        }
+        std::string blockpoolPath = (p_opt.m_recovery) ? p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile + "_postings" : m_filePath;
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController:Loading block pool from file:%s\n", blockpoolPath.c_str());
+        ErrorCode ret = LoadBlockPool(blockpoolPath, ((std::uint64_t)p_opt.m_startFileSize) << (30 - PageSizeEx), !p_opt.m_recovery);
+        if (ErrorCode::Success != ret) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController:Loading block pool failed!\n");
+            return false;
         }
         return true;
     } else {
@@ -171,7 +165,7 @@ bool SPDKIO::BlockController::Initialize(SPANN::Options& p_opt) {
     }
 }
 
-bool FileIO::BlockController::NeedsExpansion()
+bool SPDKIO::BlockController::NeedsExpansion()
 {
     // TODO: Replace RemainBlocks() which internally uses tbb::concurrent_queue::unsafe_size().
     // unsafe_size() is *not thread-safe* and may yield inconsistent results under concurrent access.
@@ -182,7 +176,7 @@ bool FileIO::BlockController::NeedsExpansion()
     return (ratio < m_growthThreshold);
 }
 
-bool FileIO::BlockController::ExpandFile(AddressType blocksToAdd)
+bool SPDKIO::BlockController::ExpandFile(AddressType blocksToAdd)
 {
     AddressType currentTotal = m_totalAllocatedBlocks.load();
 
@@ -230,12 +224,12 @@ bool SPDKIO::BlockController::GetBlocks(AddressType* p_data, int p_size) {
             AddressType total = m_totalAllocatedBlocks.load();
             if (total + growBy <= m_maxBlocks) {
                 if (!ExpandFile(growBy)) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::GetBlocks: expansion failed\n");
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPDKIO::BlockController::GetBlocks: expansion failed\n");
                     return false;
                 }
             }
             else {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "FileIO::BlockController::GetBlocks: cannot expand beyond cap (%llu)\n",
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "SPDKIO::BlockController::GetBlocks: cannot expand beyond cap (%llu)\n",
                     static_cast<unsigned long long>(m_maxBlocks));
             }
         }
@@ -370,7 +364,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
                 dataIdx++;
                 reqcount++;
                 if (reqcount >= reqs->size()) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  %u >= %u\n", reqcount, reqs->size());
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPDKIO::BlockController::ReadBlocks:  %u >= %u\n", reqcount, reqs->size());
                     return false;
                 }
             }
@@ -487,7 +481,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
 
             while (dataIdx - 1 < numPages) {
                 if (reqcount >= reqs->size()) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  req (%u) >= req array size (%u)\n", reqcount, reqs->size());
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPDKIO::BlockController::ReadBlocks:  req (%u) >= req array size (%u)\n", reqcount, reqs->size());
                     return false;
                 }
 
@@ -608,27 +602,21 @@ bool SPDKIO::BlockController::IOStatistics() {
 }
 
 bool SPDKIO::BlockController::ShutDown() {
-    std::lock_guard<std::mutex> lock(m_initMutex);
-    m_numInitCalled--;
-
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO:BlockController:ShutDown!\n");
     if (m_useMemImpl) {
-        if (m_numInitCalled == 0) {
-            while (!m_blockAddresses.empty()) {
-                AddressType currBlockAddress;
-                m_blockAddresses.try_pop(currBlockAddress);
-            }
+        while (!m_blockAddresses.empty()) {
+            AddressType currBlockAddress;
+            m_blockAddresses.try_pop(currBlockAddress);
         }
         return true;
     } else if (m_useSsdImpl) {
-        if (m_numInitCalled == 0) {
-            m_ssdSpdkThreadExiting = true;
-            spdk_app_start_shutdown();
-            pthread_join(m_ssdSpdkTid, NULL);
-	        Checkpoint(m_filePath);
-            while (!m_blockAddresses.empty()) {
-                AddressType currBlockAddress;
-                m_blockAddresses.try_pop(currBlockAddress);
-            }
+        m_ssdSpdkThreadExiting = true;
+        spdk_app_start_shutdown();
+        pthread_join(m_ssdSpdkTid, NULL);
+	    Checkpoint(m_filePath);
+        while (!m_blockAddresses.empty()) {
+            AddressType currBlockAddress;
+            m_blockAddresses.try_pop(currBlockAddress);
         }
         return true;
     } else {
