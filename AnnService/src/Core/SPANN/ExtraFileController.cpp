@@ -20,7 +20,7 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt) {
 #ifndef _MSC_VER
         O_RDWR | O_DIRECT, numblocks, 2, 2, 10 * (max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads) + p_opt.m_insertThreadNum + p_opt.m_reassignThreadNum + p_opt.m_appendThreadNum), ((std::uint64_t)p_opt.m_startFileSize) << 30
 #else
-        GENERIC_READ, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, ((std::uint64_t)p_opt.m_startFileSize) << 30
+        GENERIC_READ | GENERIC_WRITE, numblocks, 2, 2, (std::uint16_t)p_opt.m_ioThreads, ((std::uint64_t)p_opt.m_startFileSize) << 30
 #endif
     )) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::Initialize failed\n");

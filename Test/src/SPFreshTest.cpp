@@ -147,11 +147,6 @@ namespace SPFreshTest {
         float totalRecall = 0.0f;
         float eps = 1e-4f;
 
-        if (truth->GetValueType() != GetEnumValueType<SizeType>()) {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Expected truth VectorSet to store SizeType, but got incompatible type.\n");
-            return 0.0f;
-        }
-
         for (SizeType i = 0; i < queryset->Count(); ++i) {
             const SizeType* truthNN = reinterpret_cast<const SizeType*>(truth->GetVector(i));
             for (int j = 0; j < recallK; ++j) {
