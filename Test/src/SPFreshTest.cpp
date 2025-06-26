@@ -238,7 +238,7 @@ bool CompareFilesWithLogging(const std::filesystem::path& file1, const std::file
     std::ifstream f1(file1, std::ios::binary);
     std::ifstream f2(file2, std::ios::binary);
 
-    if (!f1 || !f2) {
+    if (!f1.is_open() || !f2.is_open()) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
             "Failed to open one of the files:\n  %s\n  %s\n",
             file1.string().c_str(),
@@ -246,33 +246,31 @@ bool CompareFilesWithLogging(const std::filesystem::path& file1, const std::file
         return false;
     }
 
-    char c1, c2;
-    size_t offset = 0;
-    size_t diffCount = 0;
-
-    while (f1.get(c1) && f2.get(c2)) {
-        if (c1 != c2) {
-            if (diffCount == 0) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
-                    "File mismatch at: %s\n", file1.filename().string().c_str());
-            }
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
-                "  Byte %zu: 0x%02x != 0x%02x\n",
-                offset,
-                static_cast<unsigned char>(c1),
-                static_cast<unsigned char>(c2));
-            if (++diffCount >= 16) break;
-        }
-        ++offset;
-    }
-
-    if (f1.get(c1) || f2.get(c2)) {
+    // Check file sizes first
+    f1.seekg(0, std::ios::end);
+    f2.seekg(0, std::ios::end);
+    if (f1.tellg() != f2.tellg()) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
             "File size differs: %s\n", file1.filename().string().c_str());
         return false;
     }
 
-    return diffCount == 0;
+    f1.seekg(0, std::ios::beg);
+    f2.seekg(0, std::ios::beg);
+
+    const int bufferSize = 4096; // Adjust buffer size as needed
+    std::vector<char> buffer1(bufferSize);
+    std::vector<char> buffer2(bufferSize);
+
+    while (f1.read(buffer1.data(), bufferSize) && f2.read(buffer2.data(), bufferSize)) {
+        if (std::memcmp(buffer1.data(), buffer2.data(), f1.gcount()) != 0) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                "File mismatch at: %s\n", file1.filename().string().c_str());
+            return false; // Mismatch found
+        }
+    }
+
+    return true;
 }
 
 bool CompareDirectoriesWithLogging(const std::filesystem::path& dir1,
@@ -305,6 +303,8 @@ bool CompareDirectoriesWithLogging(const std::filesystem::path& dir1,
             continue;
         }
         if (!CompareFilesWithLogging(filePath1, it->second)) {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                "File end differs: %s\n", filePath1.filename().string().c_str());
             matched = false;
         }
     }
