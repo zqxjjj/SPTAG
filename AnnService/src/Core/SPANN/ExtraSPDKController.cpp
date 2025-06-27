@@ -19,7 +19,7 @@ void SPDKIO::BlockController::SpdkBdevIoCallback(struct spdk_bdev_io *bdev_io, b
     if (success) {
         m_ioCompleteCount++;
         spdk_bdev_free_io(bdev_io);
-        reinterpret_cast<Helper::RequestQueue*>(currSubIo->m_extension)->push(currSubIo);
+        reinterpret_cast<Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>*>(currSubIo->m_extension)->push(currSubIo);
         m_ssdInflight--;
         SpdkIoLoop(currSubIo->m_ctrl);
     } else {
@@ -202,7 +202,7 @@ bool SPDKIO::BlockController::ExpandFile(AddressType blocksToAdd)
         static_cast<unsigned long long>(currentTotal),
         static_cast<unsigned long long>(newTotal),
         static_cast<unsigned long long>(allowedBlocks),
-        static_cast<float>(allowedBlocks << (30 - PageSizeEx)));
+        static_cast<float>(allowedBlocks >> (30 - PageSizeEx)));
 
     if (allowedBlocks < blocksToAdd) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Warning,
@@ -282,7 +282,7 @@ bool SPDKIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
         
         // Clear timeout I/Os
         Helper::AsyncReadRequest* currSubIo;
-        Helper::RequestQueue* completeQueue = (Helper::RequestQueue*)(reqs->at(0).m_extension);
+        Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>* completeQueue = (Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>*)(reqs->at(0).m_extension);
         while (completeQueue->try_pop(currSubIo));
 
         size_t postingSize = (size_t)p_data[0];        
@@ -305,7 +305,7 @@ bool SPDKIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
                 curr.m_offset = p_data[dataIdx] * PageSize;
                 curr.m_payload = (char*)p_value->data() + currOffset;
                 curr.m_ctrl = this;
-                curr.myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
+                curr.myiocb.aio_fildes = IOCB_CMD_PREAD;
                 m_submittedSubIoRequests.push(&curr);
                 currOffset += PageSize;
                 dataIdx++;
@@ -315,7 +315,10 @@ bool SPDKIO::BlockController::ReadBlocks(AddressType* p_data, std::string* p_val
             if (in_flight && completeQueue->try_pop(currSubIo)) {
                 memcpy((char*)(currSubIo->m_payload), currSubIo->m_buffer, currSubIo->m_readSize);
                 in_flight--;
+            } else {
+                std::this_thread::sleep_for(std::chrono::microseconds(1)); // 休眠一个非常短的时间
             }
+            
         }
 
         if (in_flight > 0) {
@@ -362,7 +365,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
                 curr.m_offset = p_data_i[dataIdx] * PageSize;
                 curr.m_payload = (char*)p_value->data() + currOffset;
                 curr.m_ctrl = this;
-                curr.myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
+                curr.myiocb.aio_fildes = IOCB_CMD_PREAD;
                 currOffset += PageSize;
                 dataIdx++;
                 reqcount++;
@@ -375,7 +378,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
 
         // Clear timeout I/Os
         Helper::AsyncReadRequest* currSubIo;
-        Helper::RequestQueue* completeQueue = (Helper::RequestQueue*)(reqs->at(0).m_extension);
+        Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>* completeQueue = (Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>*)(reqs->at(0).m_extension);
         while (completeQueue->try_pop(currSubIo));
 
         for (int currSubIoStartId = 0; currSubIoStartId < reqcount; currSubIoStartId += m_batchSize) {
@@ -401,6 +404,8 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
                 if (in_flight && completeQueue->try_pop(currSubIo)) {
                     memcpy((char*)(currSubIo->m_payload), currSubIo->m_buffer, currSubIo->m_readSize);
                     in_flight--;
+                } else {
+                    std::this_thread::sleep_for(std::chrono::microseconds(1)); // 休眠一个非常短的时间
                 }
             }
 
@@ -476,7 +481,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
                 curr.m_readSize = (postingSize - currOffset) < PageSize ? (postingSize - currOffset) : PageSize;
                 curr.m_offset = p_data_i[dataIdx] * PageSize;
                 curr.m_ctrl = this;
-                curr.myiocb.aio_lio_opcode = IOCB_CMD_PREAD;
+                curr.myiocb.aio_fildes = IOCB_CMD_PREAD;
                 currOffset += PageSize;
                 dataIdx++;
                 reqcount++;
@@ -498,7 +503,7 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
 
         // Clear timeout I/Os
         Helper::AsyncReadRequest* currSubIo;
-        Helper::RequestQueue* completeQueue = (Helper::RequestQueue*)(reqs->at(0).m_extension);
+        Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>* completeQueue = (Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>*)(reqs->at(0).m_extension);
         while (completeQueue->try_pop(currSubIo));
 
         int realcount = reqcount - emptycount;
@@ -527,6 +532,8 @@ bool SPDKIO::BlockController::ReadBlocks(std::vector<AddressType*>& p_data, std:
                 // Try complete
                 if (in_flight && completeQueue->try_pop(currSubIo)) {
                     in_flight--;
+                } else {
+                    std::this_thread::sleep_for(std::chrono::microseconds(1)); // 休眠一个非常短的时间
                 }
             }
 
@@ -555,7 +562,7 @@ bool SPDKIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
         return true;
     } else if (m_useSsdImpl) {
         Helper::AsyncReadRequest* currSubIo;
-        Helper::RequestQueue* completeQueue = (Helper::RequestQueue*)(reqs->at(0).m_extension);
+        Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>* completeQueue = (Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>*)(reqs->at(0).m_extension);
 
         int totalSize = p_value.size();
         AddressType currBlockIdx = 0;
@@ -570,15 +577,18 @@ bool SPDKIO::BlockController::WriteBlocks(AddressType* p_data, int p_size, const
                 curr.m_offset = p_data[currBlockIdx] * PageSize;
                 memcpy(curr.m_buffer, const_cast<char*>(p_value.data()) + currOffset, curr.m_readSize);
                 curr.m_ctrl = this;
-                curr.myiocb.aio_lio_opcode = IOCB_CMD_PWRITE;
-                m_submittedSubIoRequests.push(currSubIo);
+                curr.myiocb.aio_fildes = IOCB_CMD_PWRITE;
+                m_submittedSubIoRequests.push(&curr);
                 currBlockIdx++;
                 inflight++;
             }
 
             // Try complete
             if (inflight && completeQueue->try_pop(currSubIo)) {
+                // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDKIO::BlockController::WriteBlocks: completed %d inflight requests\n", inflight);
                 inflight--;
+            } else {
+                std::this_thread::sleep_for(std::chrono::microseconds(1)); // 休眠一个非常短的时间
             }
         }
         return true;
