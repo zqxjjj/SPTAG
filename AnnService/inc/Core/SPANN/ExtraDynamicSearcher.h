@@ -167,7 +167,7 @@ namespace SPTAG::SPANN {
         std::mutex m_runningLock;
         std::unordered_set<SizeType>m_splitList;
 
-        tbb::concurrent_hash_map<SizeType, SizeType> m_mergeList;
+        Helper::Concurrent::ConcurrentMap<SizeType, SizeType> m_mergeList;
 
     public:
         ExtraDynamicSearcher(SPANN::Options& p_opt) {
@@ -175,6 +175,8 @@ namespace SPTAG::SPANN {
             m_metaDataSize = sizeof(int) + sizeof(uint8_t);
             m_vectorInfoSize = p_opt.m_dim * sizeof(ValueType) + m_metaDataSize;
             p_opt.m_postingPageLimit = max(p_opt.m_postingPageLimit, static_cast<int>((p_opt.m_postingVectorLimit * m_vectorInfoSize + PageSize - 1) / PageSize));
+            p_opt.m_searchPostingPageLimit = p_opt.m_postingPageLimit;
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Setting index with posting page limit:%d\n", p_opt.m_postingPageLimit);
             m_postingSizeLimit = p_opt.m_postingPageLimit * PageSize / m_vectorInfoSize;
             m_bufferSizeLimit = p_opt.m_bufferLength * PageSize / m_vectorInfoSize;
 
@@ -269,7 +271,7 @@ namespace SPTAG::SPANN {
                 distanceSet.push_back(dist);
                 if (m_versionMap->Deleted(vid) || m_versionMap->GetVersion(vid) != version) continue;
                 COMMON::QueryResultSet<ValueType> headCandidates(reinterpret_cast<ValueType*>(vectorId + m_metaDataSize), 64);
-                if (brokenID.find(vid) == brokenID.end() && IsAssumptionBroken(headID, headCandidates, vid)) {
+                if (brokenID.find(vid) == brokenID.end() && IsAssumptionBroken(p_index, headID, headCandidates, vid)) {
                     /*
                     float_t headDist = p_index->ComputeDistance(headCandidates.GetTarget(), p_index->GetSample(SplitHead));
                     float_t newHeadDist_1 = p_index->ComputeDistance(headCandidates.GetTarget(), p_index->GetSample(newHeads[0]));
@@ -308,11 +310,11 @@ namespace SPTAG::SPANN {
             return assumptionBrokenNum;
         }
 
-        int QuantifySplitCaseA(std::vector<SizeType>& newHeads, std::vector<std::string>& postingLists, SizeType SplitHead, int split_order, std::set<int>& brokenID)
+        int QuantifySplitCaseA(VectorIndex* p_index, std::vector<SizeType>& newHeads, std::vector<std::string>& postingLists, SizeType SplitHead, int split_order, std::set<int>& brokenID)
         {
             int assumptionBrokenNum = 0;
-            assumptionBrokenNum += QuantifyAssumptionBroken(newHeads[0], postingLists[0], SplitHead, newHeads, brokenID);
-            assumptionBrokenNum += QuantifyAssumptionBroken(newHeads[1], postingLists[1], SplitHead, newHeads, brokenID);
+            assumptionBrokenNum += QuantifyAssumptionBroken(p_index, newHeads[0], postingLists[0], SplitHead, newHeads, brokenID);
+            assumptionBrokenNum += QuantifyAssumptionBroken(p_index, newHeads[1], postingLists[1], SplitHead, newHeads, brokenID);
             int vectorNum = (postingLists[0].size() + postingLists[1].size()) / m_vectorInfoSize;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "After Split%d, Top0 nearby posting lists, caseA : %d/%d\n", split_order, assumptionBrokenNum, vectorNum);
             return assumptionBrokenNum;
@@ -347,20 +349,20 @@ namespace SPTAG::SPANN {
                 if (queryResults[i].VID == newHeads[0] || queryResults[i].VID == newHeads[1]) continue;
                 db->Get(queryResults[i].VID, &postingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests));
                 vectorNum += postingList.size() / m_vectorInfoSize;
-                int tempNum = QuantifyAssumptionBroken(queryResults[i].VID, postingList, SplitHead, newHeads, brokenID, i, queryResults[i].Dist / queryResults[1].Dist);
+                int tempNum = QuantifyAssumptionBroken(p_index, queryResults[i].VID, postingList, SplitHead, newHeads, brokenID, i, queryResults[i].Dist / queryResults[1].Dist);
                 assumptionBrokenNum += tempNum;
                 if (tempNum != 0) containedHead++;
             }
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "After Split%d, Top%d nearby posting lists, caseB : %d in %d/%d\n", split_order, i, assumptionBrokenNum, containedHead, vectorNum);
         }
 
-        void QuantifySplit(ExtraWorkSpace* p_exWorkSpace, SizeType headID, std::vector<std::string>& postingLists, std::vector<SizeType>& newHeads, SizeType SplitHead, int split_order)
+        void QuantifySplit(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, SizeType headID, std::vector<std::string>& postingLists, std::vector<SizeType>& newHeads, SizeType SplitHead, int split_order)
         {
             std::set<int> brokenID;
             brokenID.clear();
             // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Split Quantify: %d, head1:%d, head2:%d\n", split_order, newHeads[0], newHeads[1]);
-            int assumptionBrokenNum = QuantifySplitCaseA(newHeads, postingLists, SplitHead, split_order, brokenID);
-            QuantifySplitCaseB(p_exWorkSpace, headID, newHeads, SplitHead, split_order, assumptionBrokenNum, brokenID);
+            int assumptionBrokenNum = QuantifySplitCaseA(p_index, newHeads, postingLists, SplitHead, split_order, brokenID);
+            QuantifySplitCaseB(p_exWorkSpace, p_index, headID, newHeads, SplitHead, split_order, assumptionBrokenNum, brokenID);
         }
 
         bool CheckIsNeedReassign(VectorIndex* p_index, std::vector<SizeType>& newHeads, ValueType* data, SizeType splitHead, float_t headToSplitHeadDist, float_t currentHeadDist, bool isInSplitHead, SizeType currentHead)
@@ -638,11 +640,11 @@ namespace SPTAG::SPANN {
                     else {
                         int begin, end = 0;
                         p_index->AddIndexId(args.centers + k * args._D, 1, m_opt->m_dim, begin, end);
-			            if (m_opt->m_excludehead){
+                        {
                             std::lock_guard<std::mutex> tmplock(m_runningLock);
                             m_vectorTranslateMap->AddBatch(1);
-                            *(m_vectorTranslateMap->At(begin)) = MaxSize;    
                         }
+                        *(m_vectorTranslateMap->At(begin)) = MaxSize;
                         newHeadVID = begin;
                         newHeadsID.push_back(begin);
                         auto splitPutBegin = std::chrono::high_resolution_clock::now();
@@ -742,7 +744,7 @@ namespace SPTAG::SPANN {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Merge Fail to write back postings\n");
                         exit(0);
                     }
-                    m_mergeList.erase(headID);
+                    m_mergeList.unsafe_erase(headID);
                     m_mergeLock.unlock();
                     return ErrorCode::Success;
                 }
@@ -756,8 +758,7 @@ namespace SPTAG::SPANN {
                 {
                     BasicResult* queryResult = queryResults.GetResult(i);
                     int nextLength = m_postingSizes.GetSize(queryResult->VID);
-                    tbb::concurrent_hash_map<SizeType, SizeType>::const_accessor headIDAccessor;
-                    if (currentLength + nextLength < m_postingSizeLimit && !m_mergeList.find(headIDAccessor, queryResult->VID))
+                    if (currentLength + nextLength < m_postingSizeLimit && m_mergeList.find(queryResult->VID) == m_mergeList.end())
                     {
                         {
                             std::unique_lock<std::shared_timed_mutex> anotherLock(m_rwLocks[queryResult->VID], std::defer_lock);
@@ -842,7 +843,7 @@ namespace SPTAG::SPANN {
                             }
                         }
 
-                        m_mergeList.erase(headID);
+                        m_mergeList.unsafe_erase(headID);
                         m_stat.m_mergeNum++;
 
                         return ErrorCode::Success;
@@ -853,7 +854,7 @@ namespace SPTAG::SPANN {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Merge Fail to write back postings\n");
                     exit(0);
                 }
-                m_mergeList.erase(headID);
+                m_mergeList.unsafe_erase(headID);
                 m_mergeLock.unlock();
             }
             return ErrorCode::Success;
@@ -885,11 +886,10 @@ namespace SPTAG::SPANN {
 
         inline void MergeAsync(VectorIndex* p_index, SizeType headID, std::function<void()> p_callback = nullptr)
         {
-            tbb::concurrent_hash_map<SizeType, SizeType>::const_accessor headIDAccessor;
-            if (m_mergeList.find(headIDAccessor, headID)) {
+            if (m_mergeList.find(headID) != m_mergeList.end()) {
                 return;
             }
-            tbb::concurrent_hash_map<SizeType, SizeType>::value_type workPair(headID, headID);
+            Helper::Concurrent::ConcurrentMap<SizeType, SizeType>::value_type workPair(headID, headID);
             m_mergeList.insert(workPair);
 
             auto* curJob = new MergeAsyncJob(p_index, this, headID, m_opt->m_disableReassign, p_callback);
@@ -1147,7 +1147,7 @@ namespace SPTAG::SPANN {
         bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& p_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) override {
             m_versionMap = &p_versionMap;
             m_opt = &p_opt;
-	    m_vectorTranslateMap = &p_vectorTranslateMap;
+	        m_vectorTranslateMap = &p_vectorTranslateMap;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "DataBlockSize: %d, Capacity: %d\n", m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
             std::string versionmapPath = m_opt->m_indexDirectory + FolderSep + m_opt->m_deleteIDFile;
             std::string postingSizePath = m_opt->m_indexDirectory + FolderSep + m_opt->m_ssdInfoFile;
@@ -1638,19 +1638,7 @@ namespace SPTAG::SPANN {
 
             auto t3 = std::chrono::high_resolution_clock::now();
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Time to sort selections:%.2lf sec.\n", ((double)std::chrono::duration_cast<std::chrono::seconds>(t3 - t2).count()) + ((double)std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count()) / 1000);
-
-            if (m_opt->m_postingPageLimit > 0)
-            {
-                m_opt->m_postingPageLimit = max(m_opt->m_postingPageLimit, static_cast<int>((m_opt->m_postingVectorLimit * m_vectorInfoSize + PageSize - 1) / PageSize));
-                m_opt->m_searchPostingPageLimit = m_opt->m_postingPageLimit;
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Build index with posting page limit:%d\n", m_opt->m_postingPageLimit);
-                m_postingSizeLimit = static_cast<int>(m_opt->m_postingPageLimit * PageSize / m_vectorInfoSize);
-                m_bufferSizeLimit = static_cast<int>(m_opt->m_bufferLength * PageSize / m_vectorInfoSize);
-            }
-
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Posting size limit: %d\n", m_postingSizeLimit);
-
-
             {
                 std::vector<int> replicaCountDist(m_opt->m_replicaCount + 1, 0);
                 for (int i = 0; i < replicaCount.size(); ++i)
@@ -1960,7 +1948,7 @@ namespace SPTAG::SPANN {
 
         int m_mergeThreshold = 10;
 
-	COMMON::Dataset<std::uint64_t>* m_vectorTranslateMap;
+	    COMMON::Dataset<std::uint64_t>* m_vectorTranslateMap;
 
         std::shared_ptr<SPDKThreadPool> m_splitThreadPool;
         std::shared_ptr<SPDKThreadPool> m_reassignThreadPool;

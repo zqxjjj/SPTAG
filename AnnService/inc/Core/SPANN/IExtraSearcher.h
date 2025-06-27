@@ -196,22 +196,16 @@ namespace SPTAG {
                     m_blockIO = p_blockIO;
                     if (p_blockIO) {
                         int numPages = (p_maxPages >> PageSizeEx);
-#ifdef _MSC_VER
-                        m_processIocp.reset(p_internalResultNum * numPages);
-#endif
                         m_diskRequests.resize(p_internalResultNum * numPages);
 			            //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d*%d reqs\n", p_internalResultNum, numPages);
                         for (int pi = 0; pi < p_internalResultNum; pi++) {
                             for (int pg = 0; pg < numPages; pg++) {
                                 int rid = pi * numPages + pg;
                                 auto& req = m_diskRequests[rid];
-#ifdef _MSC_VER
-                                req.m_extension = m_processIocp.handle();
-#else
-                                req.m_extension = &m_processIocp;
-#endif
+
                                 req.m_buffer = (char*)(m_pageBuffers[pi].GetBuffer() + ((std::uint64_t)pg << PageSizeEx));
                                 req.m_status = m_spaceID;
+                                req.m_extension = &m_processIocp;
 #ifdef _MSC_VER
                                 memset(&(req.myres.m_col), 0, sizeof(OVERLAPPED));
                                 req.myres.m_col.m_data = (void*)(&req);
@@ -224,19 +218,14 @@ namespace SPTAG {
                         }
                     }
                     else {
-#ifdef _MSC_VER
-                        m_processIocp.reset(p_internalResultNum);
-#endif
                         m_diskRequests.resize(p_internalResultNum);
 			            //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "WorkSpace Init %d reqs\n", p_internalResultNum);
                         for (int pi = 0; pi < p_internalResultNum; pi++) {
                             auto& req = m_diskRequests[pi];
-#ifdef _MSC_VER
-                            req.m_extension = m_processIocp.handle();
-#else
-                            req.m_extension = &m_processIocp;
-#endif
+
                             req.m_buffer = (char*)(m_pageBuffers[pi].GetBuffer());
+                            req.m_status = m_spaceID;
+                            req.m_extension = &m_processIocp;
 #ifdef _MSC_VER
                             memset(&(req.myres.m_col), 0, sizeof(OVERLAPPED));
                             req.myres.m_col.m_data = (void*)(&req);
@@ -265,11 +254,7 @@ namespace SPTAG {
 
             COMMON::OptHashPosVector m_deduper;
 
-#ifdef _MSC_VER
             Helper::RequestQueue m_processIocp;
-#else
-            Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*> m_processIocp;
-#endif
 
             std::vector<Helper::PageBuffer<std::uint8_t>> m_pageBuffers;
 

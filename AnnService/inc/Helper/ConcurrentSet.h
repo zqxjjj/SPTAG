@@ -4,7 +4,6 @@
 #ifndef _SPTAG_HELPER_CONCURRENTSET_H_
 #define _SPTAG_HELPER_CONCURRENTSET_H_
 
-#define TBB
 #ifndef _MSC_VER
 #ifdef TBB
 #include <tbb/concurrent_unordered_map.h>
@@ -99,6 +98,19 @@ namespace SPTAG
                 {
                     std::unique_lock<std::shared_timed_mutex> lock(*m_lock);
                     return m_data[k];
+                }
+
+                size_t unsafe_erase(const K& k)
+                {
+                    std::unique_lock<std::shared_timed_mutex> lock(*m_lock);
+                    return m_data.erase(k);
+                }
+
+                template<class P>
+                std::pair<iterator, bool> insert(P&& v)
+                {
+                    std::unique_lock<std::shared_timed_mutex> lock(*m_lock);
+                    return m_data.insert(v);
                 }
 
             private:

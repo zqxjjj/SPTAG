@@ -65,8 +65,6 @@ namespace SPTAG
                 m_handle.Reset(::CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, NULL, 0));
             }
 
-            void reset(int capacity) {}
-
             void push(AsyncReadRequest* j) {
                 ::PostQueuedCompletionStatus(m_handle.GetHandle(),
                     0,
@@ -100,10 +98,6 @@ namespace SPTAG
                 if (FALSE == ret || nullptr == ol) return false;
                 j = reinterpret_cast<AsyncReadRequest*>(ol);
                 return true;
-            }
-
-            void* handle() {
-                return (void*)(this);
             }
 
         private:
@@ -147,10 +141,9 @@ namespace SPTAG
             }
 
             virtual bool ExpandFile(uint64_t expandSize) {
-                LARGE_INTEGER old_pos = { 0 }, new_pos = { 0 }, zero = { 0 };
+                LARGE_INTEGER new_pos = { 0 };
                 new_pos.QuadPart = m_currSize + expandSize;
-                if (!SetFilePointerEx(m_fileHandle.GetHandle(), zero, &old_pos, FILE_CURRENT) ||
-                    !SetFilePointerEx(m_fileHandle.GetHandle(), new_pos, NULL, FILE_END) ||
+                if (!SetFilePointerEx(m_fileHandle.GetHandle(), new_pos, NULL, FILE_BEGIN) ||
                     !SetEndOfFile(m_fileHandle.GetHandle())) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
                         "AsyncFileReader:[ExpandFile] fallocate failed at offset %lld for size %lld bytes\n",
@@ -525,51 +518,7 @@ namespace SPTAG
 #else
         extern struct timespec AIOTimeout;
 
-        class RequestQueue
-        {
-        public:
-
-            RequestQueue() :m_front(0), m_end(0), m_capacity(0) {}
-
-            ~RequestQueue() {}
-
-            void reset(int capacity) {
-                if (capacity > m_capacity) {
-                    m_capacity = capacity + 1;
-                    m_queue.reset(new AsyncReadRequest * [m_capacity]);
-                }
-            }
-
-            void push(AsyncReadRequest* j)
-            {
-                m_queue[m_end++] = j;
-                if (m_end == m_capacity) m_end = 0;
-            }
-
-            bool pop(AsyncReadRequest*& j)
-            {
-                while (m_front == m_end) usleep(AIOTimeout.tv_nsec / 1000);
-                j = m_queue[m_front++];
-                if (m_front == m_capacity) m_front = 0;
-                return true;
-            }
-
-            bool try_pop(AsyncReadRequest*& j) {
-                if (m_front == m_end) return false;
-                j = m_queue[m_front++];
-                if (m_front == m_capacity) m_front = 0;
-                return true;
-            }
-
-            void* handle() 
-            {
-                return (void*)(this);
-            }
-
-        protected:
-            int m_front, m_end, m_capacity;
-            std::unique_ptr<AsyncReadRequest* []> m_queue;
-        };
+        using RequestQueue = Helper::Concurrent::ConcurrentQueue<Helper::AsyncReadRequest*>;
 
         class AsyncFileIO : public DiskIO
         {

@@ -25,8 +25,8 @@ namespace SPTAG::SPANN {
             char m_filePath[1024];
             std::shared_ptr <Helper::DiskIO> m_fileHandle = nullptr;
 
-            tbb::concurrent_queue<AddressType> m_blockAddresses;
-            tbb::concurrent_queue<AddressType> m_blockAddresses_reserve;
+            Helper::Concurrent::ConcurrentQueue<AddressType> m_blockAddresses;
+            Helper::Concurrent::ConcurrentQueue<AddressType> m_blockAddresses_reserve;
 
 	        std::atomic<int64_t> read_complete_vec = 0;
 	        std::atomic<int64_t> read_submit_vec = 0;
@@ -1025,9 +1025,9 @@ namespace SPTAG::SPANN {
         static constexpr const char* kFileIoCacheShards = "SPFRESH_FILE_IO_CACHE_SHARDS";
         static constexpr int kSsdFileIoDefaultCacheShards = 4;
 
-	std::atomic<uint64_t> read_time_vec = 0;
-	std::atomic<uint64_t> get_time_vec = 0;
-	std::atomic<uint64_t> get_times_vec = 0;
+	    std::atomic<uint64_t> read_time_vec = 0;
+	    std::atomic<uint64_t> get_time_vec = 0;
+	    std::atomic<uint64_t> get_times_vec = 0;
 
         bool m_fileIoUseLock = kFileIoDefaultUseLock;
         int m_fileIoLockSize = kFileIoDefaultLockSize;
@@ -1036,7 +1036,7 @@ namespace SPTAG::SPANN {
         SizeType m_blockLimit;
         COMMON::Dataset<uintptr_t> m_pBlockMapping;
         SizeType m_bufferLimit;
-        tbb::concurrent_queue<uintptr_t> m_buffer;
+        Helper::Concurrent::ConcurrentQueue<uintptr_t> m_buffer;
 
         std::shared_ptr<Helper::ThreadPool> m_compactionThreadPool;
         BlockController m_pBlockController;

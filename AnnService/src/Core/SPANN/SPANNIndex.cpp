@@ -113,7 +113,7 @@ namespace SPTAG
             }
 
             if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index)) return ErrorCode::Fail;
-
+            
             m_vectorTranslateMap.Initialize(m_index->GetNumSamples(), 1, m_index->m_iDataBlockSize, m_index->m_iDataCapacity, p_indexBlobs.back().Data(), false);
 
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
@@ -153,10 +153,8 @@ namespace SPTAG
             m_index->UpdateIndex();
             m_index->SetReady(true);
          
-            if (m_options.m_excludehead) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
-                m_vectorTranslateMap.Load(p_indexStreams[m_index->GetIndexFiles()->size()], m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
-            }
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading headID map\n");
+            m_vectorTranslateMap.Load(p_indexStreams[m_index->GetIndexFiles()->size()], m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
 
 	        std::string kvpath = m_options.m_indexDirectory + FolderSep + m_options.m_KVFile;
 	        std::string ssdmappingpath = m_options.m_indexDirectory + FolderSep + m_options.m_ssdMappingFile;
@@ -244,12 +242,12 @@ namespace SPTAG
         template<typename T>
         ErrorCode Index<T>::SaveIndexData(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams)
         {
-            if (m_index == nullptr || m_vectorTranslateMap.R() == 0) return ErrorCode::EmptyIndex;
+            if (m_index == nullptr || m_versionMap.Count() == 0) return ErrorCode::EmptyIndex;
             
             ErrorCode ret;
             if ((ret = m_index->SaveIndexData(p_indexStreams)) != ErrorCode::Success) return ret;
 
-	    m_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()]);
+	        m_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()]);
             
             m_extraSearcher->Checkpoint(m_options.m_indexDirectory);
             return ErrorCode::Success;
@@ -571,8 +569,8 @@ namespace SPTAG
                 auto res = newResults.GetResult(i);
                 if (res->VID == -1) break;
 
-		auto global_VID = -1;
-		if (m_vectorTranslateMap.R() != 0) global_VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
+		    auto global_VID = -1;
+		    if (m_vectorTranslateMap.R() != 0) global_VID = static_cast<SizeType>(*(m_vectorTranslateMap[res->VID]));
                 if (truth && truth->count(global_VID)) (*found)[res->VID].insert(global_VID);
                 res->VID = global_VID;
             }
@@ -1008,6 +1006,7 @@ namespace SPTAG
                 m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
                 m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
                 m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
+
                 m_index->UpdateIndex();
 
                 if (m_pQuantizer || (m_options.m_storage == Storage::STATIC)) {
@@ -1067,7 +1066,7 @@ namespace SPTAG
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n", (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
                         return ErrorCode::Fail;
                     }
-		    m_vectorTranslateMap.Load(ptr, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
+		            m_vectorTranslateMap.Load(ptr, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
                     if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign) {
                         m_extraSearcher->RefineIndex(p_reader, m_index);
                     }

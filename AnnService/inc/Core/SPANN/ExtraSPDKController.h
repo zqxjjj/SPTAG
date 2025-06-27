@@ -469,9 +469,8 @@ namespace SPTAG::SPANN
         SizeType m_blockLimit;
         COMMON::Dataset<uintptr_t> m_pBlockMapping;
         SizeType m_bufferLimit;
-        tbb::concurrent_queue<uintptr_t> m_buffer;
+        Helper::Concurrent::ConcurrentQueue<uintptr_t> m_buffer;
         
-        //tbb::concurrent_hash_map<SizeType, std::string> *m_pCurrentCache, *m_pNextCache;
         std::shared_ptr<Helper::ThreadPool> m_compactionThreadPool;
         BlockController m_pBlockController;
 
