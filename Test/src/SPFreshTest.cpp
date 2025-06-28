@@ -112,7 +112,6 @@ namespace SPFreshTest {
         std::shared_ptr<VectorSet>& queryset,
         int k)
     {
-        auto* p_index = static_cast<SPTAG::SPANN::Index<T>*>(vecIndex.get());
         std::vector<QueryResult> res(queryset->Count(), QueryResult(nullptr, k, true));
 
         auto t1 = std::chrono::high_resolution_clock::now();
@@ -210,13 +209,11 @@ namespace SPFreshTest {
                         {
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / step);
                         }
-                        auto insertBegin = std::chrono::high_resolution_clock::now();
                         ByteArray p_meta = metaset->GetMetadata((SizeType)index);
                         std::uint64_t* offsets = new std::uint64_t[2]{ 0,  p_meta.Length() };
                         std::shared_ptr<SPTAG::MetadataSet> meta(new SPTAG::MemMetadataSet(p_meta, ByteArray((std::uint8_t*)offsets, 2 * sizeof(std::uint64_t), true), 1));
                         auto status = p_index->AddIndex(addset->GetVector((SizeType)index), 1, p_opts.m_dim, meta, true);
                         BOOST_REQUIRE(status == ErrorCode::Success);
-                        auto insertEnd = std::chrono::high_resolution_clock::now();
                     }
                     else
                     {
@@ -663,8 +660,6 @@ BOOST_AUTO_TEST_CASE(IndexSaveDuringQuery)
     auto index = BuildIndex<int8_t>("save_during_query_index", vecset, metaset);
     BOOST_REQUIRE(index != nullptr);
 
-    auto* spannIndex = static_cast<SPTAG::SPANN::Index<int8_t>*>(index.get());
-
     std::atomic<bool> keepQuerying(true);
     std::thread queryThread([&]() {
         while (keepQuerying) {
@@ -734,7 +729,6 @@ BOOST_AUTO_TEST_CASE(IndexMultiThreadedQuerySanity)
 
     for (int t = 0; t < threadCount; ++t) {
         threads.emplace_back([&, t]() {
-            auto* p_index = static_cast<SPTAG::SPANN::Index<int8_t>*>(loaded.get());
             QueryResult result(nullptr, K, true);
             while (true) {
                 int i = nextQuery.fetch_add(1);
@@ -788,7 +782,6 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
         BOOST_REQUIRE(loaded != nullptr);
 
         // Query check
-        auto* index = static_cast<SPTAG::SPANN::Index<int8_t>*>(loaded.get());
         for (int i = 0; i < std::min<SizeType>(queryset->Count(), 5); ++i) {
             QueryResult result(queryset->GetVector(i), K, true);
             loaded->SearchIndex(result);
@@ -883,7 +876,7 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
     int ri = 0;
     float current = INT_MAX, previous = INT_MAX;
     bool relaxMono = false;
-    while  (current <= previous) {
+    while  (!relaxMono) {
         auto results = resultIterator->Next(batch);
         int resultCount = results->GetResultNum();
         if (resultCount <= 0) break;

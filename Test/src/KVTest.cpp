@@ -51,6 +51,10 @@ void Test(std::string path, std::string type, bool debug = false)
     int mergeIters = 3;
     std::shared_ptr<Helper::KeyValueIO> db;
     SPTAG::SPANN::ExtraWorkSpace workspace;
+    SPTAG::SPANN::Options opt;
+    auto idx = path.find_last_of(FolderSep);
+    opt.m_indexDirectory = path.substr(0, idx);
+    opt.m_ssdMappingFile = path.substr(idx + 1);
     workspace.Initialize(4096, 2, internalResultNum, 4*PageSize, true, false);
 
     if (type == "RocksDB") {
@@ -64,13 +68,15 @@ void Test(std::string path, std::string type, bool debug = false)
 #endif
     } else if (type == "SPDK") {
 #ifdef SPDK
-        db.reset(new SPDKIO(path.c_str(), 1024 * 1024, MaxSize, 64));
+        db.reset(new SPDKIO(opt));
 #else
         {
             std::cerr << "SPDK is not supported in this build." << std::endl;
             return;
         }
 #endif
+    } else {
+        db.reset(new FileIO(opt));
     }
 
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -110,12 +116,21 @@ BOOST_AUTO_TEST_SUITE(KVTest)
 
 BOOST_AUTO_TEST_CASE(RocksDBTest)
 {
-    Test("tmp_rocksdb", "RocksDB", true);
+    if(!direxists("tmp_rocksdb")) mkdir("tmp_rocksdb");
+    Test(std::string("tmp_rocksdb") + FolderSep + "test", "RocksDB", false);
 }
 
 BOOST_AUTO_TEST_CASE(SPDKTest)
 {
-    Test("tmp_spdk", "SPDK", true);
+    if(!direxists("tmp_spdk")) mkdir("tmp_spdk");
+    Test(std::string("tmp_spdk") + FolderSep + "test", "SPDK", false);
 }
+
+BOOST_AUTO_TEST_CASE(FileTest)
+{
+    if(!direxists("tmp_file")) mkdir("tmp_file");
+    Test(std::string("tmp_file") + FolderSep + "test", "File", false);
+}
+
 
 BOOST_AUTO_TEST_SUITE_END()
