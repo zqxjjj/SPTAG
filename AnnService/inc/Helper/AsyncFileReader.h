@@ -15,6 +15,18 @@
 #include <thread>
 #include <stdint.h>
 
+#ifdef _MSC_VER
+#include <tchar.h>
+#include <Windows.h>
+#else
+#include <fcntl.h>
+#include <sys/syscall.h>
+#include <linux/aio_abi.h>
+#ifdef NUMA
+#include <numa.h>
+#endif
+#endif
+
 #define ASYNC_READ 1
 #define BATCH_READ 1
 
@@ -22,6 +34,31 @@ namespace SPTAG
 {
     namespace Helper
     {
+        struct AsyncReadRequest
+        {
+            std::uint64_t m_offset;
+            std::uint64_t m_readSize;
+            char* m_buffer;
+            std::function<void(bool)> m_callback;
+            int m_status;
+
+            // Carry items like counter for callback to process.
+            void* m_payload;
+            bool m_success;
+
+            // Carry exension metadata needed by some DiskIO implementations
+            void* m_extension;
+            void* m_ctrl;
+
+#ifdef _MSC_VER
+            DiskUtils::PrioritizedDiskFileReaderResource myres;
+#else
+            struct iocb myiocb;
+#endif
+
+            AsyncReadRequest() : m_offset(0), m_readSize(0), m_buffer(nullptr), m_status(0), m_payload(nullptr), m_success(false), m_extension(nullptr) {}
+        };
+
         void SetThreadAffinity(int threadID, std::thread& thread, NumaStrategy socketStrategy = NumaStrategy::LOCAL, OrderStrategy idStrategy = OrderStrategy::ASC);
 #ifdef _MSC_VER
         class HandleWrapper
