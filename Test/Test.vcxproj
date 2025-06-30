@@ -176,34 +176,30 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
-    <Import Project="..\packages\boost.1.72.0.0\build\boost.targets" Condition="Exists('..\packages\boost.1.72.0.0\build\boost.targets')" />
-    <Import Project="..\packages\boost_date_time-vc142.1.72.0.0\build\boost_date_time-vc142.targets" Condition="Exists('..\packages\boost_date_time-vc142.1.72.0.0\build\boost_date_time-vc142.targets')" />
-    <Import Project="..\packages\boost_serialization-vc142.1.72.0.0\build\boost_serialization-vc142.targets" Condition="Exists('..\packages\boost_serialization-vc142.1.72.0.0\build\boost_serialization-vc142.targets')" />
-    <Import Project="..\packages\boost_system-vc142.1.72.0.0\build\boost_system-vc142.targets" Condition="Exists('..\packages\boost_system-vc142.1.72.0.0\build\boost_system-vc142.targets')" />
-    <Import Project="..\packages\boost_filesystem-vc142.1.72.0.0\build\boost_filesystem-vc142.targets" Condition="Exists('..\packages\boost_filesystem-vc142.1.72.0.0\build\boost_filesystem-vc142.targets')" />
-    <Import Project="..\packages\boost_thread-vc142.1.72.0.0\build\boost_thread-vc142.targets" Condition="Exists('..\packages\boost_thread-vc142.1.72.0.0\build\boost_thread-vc142.targets')" />
-    <Import Project="..\packages\boost_regex-vc142.1.72.0.0\build\boost_regex-vc142.targets" Condition="Exists('..\packages\boost_regex-vc142.1.72.0.0\build\boost_regex-vc142.targets')" />
-    <Import Project="..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets" Condition="Exists('..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets')" />
-    <Import Project="..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets" Condition="Exists('..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets')" />
     <Import Project="..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets" Condition="Exists('..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets')" />
-    <Import Project="..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets" Condition="Exists('..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets')" />
-    <Import Project="..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets" Condition="Exists('..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets')" />
+    <Import Project="..\packages\boost.1.78.0\build\boost.targets" Condition="Exists('..\packages\boost.1.78.0\build\boost.targets')" />
+    <Import Project="..\packages\boost_filesystem-vc143.1.78.0\build\boost_filesystem-vc143.targets" Condition="Exists('..\packages\boost_filesystem-vc143.1.78.0\build\boost_filesystem-vc143.targets')" />
+    <Import Project="..\packages\boost_thread-vc143.1.78.0\build\boost_thread-vc143.targets" Condition="Exists('..\packages\boost_thread-vc143.1.78.0\build\boost_thread-vc143.targets')" />
+    <Import Project="..\packages\boost_regex-vc143.1.78.0\build\boost_regex-vc143.targets" Condition="Exists('..\packages\boost_regex-vc143.1.78.0\build\boost_regex-vc143.targets')" />
+    <Import Project="..\packages\boost_date_time-vc143.1.78.0\build\boost_date_time-vc143.targets" Condition="Exists('..\packages\boost_date_time-vc143.1.78.0\build\boost_date_time-vc143.targets')" />
+    <Import Project="..\packages\boost_system-vc143.1.78.0\build\boost_system-vc143.targets" Condition="Exists('..\packages\boost_system-vc143.1.78.0\build\boost_system-vc143.targets')" />
+    <Import Project="..\packages\boost_serialization-vc143.1.78.0\build\boost_serialization-vc143.targets" Condition="Exists('..\packages\boost_serialization-vc143.1.78.0\build\boost_serialization-vc143.targets')" />
+    <Import Project="..\packages\boost_wserialization-vc143.1.78.0\build\boost_wserialization-vc143.targets" Condition="Exists('..\packages\boost_wserialization-vc143.1.78.0\build\boost_wserialization-vc143.targets')" />
+    <Import Project="..\packages\boost_unit_test_framework-vc143.1.78.0\build\boost_unit_test_framework-vc143.targets" Condition="Exists('..\packages\boost_unit_test_framework-vc143.1.78.0\build\boost_unit_test_framework-vc143.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
-    <Error Condition="!Exists('..\packages\boost.1.72.0.0\build\boost.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost.1.72.0.0\build\boost.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_date_time-vc142.1.72.0.0\build\boost_date_time-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_date_time-vc142.1.72.0.0\build\boost_date_time-vc142.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_serialization-vc142.1.72.0.0\build\boost_serialization-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_serialization-vc142.1.72.0.0\build\boost_serialization-vc142.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_system-vc142.1.72.0.0\build\boost_system-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_system-vc142.1.72.0.0\build\boost_system-vc142.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_filesystem-vc142.1.72.0.0\build\boost_filesystem-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_filesystem-vc142.1.72.0.0\build\boost_filesystem-vc142.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_thread-vc142.1.72.0.0\build\boost_thread-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_thread-vc142.1.72.0.0\build\boost_thread-vc142.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_regex-vc142.1.72.0.0\build\boost_regex-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_regex-vc142.1.72.0.0\build\boost_regex-vc142.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_wserialization-vc142.1.72.0.0\build\boost_wserialization-vc142.targets'))" />
-    <Error Condition="!Exists('..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_unit_test_framework-vc142.1.72.0.0\build\boost_unit_test_framework-vc142.targets'))" />
     <Error Condition="!Exists('..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Zstandard.dyn.x64.1.4.0\build\native\Zstandard.dyn.x64.targets'))" />
-    <Error Condition="!Exists('..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\inteltbb.redist.win.2022.1.0.426\build\native\inteltbb.redist.win.targets'))" />
-    <Error Condition="!Exists('..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\inteltbb.devel.win.2022.1.0.426\build\native\inteltbb.devel.win.targets'))" />
+    <Error Condition="!Exists('..\packages\boost.1.78.0\build\boost.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost.1.78.0\build\boost.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_filesystem-vc143.1.78.0\build\boost_filesystem-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_filesystem-vc143.1.78.0\build\boost_filesystem-vc143.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_thread-vc143.1.78.0\build\boost_thread-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_thread-vc143.1.78.0\build\boost_thread-vc143.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_regex-vc143.1.78.0\build\boost_regex-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_regex-vc143.1.78.0\build\boost_regex-vc143.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_date_time-vc143.1.78.0\build\boost_date_time-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_date_time-vc143.1.78.0\build\boost_date_time-vc143.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_system-vc143.1.78.0\build\boost_system-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_system-vc143.1.78.0\build\boost_system-vc143.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_serialization-vc143.1.78.0\build\boost_serialization-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_serialization-vc143.1.78.0\build\boost_serialization-vc143.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_wserialization-vc143.1.78.0\build\boost_wserialization-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_wserialization-vc143.1.78.0\build\boost_wserialization-vc143.targets'))" />
+    <Error Condition="!Exists('..\packages\boost_unit_test_framework-vc143.1.78.0\build\boost_unit_test_framework-vc143.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\boost_unit_test_framework-vc143.1.78.0\build\boost_unit_test_framework-vc143.targets'))" />
   </Target>
 </Project>

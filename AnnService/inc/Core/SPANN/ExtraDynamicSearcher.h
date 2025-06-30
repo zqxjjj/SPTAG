@@ -24,7 +24,6 @@
 #include <numeric>
 #include <utility>
 #include <random>
-#include <tbb/concurrent_hash_map.h>
 
 #ifdef SPDK
 #include "ExtraSPDKController.h"

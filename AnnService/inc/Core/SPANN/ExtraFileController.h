@@ -13,9 +13,6 @@
 #include <atomic>
 #include <mutex>
 #include <shared_mutex>
-#include <fcntl.h>
-#include <tbb/concurrent_queue.h>
-#include <tbb/concurrent_hash_map.h>
 #include <list>
 namespace SPTAG::SPANN {
     typedef std::int64_t AddressType;
