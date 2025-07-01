@@ -862,8 +862,7 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
     auto originalIndex = BuildIndex<float>("original_index", vecset, metaset);
     BOOST_REQUIRE(originalIndex != nullptr);
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
-    
-    SPANN::Index<float>* spannIndex = static_cast<SPANN::Index<float>*>(originalIndex.get());
+
     for (int iter = 0; iter < insertIterations; iter++) {
         std::string clone_path = "clone_index_" + std::to_string(iter);
         std::shared_ptr<SPTAG::VectorIndex> cloneIndex;
@@ -908,6 +907,7 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
             current /= resultCount;
         }
         resultIterator->Close();
+        loadedIndex = nullptr;
     }
     
     originalIndex = nullptr;
