@@ -704,11 +704,11 @@ namespace SPTAG
                     int totalSubmitted = 0, totalDone = 0;
                     for (int i = 0; i < totalToSubmit; i++) {
                         while (reqidx < requestCount && readRequests[reqidx].m_readSize == 0) reqidx++;
-			if (reqidx >= requestCount) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: error reqidx(%d) >= requestCount(%d)\n", reqidx, requestCount);
-			else {
+			            if (reqidx >= requestCount) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: error reqidx(%d) >= requestCount(%d)\n", reqidx, requestCount);
+			            else {
                             iocbs[i] = &(readRequests[reqidx].myiocb);
                             reqidx++;
-			}
+			            }
                     }
 
                     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: iocp:%d totalToSubmit:%d\n", iocp, totalToSubmit);
@@ -733,9 +733,9 @@ namespace SPTAG
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                         if (batchTotalDone < requestCount) {
-                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks (batch[%d:%d]) : timeout\n", currSubIoStartId, currSubIoEndId);
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "AsyncFileReader::ReadBlocks (batch[%d:%d]) : timeout, continue for next batch...\n", currSubIoStartId, currSubIoEndId);
                         }
-                        break;
+                        //break;
                     }
                 }
                 //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: finish\n");
@@ -800,9 +800,9 @@ namespace SPTAG
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                         if (batchTotalDone < requestCount) {
-                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks (batch[%d:%d]) : timeout\n", currSubIoStartId, currSubIoEndId);
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "AsyncFileReader::WriteBlocks (batch[%d:%d]) : timeout, continue for next batch...\n", currSubIoStartId, currSubIoEndId);
                         }
-                        break;
+                        //break;
                     }
                 }
                 //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: %d reqs finish\n", requestCount);

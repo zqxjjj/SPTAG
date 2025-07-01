@@ -853,8 +853,8 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
 {
     using namespace SPFreshTest;
 
-    constexpr int insertIterations = 4;
-    constexpr int insertBatchSize = 100;
+    constexpr int insertIterations = 5;
+    constexpr int insertBatchSize = 1000;
     constexpr int dimension = 1024;
     std::shared_ptr<SPTAG::VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
     std::shared_ptr<SPTAG::MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, 0);
@@ -865,34 +865,50 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
     
     SPANN::Index<float>* spannIndex = static_cast<SPANN::Index<float>*>(originalIndex.get());
     for (int iter = 0; iter < insertIterations; iter++) {
+        std::string clone_path = "clone_index_" + std::to_string(iter);
+        std::shared_ptr<SPTAG::VectorIndex> cloneIndex;
+        if (iter == 0) {
+            cloneIndex = VectorIndex::Clone("original_index", clone_path);
+        }
+        else {
+            cloneIndex = VectorIndex::Clone("clone_index_" + std::to_string(iter - 1), clone_path);
+        }
+        auto* cloneIndexPtr = static_cast<SPTAG::SPANN::Index<float>*>(cloneIndex.get());
         std::shared_ptr<SPTAG::VectorSet> tmpvecs = get_embeddings<float>((iter + 1) * insertBatchSize, (iter + 2) * insertBatchSize, dimension, -1);
         std::shared_ptr<SPTAG::MetadataSet> tmpmetas = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, (iter + 1) * insertBatchSize);
-        InsertVectors<float>(spannIndex, 1, insertBatchSize, tmpvecs, tmpmetas);
-    }
+        InsertVectors<float>(cloneIndexPtr, 1, insertBatchSize, tmpvecs, tmpmetas);
 
-    std::shared_ptr<SPTAG::VectorSet> embedding = get_embeddings<float>(150, 151, dimension, -1);
-    std::shared_ptr<ResultIterator> resultIterator = spannIndex->GetIterator(embedding->GetData(), false);
-    int batch = 100;
-    int ri = 0;
-    float current = INT_MAX, previous = INT_MAX;
-    bool relaxMono = false;
-    while  (!relaxMono) {
-        auto results = resultIterator->Next(batch);
-        int resultCount = results->GetResultNum();
-        if (resultCount <= 0) break;
-        BOOST_CHECK(resultCount == batch);
-        previous = current;
-        current = 0;
-        for (int j = 0; j < resultCount; j++) {
-            std::cout << "Result[" << ri << "] VID:" << results->GetResult(j)->VID << " Dist:" << results->GetResult(j)->Dist << " RelaxedMono:"
-                << results->GetResult(j)->RelaxedMono << " current:" << current << " previous:" << previous <<std::endl;
-	    relaxMono = results->GetResult(j)->RelaxedMono;
-            current += results->GetResult(j)->Dist;
-            ri++;
+        BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
+        cloneIndex = nullptr;
+
+        std::shared_ptr<VectorIndex> loadedIndex;
+        BOOST_REQUIRE(VectorIndex::LoadIndex(clone_path, loadedIndex) == ErrorCode::Success);
+        BOOST_REQUIRE(loadedIndex != nullptr);
+
+        std::shared_ptr<SPTAG::VectorSet> embedding = get_embeddings<float>((1000 * iter) + 500, ((1000 * iter) + 501), dimension, -1);
+        std::shared_ptr<ResultIterator> resultIterator = loadedIndex->GetIterator(embedding->GetData(), false);
+        int batch = 100;
+        int ri = 0;
+        float current = INT_MAX, previous = INT_MAX;
+        bool relaxMono = false;
+        while (!relaxMono) {
+            auto results = resultIterator->Next(batch);
+            int resultCount = results->GetResultNum();
+            if (resultCount <= 0) break;
+            BOOST_CHECK(resultCount == batch);
+            previous = current;
+            current = 0;
+            for (int j = 0; j < resultCount; j++) {
+                std::cout << "Result[" << ri << "] VID:" << results->GetResult(j)->VID << " Dist:" << results->GetResult(j)->Dist << " RelaxedMono:"
+                    << results->GetResult(j)->RelaxedMono << " current:" << current << " previous:" << previous << std::endl;
+                relaxMono = results->GetResult(j)->RelaxedMono;
+                current += results->GetResult(j)->Dist;
+                ri++;
+            }
+            current /= resultCount;
         }
-        current /= resultCount;
+        resultIterator->Close();
     }
-    resultIterator->Close();
     
     originalIndex = nullptr;
     std::filesystem::remove_all("original_index");
