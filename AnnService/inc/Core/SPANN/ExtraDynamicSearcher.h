@@ -1016,9 +1016,14 @@ namespace SPTAG::SPANN {
             return true;
         }
 
-        void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace)
+        void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace, bool clear = false) override
         {
-            p_exWorkSpace->Initialize(m_opt->m_maxCheck, m_opt->m_hashExp, m_opt->m_searchInternalResultNum, max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit + 1) << PageSizeEx, true, m_opt->m_enableDataCompression);
+            if (clear) {
+                p_exWorkSpace->Clear(m_opt->m_searchInternalResultNum, (max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit) + m_opt->m_bufferLength) << PageSizeEx, true, m_opt->m_enableDataCompression);
+            }
+            else {
+                p_exWorkSpace->Initialize(m_opt->m_maxCheck, m_opt->m_hashExp, m_opt->m_searchInternalResultNum, (max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit) + m_opt->m_bufferLength) << PageSizeEx, true, m_opt->m_enableDataCompression);
+            }
         }
 
         ErrorCode Append(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, SizeType headID, int appendNum, std::string& appendPosting, int reassignThreshold = 0)

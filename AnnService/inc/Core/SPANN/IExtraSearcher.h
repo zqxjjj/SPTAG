@@ -317,6 +317,8 @@ namespace SPTAG {
                 std::shared_ptr<VectorIndex> p_index, 
                 Options& p_opt, COMMON::VersionLabel& p_versionMap, SizeType upperBound = -1) = 0;
 
+            virtual void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace, bool clear = false) = 0;
+
             virtual ErrorCode GetPostingDebug(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorIndex> p_index, SizeType vid, std::vector<SizeType>& VIDs, std::shared_ptr<VectorSet>& vecs) = 0;
             
             virtual void RefineIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader,

@@ -243,8 +243,8 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         AddressType dataIdx = 1;
         while (currOffset < postingSize) {
             if (dataIdx > numPages) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  block (%d) >= buffer page size (%d)\n", dataIdx - 1, numPages);
-                return false;
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "FileIO::BlockController::ReadBlocks:  block (%d) pos:%llu/%llu >= buffer page size (%d)\n", dataIdx - 1, currOffset, postingSize, numPages);
+                break;
             }
 
             if (reqcount >= reqs->size()) {

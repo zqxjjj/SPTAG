@@ -162,6 +162,16 @@ namespace SPTAG
             {
             }
 
+            void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace, bool clear = false) override
+            {
+                if (clear) {
+                    p_exWorkSpace->Clear(m_opt->m_searchInternalResultNum, max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit + 1) << PageSizeEx, false, m_opt->m_enableDataCompression);
+                }
+                else {
+                    p_exWorkSpace->Initialize(m_opt->m_maxCheck, m_opt->m_hashExp, m_opt->m_searchInternalResultNum, max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit + 1) << PageSizeEx, false, m_opt->m_enableDataCompression);
+                }
+            }
+
             virtual bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& p_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) {
                 m_extraFullGraphFile = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdIndex;
                 std::string curFile = m_extraFullGraphFile;
@@ -198,6 +208,7 @@ namespace SPTAG
                 } while (fileexists(curFile.c_str()));
                 m_oneContext = (m_indexFiles.size() == 1);
 
+                m_opt = &p_opt;
                 m_enableDeltaEncoding = p_opt.m_enableDeltaEncoding;
                 m_enablePostingListRearrange = p_opt.m_enablePostingListRearrange;
                 m_enableDataCompression = p_opt.m_enableDataCompression;
@@ -599,6 +610,7 @@ namespace SPTAG
                     return false;
                 }
 
+                m_opt = &p_opt;
                 int numThreads = p_opt.m_iSSDNumberOfThreads;
                 int candidateNum = p_opt.m_internalResultNum;
                 std::unordered_map<SizeType, SizeType> headVectorIDS;
@@ -1614,6 +1626,7 @@ namespace SPTAG
 
             std::vector<ListInfo> m_listInfos;
             bool m_oneContext;
+            Options* m_opt;
 
             std::vector<std::shared_ptr<Helper::DiskIO>> m_indexFiles;
             std::unique_ptr<Compressor> m_pCompressor;
@@ -1621,7 +1634,7 @@ namespace SPTAG
             bool m_enablePostingListRearrange;
             bool m_enableDataCompression;
             bool m_enableDictTraining;
-
+            
             void (ExtraStaticSearcher<ValueType>::*m_parsePosting)(uint64_t&, uint64_t&, int, int);
             void (ExtraStaticSearcher<ValueType>::*m_parseEncoding)(std::shared_ptr<VectorIndex>&, ListInfo*, ValueType*);
 
