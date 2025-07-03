@@ -268,6 +268,13 @@ void TestBuildSSDIndex(std::string configName,
 	config << "PostingPageLimit=" << 2 << std::endl;
 	config << "OutputEmptyReplicaID=" << p_outputEmptyReplicaID << std::endl;
 
+	config << "Storage=" << "FILEIO" << std::endl;
+	config << "Update=" << "true" << std::endl;
+	config << "StartFileSizeGB=" << 1 << std::endl;
+	config << "SsdInfoFile=" << p_ssdIndex + "_info" << std::endl;
+	config << "SsdMappingFile=" << p_ssdIndex + "_mapping" << std::endl;
+
+
 	config.close();
 	std::map<std::string, std::map<std::string, std::string>> my_map;
 	SPTAG::SSDServing::BootProgram(false, &my_map, configName.c_str());
@@ -327,6 +334,12 @@ void TestSearchSSDIndex(
 	config << "SearchPostingPageLimit=" << 2 << std::endl;
 	config << "QueryCountLimit=" << 10000 << std::endl;
 
+	config << "Storage=" << "FILEIO" << std::endl;
+	config << "Update=" << "true" << std::endl;
+	config << "StartFileSizeGB=" << 1 << std::endl;
+	config << "SsdInfoFile=" << p_ssdIndex + "_info" << std::endl;
+	config << "SsdMappingFile=" << p_ssdIndex + "_mapping" << std::endl;
+
 	config.close();
 	std::map<std::string, std::map<std::string, std::string>> my_map;
 	SPTAG::SSDServing::BootProgram(false, &my_map, configName.c_str());
@@ -335,6 +348,13 @@ void TestSearchSSDIndex(
 void RunFromMap() {
 	std::map<std::string, std::map<std::string, std::string>> myMap;
 	myMap["Base"]["IndexAlgoType"] = "KDT";
+	myMap["Base"]["Dim"] = "100";
+	myMap["BuildSSDIndex"]["Storage"] = "FILEIO";
+	myMap["BuildSSDIndex"]["Update"] = "true";
+	myMap["BuildSSDIndex"]["StartFileSizeGB"] = "1";
+	myMap["BuildSSDIndex"]["SsdInfoFile"] = "_info";
+	myMap["BuildSSDIndex"]["SsdMappingFile"] = "_mapping";
+
 	std::string dataFilePath = "sddtest/vectors_Int8_DEFAULT.bin";
 	std::string indexFilePath = "zbtest";
 	SPTAG::SSDServing::BootProgram(
@@ -352,6 +372,7 @@ void RunFromMap() {
 	config << "ValueType=" << "Int8" << std::endl;
 	config << "DistCalcMethod=" << "L2" << std::endl;
 	config << "IndexAlgoType=" << "KDT" << std::endl;
+	config << "Dim=" << 100 << std::endl;
 	config << "VectorPath=" << "sddtest/vectors_Int8_DEFAULT.bin"  << std::endl;
 	config << "QueryPath=" << "sddtest/vectors_Int8_DEFAULT.query" << std::endl;
 	config << "QueryType=" << "DEFAULT" << std::endl;

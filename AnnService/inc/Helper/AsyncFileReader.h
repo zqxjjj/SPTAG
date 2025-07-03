@@ -293,7 +293,7 @@ namespace SPTAG
 
                 if (!::ReadFile(m_fileHandle.GetHandle(),
                     readRequest.m_buffer,
-                    static_cast<DWORD>(PageSize),
+                    static_cast<DWORD>(ROUND_UP(readRequest.m_readSize, PageSize)),
                     nullptr,
                     &col) && GetLastError() != ERROR_IO_PENDING)
                 {
@@ -341,9 +341,9 @@ namespace SPTAG
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                         if (batchTotalDone < requestCount - skip) {
-                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks (batch[%u:%u]) : timeout\n", batchStart, currId);
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "AsyncFileReader::ReadBlocks (batch[%u:%u]) : timeout, continue for next batch...\n", batchStart, currId);
                         }
-                        break;
+                        //break;
                     }
                 }
                 //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: finish\n");
@@ -391,9 +391,9 @@ namespace SPTAG
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
                         if (batchTotalDone < requestCount) {
-                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks (batch[%u:%u]) : timeout\n", batchStart, currId);
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "AsyncFileReader::WriteBlocks (batch[%u:%u]) : timeout, continue for next batch...\n", batchStart, currId);
                         }
-                        break;
+                        //break;
                     }
                 }
                 //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: %d reqs finish\n", requestCount);
@@ -691,8 +691,7 @@ namespace SPTAG
                     myiocb->aio_lio_opcode = IOCB_CMD_PREAD;
                     myiocb->aio_fildes = m_fileHandle;
                     myiocb->aio_buf = (std::uint64_t)(readRequest->m_buffer);
-                    //myiocb->aio_nbytes = readRequest->m_readSize;
-                    myiocb->aio_nbytes = PageSize;
+                    myiocb->aio_nbytes = ROUND_UP(readRequest.m_readSize, PageSize);
                     myiocb->aio_offset = static_cast<std::int64_t>(readRequest->m_offset);
                     if (readRequest->m_readSize > 0) realCount++;
                 }

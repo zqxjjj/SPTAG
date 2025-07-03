@@ -13,11 +13,12 @@
 #include <iostream>
 #include <unordered_set>
 #include <ctime>
+#include <filesystem>
 
 using namespace SPTAG;
 
 template <typename T>
-void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& queryset, int k, std::shared_ptr<VectorSet>& truth)
+void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& vecset, std::shared_ptr<VectorSet>& queryset, int k, std::shared_ptr<VectorSet>& truth)
 {
     std::vector<SPTAG::COMMON::QueryResultSet<T>> res(queryset->Count(), SPTAG::COMMON::QueryResultSet<T>(nullptr, k * 2));
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -37,7 +38,7 @@ void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& 
         SizeType* nn = (SizeType*)(truth->GetVector(i));
         std::vector<bool> visited(2 * k, false);
         for (int j = 0; j < truthDimension; j++) {
-            float truthdist = vecIndex->ComputeDistance(res[i].GetQuantizedTarget(), vecIndex->GetSample(nn[j]));
+            float truthdist = vecIndex->ComputeDistance(res[i].GetQuantizedTarget(), vecset->GetVector(nn[j]));
             for (int l = 0; l < k*2; l++) {
                 if (visited[l]) continue;
 
@@ -47,11 +48,11 @@ void Search(std::shared_ptr<VectorIndex>& vecIndex, std::shared_ptr<VectorSet>& 
                     visited[l] = true;
                     break;
                 }
-                else if (fabs(res[i].GetResult(l)->Dist - truthdist) <= eps) {
-                    recall += 1.0;
-                    visited[l] = true;
-                    break;
-                }
+                //else if (fabs(res[i].GetResult(l)->Dist - truthdist) <= eps) {
+                //    recall += 1.0;
+                //    visited[l] = true;
+                //    break;
+                //}
             }
         }
     }
@@ -68,12 +69,39 @@ std::shared_ptr<VectorIndex> PerfBuild(IndexAlgoType algo, std::string distCalcM
     vecIndex->SetQuantizer(quantizer);
     BOOST_CHECK(nullptr != vecIndex);
 
-    if (algo == IndexAlgoType::KDT) vecIndex->SetParameter("KDTNumber", "2");
-    vecIndex->SetParameter("DistCalcMethod", distCalcMethod);
-    vecIndex->SetParameter("NumberOfThreads", "12");
-    vecIndex->SetParameter("RefineIterations", "3");
-    vecIndex->SetParameter("MaxCheck", "4096");
-    vecIndex->SetParameter("MaxCheckForRefineGraph", "8192");
+    if (algo != SPTAG::IndexAlgoType::SPANN) {
+        if (algo == IndexAlgoType::KDT) vecIndex->SetParameter("KDTNumber", "2");
+        vecIndex->SetParameter("DistCalcMethod", distCalcMethod);
+        vecIndex->SetParameter("NumberOfThreads", "16");
+        vecIndex->SetParameter("RefineIterations", "3");
+        vecIndex->SetParameter("MaxCheck", "4096");
+        vecIndex->SetParameter("MaxCheckForRefineGraph", "8192");
+    }
+    else {
+        vecIndex->SetParameter("IndexAlgoType", "BKT", "Base");
+        vecIndex->SetParameter("DistCalcMethod", distCalcMethod, "Base");
+
+        vecIndex->SetParameter("isExecute", "true", "SelectHead");
+        vecIndex->SetParameter("NumberOfThreads", "4", "SelectHead");
+        vecIndex->SetParameter("Ratio", "0.2", "SelectHead"); // vecIndex->SetParameter("Count", "200", "SelectHead");
+
+        vecIndex->SetParameter("isExecute", "true", "BuildHead");
+        vecIndex->SetParameter("RefineIterations", "3", "BuildHead");
+        vecIndex->SetParameter("MaxCheck", "4096");
+        vecIndex->SetParameter("MaxCheckForRefineGraph", "8192");
+        vecIndex->SetParameter("NumberOfThreads", "4", "BuildHead");
+
+        vecIndex->SetParameter("Storage", "FILEIO", "BuildSSDIndex");
+        vecIndex->SetParameter("Update", "true", "BuildSSDIndex");
+        vecIndex->SetParameter("StartFileSizeGB", "1", "BuildSSDIndex");
+        vecIndex->SetParameter("isExecute", "true", "BuildSSDIndex");
+        vecIndex->SetParameter("BuildSsdIndex", "true", "BuildSSDIndex");
+        vecIndex->SetParameter("NumberOfThreads", "4", "BuildSSDIndex");
+        vecIndex->SetParameter("PostingPageLimit", "12", "BuildSSDIndex");
+        vecIndex->SetParameter("SearchPostingPageLimit", "12", "BuildSSDIndex");
+        vecIndex->SetParameter("InternalResultNum", "64", "BuildSSDIndex");
+        vecIndex->SetParameter("SearchInternalResultNum", "64", "BuildSSDIndex");
+    }
 
     BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->BuildIndex(vec, meta, true));
     BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->SaveIndex(out));
@@ -165,7 +193,7 @@ void GenerateReconstructData(std::shared_ptr<VectorSet>& real_vecset, std::share
         if (ptr == nullptr || !ptr->Initialize(CODEBOOK_FILE.c_str(), std::ios::binary | std::ios::in)) {
             BOOST_ASSERT("Canot Open CODEBOOK_FILE to read!" == "Error");
         }
-        quantizer->LoadIQuantizer(ptr);
+        quantizer = SPTAG::COMMON::IQuantizer::LoadIQuantizer(ptr);
         BOOST_ASSERT(quantizer);
 
         std::shared_ptr<Helper::ReaderOptions> options(new Helper::ReaderOptions(GetEnumValueType<R>(), m, VectorFileType::DEFAULT));
@@ -272,17 +300,29 @@ void ReconstructTest(IndexAlgoType algo, DistCalcMethod distMethod)
     //LoadReconstructData<R>(real_vecset, rec_vecset, quan_vecset, metaset, queryset, truth, distMethod, 10);
     
     auto real_idx = PerfBuild<R>(algo, Helper::Convert::ConvertToString<DistCalcMethod>(distMethod), real_vecset, metaset, queryset, 10, truth, "real_idx", nullptr);
-    Search<R>(real_idx, queryset, 10, truth);
+    Search<R>(real_idx, real_vecset, queryset, 10, truth);
+    real_idx = nullptr;
+    std::filesystem::remove_all("SPANN");
+
     auto rec_idx = PerfBuild<R>(algo, Helper::Convert::ConvertToString<DistCalcMethod>(distMethod), rec_vecset, metaset, queryset, 10, truth, "rec_idx", nullptr);
-    Search<R>(rec_idx, queryset, 10, truth);
+    Search<R>(rec_idx, real_vecset, queryset, 10, truth);
+    rec_idx = nullptr;
+    std::filesystem::remove_all("SPANN");
+
     auto quan_idx = PerfBuild<std::uint8_t>(algo, Helper::Convert::ConvertToString<DistCalcMethod>(distMethod), quan_vecset, metaset, queryset, 10, truth, "quan_idx", quantizer);
 
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Test search with SDC");
-    Search<R>(quan_idx, queryset, 10, truth);
+    Search<R>(quan_idx, real_vecset, queryset, 10, truth);
     
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Test search with ADC");
     quan_idx->SetQuantizerADC(true);
-    Search<R>(quan_idx, queryset, 10, truth);
+    Search<R>(quan_idx, real_vecset, queryset, 10, truth);
+    quan_idx = nullptr;
+    std::filesystem::remove_all("SPANN");
+
+    std::filesystem::remove_all("real_idx");
+    std::filesystem::remove_all("rec_idx");
+    std::filesystem::remove_all("quan_idx");
 }
 
 
@@ -299,6 +339,13 @@ BOOST_AUTO_TEST_CASE(KDTReconstructTest)
 {
 
     ReconstructTest<float>(IndexAlgoType::KDT, DistCalcMethod::L2);
+
+}
+
+BOOST_AUTO_TEST_CASE(SPANNReconstructTest)
+{
+
+    ReconstructTest<float>(IndexAlgoType::SPANN, DistCalcMethod::L2);
 
 }
 

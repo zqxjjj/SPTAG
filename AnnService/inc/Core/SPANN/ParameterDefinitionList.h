@@ -138,7 +138,7 @@ DefineSSDParameter(m_onlySearchFinalBatch, bool, false, "OnlySearchFinalBatch")
 // Search multiple times for stable result
 DefineSSDParameter(m_searchTimes, int, 1, "SearchTimes")
 // Frontend search threadnum
-DefineSSDParameter(m_searchThreadNum, int, 16, "SearchThreadNum")
+DefineSSDParameter(m_searchThreadNum, int, 2, "SearchThreadNum")
 // Show tradeoff of latency and acurracy
 DefineSSDParameter(m_minInternalResultNum, int, -1, "MinInternalResultNum")
 DefineSSDParameter(m_stepInternalResultNum, int, -1, "StepInternalResultNum")

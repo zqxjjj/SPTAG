@@ -153,6 +153,7 @@ namespace SPTAG
 #endif
 
 #define ALIGN_ROUND(size) ((size) + 31) / 32 * 32
+#define ROUND_UP(size, val) (size + val - 1) / val * val
 
     typedef std::int32_t SizeType;
     typedef std::int32_t DimensionType;

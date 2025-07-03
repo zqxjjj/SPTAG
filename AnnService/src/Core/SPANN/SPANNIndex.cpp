@@ -100,7 +100,7 @@ namespace SPTAG
             m_index->UpdateIndex();
             m_index->SetReady(true);
 
-            if (m_pQuantizer || (m_options.m_storage == Storage::STATIC))
+            if (m_options.m_storage == Storage::STATIC)
             {
                 if (m_pQuantizer)
                     m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
@@ -109,7 +109,10 @@ namespace SPTAG
             }
             else
             {
-                m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
+                if (m_pQuantizer)
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<std::uint8_t>(m_options));
+                else
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
             }
 
             if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index)) return ErrorCode::Fail;
@@ -163,7 +166,7 @@ namespace SPTAG
                 ssdmappingpath = m_options.m_persistentBufferPath + FolderSep + m_options.m_ssdMappingFile;
             }
 
-            if (m_pQuantizer || (m_options.m_storage == Storage::STATIC))
+            if (m_options.m_storage == Storage::STATIC)
             {
                 if (m_pQuantizer)
                     m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
@@ -172,7 +175,10 @@ namespace SPTAG
             }
             else
             {
-                m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
+                if (m_pQuantizer)
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<std::uint8_t>(m_options));
+                else
+                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
             }
 
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
@@ -977,7 +983,7 @@ namespace SPTAG
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to build head index.\n");
                         return ErrorCode::Fail;
                     }
-                    m_index->SetQuantizerFileName(m_options.m_quantizerFilePath.substr(m_options.m_quantizerFilePath.find_last_of("/\\") + 1));
+                    if (!m_options.m_quantizerFilePath.empty()) m_index->SetQuantizerFileName(m_options.m_quantizerFilePath.substr(m_options.m_quantizerFilePath.find_last_of("/\\") + 1));
                     if (m_index->SaveIndex(m_options.m_indexDirectory + FolderSep + m_options.m_headIndexFolder) != ErrorCode::Success) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to save head index.\n");
                         return ErrorCode::Fail;
@@ -1009,16 +1015,19 @@ namespace SPTAG
 
                 m_index->UpdateIndex();
 
-                if (m_pQuantizer || (m_options.m_storage == Storage::STATIC)) {
-                    if (m_pQuantizer) {
+                if (m_options.m_storage == Storage::STATIC)
+                {
+                    if (m_pQuantizer)
                         m_extraSearcher.reset(new ExtraStaticSearcher<std::uint8_t>());
-                    }
-                    else {
+                    else
                         m_extraSearcher.reset(new ExtraStaticSearcher<T>());
-                    }
                 }
-                else {
-                    m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
+                else
+                {
+                    if (m_pQuantizer)
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<std::uint8_t>(m_options));
+                    else
+                        m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
                 }
 
                 if (m_options.m_buildSsdIndex) {

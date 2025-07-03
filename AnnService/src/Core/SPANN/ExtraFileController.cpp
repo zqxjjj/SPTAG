@@ -238,7 +238,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType*>& p_data
         }
 
         std::size_t postingSize = (std::size_t)p_data_i[0];
-        p_values[i].SetAvailableSize(postingSize);
+         p_values[i].SetAvailableSize(postingSize);
         AddressType currOffset = 0;
         AddressType dataIdx = 1;
         while (currOffset < postingSize) {
