@@ -691,7 +691,7 @@ namespace SPTAG
                     myiocb->aio_lio_opcode = IOCB_CMD_PREAD;
                     myiocb->aio_fildes = m_fileHandle;
                     myiocb->aio_buf = (std::uint64_t)(readRequest->m_buffer);
-                    myiocb->aio_nbytes = ROUND_UP(readRequest.m_readSize, PageSize);
+                    myiocb->aio_nbytes = PageSize;
                     myiocb->aio_offset = static_cast<std::int64_t>(readRequest->m_offset);
                     if (readRequest->m_readSize > 0) realCount++;
                 }
