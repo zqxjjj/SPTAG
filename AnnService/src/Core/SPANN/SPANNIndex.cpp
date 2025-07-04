@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "inc/Core/SPANN/ExtraDynamicSearcher.h"
-#include "inc/Core/SPANN/ExtraStaticSearcher.h"
 #include "inc/Core/SPANN/Index.h"
 #include "inc/Helper/VectorSetReaders/MemoryReader.h"
+#include "inc/Core/SPANN/ExtraDynamicSearcher.h"
+#include "inc/Core/SPANN/ExtraStaticSearcher.h"
 #include <chrono>
 #include <random>
 #include <shared_mutex>
