@@ -1,23 +1,25 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "inc/Helper/VectorSetReader.h"
-#include "inc/Core/VectorIndex.h"
 #include "inc/Core/Common.h"
+#include "inc/Core/VectorIndex.h"
 #include "inc/Helper/SimpleIniReader.h"
-#include <inc/Core/Common/DistanceUtils.h>
+#include "inc/Helper/VectorSetReader.h"
 #include "inc/Quantizer/Training.h"
+#include <inc/Core/Common/DistanceUtils.h>
 
 #include <memory>
 
 using namespace SPTAG;
 
-void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader>& vectorReader, std::shared_ptr<QuantizerOptions>& options, std::shared_ptr<SPTAG::COMMON::IQuantizer>& quantizer)
+void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader> &vectorReader,
+                     std::shared_ptr<QuantizerOptions> &options, std::shared_ptr<SPTAG::COMMON::IQuantizer> &quantizer)
 {
     std::shared_ptr<SPTAG::VectorSet> set;
-    for (int i = 0; (set = vectorReader->GetVectorSet(i, i + options->m_trainingSamples))->Count() > 0; i += options->m_trainingSamples)
+    for (int i = 0; (set = vectorReader->GetVectorSet(i, i + options->m_trainingSamples))->Count() > 0;
+         i += options->m_trainingSamples)
     {
-        if (i % (options->m_trainingSamples *10) == 0 || i % options->m_trainingSamples != 0)
+        if (i % (options->m_trainingSamples * 10) == 0 || i % options->m_trainingSamples != 0)
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving vector batch starting at %d\n", i);
         }
@@ -28,18 +30,20 @@ void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader>& vectorRead
             set->Normalize(options->m_threadNum);
         }
         ByteArray PQ_vector_array = ByteArray::Alloc(sizeof(std::uint8_t) * options->m_quantizedDim * set->Count());
-        quantized_vectors = std::make_shared<BasicVectorSet>(PQ_vector_array, VectorValueType::UInt8, options->m_quantizedDim, set->Count());
+        quantized_vectors = std::make_shared<BasicVectorSet>(PQ_vector_array, VectorValueType::UInt8,
+                                                             options->m_quantizedDim, set->Count());
 
 #pragma omp parallel for
         for (int i = 0; i < set->Count(); i++)
         {
-            quantizer->QuantizeVector(set->GetVector(i), (uint8_t*)quantized_vectors->GetVector(i));
+            quantizer->QuantizeVector(set->GetVector(i), (uint8_t *)quantized_vectors->GetVector(i));
         }
 
         ErrorCode code;
         if ((code = quantized_vectors->AppendSave(options->m_outputFile)) != ErrorCode::Success)
         {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to save quantized vectors, ErrorCode: %s.\n", SPTAG::Helper::Convert::ConvertToString(code).c_str());
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to save quantized vectors, ErrorCode: %s.\n",
+                         SPTAG::Helper::Convert::ConvertToString(code).c_str());
             exit(1);
         }
         if (!options->m_outputFullVecFile.empty())
@@ -55,7 +59,7 @@ void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader>& vectorRead
 #pragma omp parallel for
             for (int i = 0; i < set->Count(); i++)
             {
-                quantizer->ReconstructVector((uint8_t*)quantized_vectors->GetVector(i), set->GetVector(i));
+                quantizer->ReconstructVector((uint8_t *)quantized_vectors->GetVector(i), set->GetVector(i));
             }
             if (ErrorCode::Success != set->AppendSave(options->m_outputReconstructVecFile))
             {
@@ -66,9 +70,10 @@ void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader>& vectorRead
     }
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-    std::shared_ptr<QuantizerOptions> options = std::make_shared<QuantizerOptions>(10000, true, 0.0f, SPTAG::QuantizerType::None, std::string(), -1, std::string(), std::string());
+    std::shared_ptr<QuantizerOptions> options = std::make_shared<QuantizerOptions>(
+        10000, true, 0.0f, SPTAG::QuantizerType::None, std::string(), -1, std::string(), std::string());
 
     if (!options->Parse(argc - 1, argv + 1))
     {
@@ -82,14 +87,14 @@ int main(int argc, char* argv[])
     }
     switch (options->m_quantizerType)
     {
-    case QuantizerType::None:
-    {
+    case QuantizerType::None: {
         std::shared_ptr<SPTAG::VectorSet> set;
-        for (int i = 0; (set = vectorReader->GetVectorSet(i, i + options->m_trainingSamples))->Count() > 0; i += options-> m_trainingSamples)
+        for (int i = 0; (set = vectorReader->GetVectorSet(i, i + options->m_trainingSamples))->Count() > 0;
+             i += options->m_trainingSamples)
         {
             set->AppendSave(options->m_outputFile);
         }
-        
+
         if (!options->m_outputMetadataFile.empty() && !options->m_outputMetadataIndexFile.empty())
         {
             auto metadataSet = vectorReader->GetMetadataSet();
@@ -101,32 +106,39 @@ int main(int argc, char* argv[])
 
         break;
     }
-    case QuantizerType::PQQuantizer:
-    {
+    case QuantizerType::PQQuantizer: {
         std::shared_ptr<COMMON::IQuantizer> quantizer;
         auto fp_load = SPTAG::f_createIO();
-        if (fp_load == nullptr || !fp_load->Initialize(options->m_outputQuantizerFile.c_str(), std::ios::binary | std::ios::in))
+        if (fp_load == nullptr ||
+            !fp_load->Initialize(options->m_outputQuantizerFile.c_str(), std::ios::binary | std::ios::in))
         {
             auto set = vectorReader->GetVectorSet(0, options->m_trainingSamples);
             ByteArray PQ_vector_array = ByteArray::Alloc(sizeof(std::uint8_t) * options->m_quantizedDim * set->Count());
-            std::shared_ptr<VectorSet> quantized_vectors = std::make_shared<BasicVectorSet>(PQ_vector_array, VectorValueType::UInt8, options->m_quantizedDim, set->Count());
+            std::shared_ptr<VectorSet> quantized_vectors = std::make_shared<BasicVectorSet>(
+                PQ_vector_array, VectorValueType::UInt8, options->m_quantizedDim, set->Count());
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Quantizer Does not exist. Training a new one.\n");
 
             switch (options->m_inputValueType)
             {
-#define DefineVectorValueType(Name, Type) \
-                    case VectorValueType::Name: \
-                        quantizer.reset(new COMMON::PQQuantizer<Type>(options->m_quantizedDim, 256, (DimensionType)(options->m_dimension/options->m_quantizedDim), false, TrainPQQuantizer<Type>(options, set, quantized_vectors))); \
-                        break;
+#define DefineVectorValueType(Name, Type)                                                                              \
+    case VectorValueType::Name:                                                                                        \
+        quantizer.reset(new COMMON::PQQuantizer<Type>(                                                                 \
+            options->m_quantizedDim, 256, (DimensionType)(options->m_dimension / options->m_quantizedDim), false,      \
+            TrainPQQuantizer<Type>(options, set, quantized_vectors)));                                                 \
+        break;
 
 #include "inc/Core/DefinitionList.h"
 #undef DefineVectorValueType
 
-		    default:  { SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Undefined InputValue Type!\n"); exit(1); }
+            default: {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Undefined InputValue Type!\n");
+                exit(1);
+            }
             }
 
             auto ptr = SPTAG::f_createIO();
-            if (ptr != nullptr && ptr->Initialize(options->m_outputQuantizerFile.c_str(), std::ios::binary | std::ios::out))
+            if (ptr != nullptr &&
+                ptr->Initialize(options->m_outputQuantizerFile.c_str(), std::ios::binary | std::ios::out))
             {
                 if (ErrorCode::Success != quantizer->SaveQuantizer(ptr))
                 {
@@ -153,14 +165,14 @@ int main(int argc, char* argv[])
         {
             metadataSet->SaveMetadata(options->m_outputMetadataFile, options->m_outputMetadataIndexFile);
         }
-        
+
         break;
     }
-    case QuantizerType::OPQQuantizer:
-    {
+    case QuantizerType::OPQQuantizer: {
         std::shared_ptr<COMMON::IQuantizer> quantizer;
         auto fp_load = SPTAG::f_createIO();
-        if (fp_load == nullptr || !fp_load->Initialize(options->m_outputQuantizerFile.c_str(), std::ios::binary | std::ios::in))
+        if (fp_load == nullptr ||
+            !fp_load->Initialize(options->m_outputQuantizerFile.c_str(), std::ios::binary | std::ios::in))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Quantizer Does not exist. Not supported for OPQ.\n");
             exit(1);
@@ -178,7 +190,6 @@ int main(int argc, char* argv[])
 
         QuantizeAndSave(vectorReader, options, quantizer);
 
-
         auto metadataSet = vectorReader->GetMetadataSet();
         if (metadataSet)
         {
@@ -187,8 +198,7 @@ int main(int argc, char* argv[])
 
         break;
     }
-    default:
-    {
+    default: {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read quantizer type.\n");
         exit(1);
     }
