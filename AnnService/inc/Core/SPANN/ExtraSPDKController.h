@@ -201,6 +201,7 @@ namespace SPTAG::SPANN
             m_mappingPath = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile;
             m_blockLimit = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit) + p_opt.m_bufferLength + 1;
             m_bufferLimit = 1024;
+            m_shutdownCalled = true;
 
             if (p_opt.m_recovery) {
                 std::string recoverpath = p_opt.m_persistentBufferPath + FolderSep + p_opt.m_ssdMappingFile;
@@ -210,7 +211,7 @@ namespace SPTAG::SPANN
                 }
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot recover block mapping from %s!\n", recoverpath.c_str());
-                    exit(1);
+                    return;
                 }
             }
             else {
@@ -231,7 +232,7 @@ namespace SPTAG::SPANN
 
             if (!m_pBlockController.Initialize(p_opt)) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize SPDK!\n");
-                exit(0);
+                return;
             }
 
             m_shutdownCalled = false;
@@ -255,6 +256,11 @@ namespace SPTAG::SPANN
             }
             m_pBlockController.ShutDown();
             m_shutdownCalled = true;
+        }
+
+        bool Available() override
+        {
+            return !m_shutdownCalled;
         }
 
         inline uintptr_t& At(SizeType key) {

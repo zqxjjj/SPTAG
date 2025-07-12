@@ -65,7 +65,7 @@ AggregatorContext::AggregatorContext(const std::string &p_filePath) : m_initiali
         if (!inputStream.is_open())
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read file %s.\n", m_settings->m_centers.c_str());
-            exit(1);
+            return;
         }
 
         SizeType row;

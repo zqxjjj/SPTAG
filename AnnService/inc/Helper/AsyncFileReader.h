@@ -719,7 +719,7 @@ namespace SPTAG
                                 totalSubmitted += s;
                             } else {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_submit failed\n");
-				                exit(1);
+				                return batchTotalDone;
 			                } 
                         }
                         int wait = totalSubmitted - totalDone;
@@ -786,7 +786,7 @@ namespace SPTAG
                                 totalSubmitted += s;
                             } else {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks: io_submit failed\n");
-			                    exit(1);
+                                return batchTotalDone;
 			                }
                         }
                         int wait = totalSubmitted - totalDone;

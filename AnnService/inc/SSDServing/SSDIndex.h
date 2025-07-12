@@ -160,7 +160,7 @@ namespace SPTAG {
             }
 
             template <typename ValueType>
-            void Search(SPANN::Index<ValueType>* p_index)
+            ErrorCode Search(SPANN::Index<ValueType>* p_index)
             {
                 SPANN::Options& p_opts = *(p_index->GetOptions());
                 std::string outputFile = p_opts.m_searchResult;
@@ -180,16 +180,17 @@ namespace SPTAG {
                 int internalResultNum = p_opts.m_searchInternalResultNum;
                 int K = p_opts.m_resultNum;
                 int truthK = (p_opts.m_truthResultNum <= 0) ? K : p_opts.m_truthResultNum;
+                ErrorCode ret;
 
                 if (!warmupFile.empty())
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Start loading warmup query set...\n");
                     std::shared_ptr<Helper::ReaderOptions> queryOptions(new Helper::ReaderOptions(p_opts.m_valueType, p_opts.m_dim, p_opts.m_warmupType, p_opts.m_warmupDelimiter));
                     auto queryReader = Helper::VectorSetReader::CreateInstance(queryOptions);
-                    if (ErrorCode::Success != queryReader->LoadFile(p_opts.m_warmupPath))
+                    if (ErrorCode::Success != (ret = queryReader->LoadFile(p_opts.m_warmupPath)))
                     {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read query file.\n");
-                        exit(1);
+                        return ret;
                     }
                     auto warmupQuerySet = queryReader->GetVectorSet();
                     int warmupNumQueries = warmupQuerySet->Count();
@@ -210,10 +211,10 @@ namespace SPTAG {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Start loading QuerySet...\n");
                 std::shared_ptr<Helper::ReaderOptions> queryOptions(new Helper::ReaderOptions(p_opts.m_valueType, p_opts.m_dim, p_opts.m_queryType, p_opts.m_queryDelimiter));
                 auto queryReader = Helper::VectorSetReader::CreateInstance(queryOptions);
-                if (ErrorCode::Success != queryReader->LoadFile(p_opts.m_queryPath))
+                if (ErrorCode::Success != (ret = queryReader->LoadFile(p_opts.m_queryPath)))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read query file.\n");
-                    exit(1);
+                    return ret;
                 }
                 auto querySet = queryReader->GetVectorSet();
                 int numQueries = querySet->Count();
@@ -271,7 +272,7 @@ namespace SPTAG {
                     auto ptr = f_createIO();
                     if (ptr == nullptr || !ptr->Initialize(truthFile.c_str(), std::ios::in | std::ios::binary)) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed open truth file: %s\n", truthFile.c_str());
-                        exit(1);
+                        return ErrorCode::FailedOpenFile;
                     }
                     int originalK = truthK;
                     COMMON::TruthSet::LoadTruth(ptr, truth, numQueries, originalK, truthK, p_opts.m_truthType);
@@ -516,6 +517,7 @@ namespace SPTAG {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info,
                         "\t\tRNG rule loss: %f percent\n", buildRNGRule / lost * 100);
                 }
+                return ErrorCode::Success;
             }
 		}
 	}

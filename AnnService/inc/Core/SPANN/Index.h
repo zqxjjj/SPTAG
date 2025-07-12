@@ -286,8 +286,8 @@ namespace SPTAG
                     if (begin == 0) { return ErrorCode::EmptyIndex; }
 
                     if (m_versionMap.AddBatch(p_vectorNum) != ErrorCode::Success) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "MemoryOverFlow: VID: %d, Map Size:%d\n", begin, m_versionMap.BufferSize());
-                        exit(1);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "MemoryOverFlow: VID: %d, Map Size:%d\n", begin, m_versionMap.BufferSize());
+                        return ErrorCode::MemoryOverFlow;
                     }
                 }
                 for (int i = 0; i < p_vectorNum; i++) VID[i] = begin + i;

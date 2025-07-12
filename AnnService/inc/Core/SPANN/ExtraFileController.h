@@ -371,6 +371,7 @@ namespace SPTAG::SPANN {
             m_mappingPath = p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile;
             m_blockLimit = max(p_opt.m_postingPageLimit, p_opt.m_searchPostingPageLimit) + p_opt.m_bufferLength + 1;
             m_bufferLimit = 1024;
+            m_shutdownCalled = true;
 
             const char* fileIoUseLock = getenv(kFileIoUseLock);
             if(fileIoUseLock) {
@@ -422,7 +423,7 @@ namespace SPTAG::SPANN {
                 }
                 else {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot recover block mapping from %s!\n", recoverpath.c_str());
-                    exit(1);
+                    return;
                 }
             }
             else {
@@ -459,7 +460,7 @@ namespace SPTAG::SPANN {
 
             if (!m_pBlockController.Initialize(p_opt)) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Initialize FileIO!\n");
-                exit(0);
+                return;
             }
 
             m_shutdownCalled = false;
@@ -467,6 +468,11 @@ namespace SPTAG::SPANN {
 
         ~FileIO() {
             ShutDown();
+        }
+
+        bool Available() override
+        {
+            return !m_shutdownCalled;
         }
 
         void ShutDown() override {
@@ -507,7 +513,7 @@ namespace SPTAG::SPANN {
             else {
                 r = m_pBlockMapping.R();
             }
-            if (key >= r) return ErrorCode::Fail;
+            if (key >= r) return ErrorCode::Key_OverFlow;
 
             if (m_fileIoUseCache) {
                 auto size = ((AddressType*)At(key))[0];
@@ -697,7 +703,7 @@ namespace SPTAG::SPANN {
             int blocks = (int)(((value.size() + PageSize - 1) >> PageSizeEx));
             if (blocks >= m_blockLimit) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to put key:%d value:%lld since value too long!\n", key, value.size());
-                return ErrorCode::Fail;
+                return ErrorCode::Posting_OverFlow;
             }
             // Calculate whether more mapping blocks are needed
             if (m_fileIoUseLock) {
@@ -777,7 +783,7 @@ namespace SPTAG::SPANN {
         void PrintPostingDiff(std::string& p1, std::string& p2, const char* pos) {
             if (p1.size() != p2.size()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge %s: p1 and p2 have different sizes: before=%u after=%u\n", pos, p1.size(), p2.size());
-                exit(1);
+                return;
             }
             std::string diff = "";
             for (size_t i = 0; i < p1.size(); i+=4) {
@@ -787,7 +793,6 @@ namespace SPTAG::SPANN {
             }
             if (diff.size() != 0) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge %s: %s\n", pos, diff.c_str());
-                exit(1);
             }
         }
 
@@ -809,7 +814,7 @@ namespace SPTAG::SPANN {
                 if (m_fileIoUseLock) {
                     m_rwMutex[hash(key)].unlock();
                 }
-                return ErrorCode::Fail;
+                return ErrorCode::Key_OverFlow;
             }
             
             int64_t* postingSize = (int64_t*)At(key);
@@ -832,7 +837,7 @@ namespace SPTAG::SPANN {
                 if (m_fileIoUseLock) {
                     m_rwMutex[hash(key)].unlock();
                 }
-                return ErrorCode::Fail;
+                return ErrorCode::Posting_OverFlow;
             }
 
             //std::string before;
@@ -898,7 +903,7 @@ namespace SPTAG::SPANN {
             else {
                 r = m_pBlockMapping.R();
             }
-            if (key >= r) return ErrorCode::Fail;
+            if (key >= r) return ErrorCode::Key_OverFlow;
 
             if (m_fileIoUseCache) {
                 m_pShardedLRUCache->del(key);
@@ -909,7 +914,7 @@ namespace SPTAG::SPANN {
                 if (m_fileIoUseLock) {
                     m_rwMutex[hash(key)].unlock();
                 }
-                return ErrorCode::Fail;
+                return ErrorCode::Key_NotFound;
             }
 
             int blocks = ((*postingSize + PageSize - 1) >> PageSizeEx);

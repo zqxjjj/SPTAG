@@ -1398,9 +1398,9 @@ ErrorCode Index<T>::AddIndex(const void *p_data, SizeType p_vectorNum, Dimension
 
         if (m_versionMap.AddBatch(p_vectorNum) != ErrorCode::Success)
         {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "MemoryOverFlow: VID: %d, Map Size:%d\n", begin,
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "MemoryOverFlow: VID: %d, Map Size:%d\n", begin,
                          m_versionMap.BufferSize());
-            exit(1);
+            return ErrorCode::MemoryOverFlow;
         }
 
         if (m_pMetadata != nullptr)

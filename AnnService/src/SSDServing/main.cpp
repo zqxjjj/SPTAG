@@ -93,7 +93,7 @@ int BootProgram(bool forANNIndexTestTool, std::map<std::string, std::map<std::st
     std::shared_ptr<VectorIndex> index = VectorIndex::CreateInstance(IndexAlgoType::SPANN, valueType);
     if (!QuantizerFilePath.empty() && index->LoadQuantizer(QuantizerFilePath) != ErrorCode::Success)
     {
-        exit(1);
+        return -1;
     }
     if (index == nullptr)
     {
@@ -113,7 +113,7 @@ int BootProgram(bool forANNIndexTestTool, std::map<std::string, std::map<std::st
     if (index->BuildIndex() != ErrorCode::Success)
     {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to build index.\n");
-        exit(1);
+        return -1;
     }
 
     SPANN::Options *opts = nullptr;
@@ -130,7 +130,7 @@ int BootProgram(bool forANNIndexTestTool, std::map<std::string, std::map<std::st
     if (opts == nullptr)
     {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot get options.\n");
-        exit(1);
+        return -1;
     }
 
     if (opts->m_generateTruth)
@@ -148,7 +148,7 @@ int BootProgram(bool forANNIndexTestTool, std::map<std::string, std::map<std::st
         if (ErrorCode::Success != vectorReader->LoadFile(opts->m_vectorPath))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read vector file.\n");
-            exit(1);
+            return -1;
         }
         auto vectorSet = vectorReader->GetVectorSet();
 
@@ -158,7 +158,7 @@ int BootProgram(bool forANNIndexTestTool, std::map<std::string, std::map<std::st
         if (ErrorCode::Success != queryReader->LoadFile(opts->m_queryPath))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read query file.\n");
-            exit(1);
+            return -1;
         }
         auto querySet = queryReader->GetVectorSet();
         if (distCalcMethod == DistCalcMethod::Cosine && !index->m_pQuantizer)
@@ -184,7 +184,7 @@ int BootProgram(bool forANNIndexTestTool, std::map<std::string, std::map<std::st
 #define DefineVectorValueType(Name, Type)                                                                              \
     if (opts->m_valueType == VectorValueType::Name)                                                                    \
     {                                                                                                                  \
-        SSDIndex::Search((SPANN::Index<Type> *)(index.get()));                                                         \
+        if (ErrorCode::Success != SSDIndex::Search((SPANN::Index<Type> *)(index.get()))) return -1;                    \
     }
 
 #include "inc/Core/DefinitionList.h"
@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ssdserving configFilePath\n");
-        exit(-1);
+        return -1;
     }
 
     std::map<std::string, std::map<std::string, std::string>> my_map;

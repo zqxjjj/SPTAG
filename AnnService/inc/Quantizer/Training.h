@@ -64,7 +64,7 @@ std::unique_ptr<T[]> TrainPQQuantizer(std::shared_ptr<QuantizerOptions> options,
     SizeType numCentroids = 256;
     if (raw_vectors->Dimension() % options->m_quantizedDim != 0) {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Only n_codebooks that divide dimension are supported.\n");
-        exit(1);
+        return nullptr;
     }
     DimensionType subdim = raw_vectors->Dimension() / options->m_quantizedDim;
     auto codebooks = std::make_unique<T[]>(numCentroids * raw_vectors->Dimension());

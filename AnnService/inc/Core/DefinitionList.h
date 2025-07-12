@@ -82,6 +82,10 @@ DefineErrorCode(ReadIni_DuplicatedParam, 0x3003)
 DefineErrorCode(Socket_FailedResolveEndPoint, 0x4000)
 DefineErrorCode(Socket_FailedConnectToEndPoint, 0x4001)
 
+// 0x5000 ~ -0x5FFF Block File Status
+DefineErrorCode(Key_OverFlow, 0x5000) 
+DefineErrorCode(Key_NotFound, 0x5001) 
+DefineErrorCode(Posting_OverFlow, 0x5002)
 
 #endif // DefineErrorCode
 

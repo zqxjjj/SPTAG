@@ -1602,7 +1602,7 @@ namespace SPTAG
             void GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) override {
                 if (write) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Unsupport write\n");
-                    exit(1);
+                    return;
                 }
                 ListInfo* listInfo = &(m_listInfos[pid]);
                 size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
