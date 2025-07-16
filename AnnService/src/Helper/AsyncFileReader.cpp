@@ -64,7 +64,7 @@ struct timespec AIOTimeout
 {
     0, 30000
 };
-void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, AsyncReadRequest *readRequests, int num)
+bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, AsyncReadRequest *readRequests, int num)
 {
     std::vector<struct iocb> myiocbs(num);
     std::vector<std::vector<struct iocb *>> iocbs(handlers.size());
@@ -112,6 +112,7 @@ void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
                     {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "fid:%d channel %d, to submit:%d, submitted:%s\n", i,
                                      channel, iocbs[i].size() - submitted[i], strerror(-s));
+                        return false;
                     }
                 }
             }
@@ -135,8 +136,11 @@ void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
                 AsyncFileIO *handler = (AsyncFileIO *)(handlers[i].get());
                 auto d = syscall(__NR_io_getevents, handler->GetIOCP(channel), wait, wait, events.data() + totalDone,
                                  &AIOTimeout);
-                done[i] += d;
-                totalDone += d;
+                if (d > 0)
+                {
+                    done[i] += d;
+                    totalDone += d;
+                }
             }
         }
     }
@@ -149,6 +153,7 @@ void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
             req->m_callback(true);
         }
     }
+    return true;
 }
 #else
 ULONGLONG GetCpuMasks(WORD group, DWORD numCpus)
@@ -208,11 +213,12 @@ void SetThreadAffinity(int threadID, std::thread &thread, NumaStrategy socketStr
     YieldProcessor();
 }
 
-void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, AsyncReadRequest *readRequests, int num)
+bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, AsyncReadRequest *readRequests, int num)
 {
     if (handlers.size() == 1)
     {
-        handlers[0]->BatchReadFile(readRequests, num, MaxTimeout);
+        if (handlers[0]->BatchReadFile(readRequests, num, MaxTimeout) < num)
+            return false;
     }
     else
     {
@@ -224,15 +230,20 @@ void BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
             int fileid = (readRequest->m_status >> 16);
             if (fileid != currFileId)
             {
-                handlers[currFileId]->BatchReadFile(readRequests + currReqStart, i - currReqStart, MaxTimeout);
+                if (handlers[currFileId]->BatchReadFile(readRequests + currReqStart, i - currReqStart, MaxTimeout) <
+                    i - currReqStart)
+                    return false;
                 currFileId = fileid;
                 currReqStart = i;
             }
         }
         if (currReqStart < num)
         {
-            handlers[currFileId]->BatchReadFile(readRequests + currReqStart, num - currReqStart, MaxTimeout);
+            if (handlers[currFileId]->BatchReadFile(readRequests + currReqStart, num - currReqStart, MaxTimeout) <
+                num - currReqStart)
+                return false;
         }
+        return true;
     }
 }
 #endif

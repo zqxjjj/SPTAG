@@ -1383,9 +1383,17 @@ namespace SPTAG::SPANN {
             }
         }
 
-        virtual void SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace)
+        virtual ErrorCode SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace)
         {
-            db->MultiGet(p_exWorkSpace->m_postingIDs, p_exWorkSpace->m_pageBuffers, m_hardLatencyLimit, &(p_exWorkSpace->m_diskRequests));
+            int retry = 0;
+            ErrorCode ret = ErrorCode::Undefined;
+            while (retry < 2 && ret != ErrorCode::Success)
+            {
+                ret = db->MultiGet(p_exWorkSpace->m_postingIDs, p_exWorkSpace->m_pageBuffers, m_hardLatencyLimit,
+                                   &(p_exWorkSpace->m_diskRequests));
+                retry++;
+            }
+            return ret;
         }
 
         virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
@@ -1411,6 +1419,7 @@ namespace SPTAG::SPANN {
                     p_exWorkSpace->m_offset++;
 
                     int vectorID = *(reinterpret_cast<int*>(vectorInfo));
+                    if (vectorID >= m_versionMap->Count()) return false;
                     if (m_versionMap->Deleted(vectorID)) continue;
                     if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
 
@@ -1437,7 +1446,8 @@ namespace SPTAG::SPANN {
             std::shared_ptr<VectorIndex> p_index)
         {
             if (p_exWorkSpace->m_loadPosting) {
-                SearchIndexWithoutParsing(p_exWorkSpace);
+                if (SearchIndexWithoutParsing(p_exWorkSpace) != ErrorCode::Success)
+                    return false;
                 p_exWorkSpace->m_ri = 0;
                 p_exWorkSpace->m_pi = 0;
                 p_exWorkSpace->m_offset = 0;

@@ -381,7 +381,7 @@ namespace SPTAG
                 }
             }
 
-            virtual void SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace) override
+            virtual ErrorCode SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace) override
             {
                 const uint32_t postingListCount = static_cast<uint32_t>(p_exWorkSpace->m_postingIDs.size());
 
@@ -452,7 +452,7 @@ namespace SPTAG
                     auto numRead = indexFile->ReadBinary(totalBytes, buffer, listInfo->listOffset);
                     if (numRead != totalBytes) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "File %s read bytes, expected: %zu, acutal: %llu.\n", m_extraFullGraphFile.c_str(), totalBytes, numRead);
-                        throw std::runtime_error("File read mismatch");
+                        return ErrorCode::DiskIOFail;
                     }
                     // decompress posting list
                     /*
@@ -469,7 +469,13 @@ namespace SPTAG
 
 #ifdef ASYNC_READ
 #ifdef BATCH_READ
-                BatchReadFileAsync(m_indexFiles, (p_exWorkSpace->m_diskRequests).data(), postingListCount);
+                int retry = 0;
+                bool success = false;
+                while (retry < 2 && !success)
+                {
+                    success = BatchReadFileAsync(m_indexFiles, (p_exWorkSpace->m_diskRequests).data(), postingListCount);
+                    retry++;
+                }
 #else
                 while (unprocessed > 0)
                 {
@@ -492,6 +498,7 @@ namespace SPTAG
                 }
 #endif
 #endif
+                return (success)? ErrorCode::Success: ErrorCode::DiskIOFail;
             }
 
             virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
@@ -532,7 +539,8 @@ namespace SPTAG
 		        std::shared_ptr<VectorIndex> p_index) override
             {
                 if (p_exWorkSpace->m_loadPosting) {
-                    SearchIndexWithoutParsing(p_exWorkSpace);
+                    if (SearchIndexWithoutParsing(p_exWorkSpace) != ErrorCode::Success)
+                        return false;
                     p_exWorkSpace->m_ri = 0;
                     p_exWorkSpace->m_pi = 0;
                     p_exWorkSpace->m_offset = 0;
