@@ -439,11 +439,9 @@ int Index<T>::SearchIterative(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSp
                 tmpNode = m_pTrees[i].centerid;
                 if (notDeleted(m_deletedID, tmpNode))
                 {
-                    float distance2leaf =
-                        m_fComputeDistance(p_query.GetQuantizedTarget(), (m_pSamples)[tmpNode], GetFeatureDim());
                     if (!p_space.CheckAndSet(tmpNode))
                     {
-                        p_space.m_NGQueue.insert(NodeDistPair(tmpNode, distance2leaf));
+                        p_space.m_NGQueue.insert(NodeDistPair(tmpNode, gnode.distance));
                     }
                 }
                 i++;
@@ -640,7 +638,7 @@ bool Index<T>::SearchIndexIterativeFromNeareast(QueryResult &p_query, COMMON::Wo
     }
     else
     {
-        p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
+        //p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
         SearchIndexIterative(*((COMMON::QueryResultSet<T> *)&p_query), *p_space, p_isFirst, p_query.GetResultNum(),
                              p_searchDeleted, true);
     }
@@ -734,7 +732,7 @@ ErrorCode Index<T>::SearchIndexIterativeNext(QueryResult &p_query, COMMON::WorkS
 {
     if (!m_bReady)
         return ErrorCode::EmptyIndex;
-    workSpace->ResetResult(m_iMaxCheck, p_batch);
+    if (p_isFirst) workSpace->ResetResult(m_iMaxCheck, p_batch);
     resultCount = SearchIndexIterative(*((COMMON::QueryResultSet<T> *)&p_query), *workSpace, p_isFirst, p_batch,
                                        p_searchDeleted, true);
 
