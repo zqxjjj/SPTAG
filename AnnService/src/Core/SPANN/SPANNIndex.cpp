@@ -418,7 +418,9 @@ ErrorCode Index<T>::SearchIndexIterative(QueryResult &p_headQuery, QueryResult &
     resultCount = 0;
     while (continueSearch && resultCount < p_batch)
     {
-        bool found = SearchDiskIndexIterative(p_headQuery, p_query, p_extraWorkspace);
+        ErrorCode ret = SearchDiskIndexIterative(p_headQuery, p_query, p_extraWorkspace);
+        bool found = (ret == ErrorCode::Success);
+        if (!found && ret != ErrorCode::VectorNotFound) return ret;
         p_extraWorkspace->m_loadPosting = false;
         if (!found)
         {
@@ -582,7 +584,7 @@ template <typename T> ErrorCode Index<T>::SearchDiskIndex(QueryResult &p_query, 
 }
 
 template <typename T>
-bool Index<T>::SearchDiskIndexIterative(QueryResult &p_headQuery, QueryResult &p_query,
+ErrorCode Index<T>::SearchDiskIndexIterative(QueryResult &p_headQuery, QueryResult &p_query,
                                         ExtraWorkSpace *extraWorkspace) const
 {
     if (extraWorkspace->m_loadPosting)

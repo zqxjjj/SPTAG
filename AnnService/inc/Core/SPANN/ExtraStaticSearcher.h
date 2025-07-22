@@ -501,7 +501,7 @@ namespace SPTAG
                 return (success)? ErrorCode::Success: ErrorCode::DiskIOFail;
             }
 
-            virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+            virtual ErrorCode SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
 		        std::shared_ptr<VectorIndex>& p_index) override
             {
@@ -531,16 +531,16 @@ namespace SPTAG
                     head = headResults.GetResult(++p_exWorkSpace->m_ri);
                     foundResult = true;
                 }
-                return foundResult;
+                return (foundResult)? ErrorCode::Success : ErrorCode::VectorNotFound;
             }
 
-            virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+            virtual ErrorCode SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_query,
 		        std::shared_ptr<VectorIndex> p_index) override
             {
                 if (p_exWorkSpace->m_loadPosting) {
-                    if (SearchIndexWithoutParsing(p_exWorkSpace) != ErrorCode::Success)
-                        return false;
+                    ErrorCode ret = SearchIndexWithoutParsing(p_exWorkSpace);
+                    if (ret != ErrorCode::Success) return ret;
                     p_exWorkSpace->m_ri = 0;
                     p_exWorkSpace->m_pi = 0;
                     p_exWorkSpace->m_offset = 0;

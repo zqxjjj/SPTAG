@@ -26,6 +26,8 @@ public:
 	
 	virtual bool GetRelaxedMono();
 	
+	virtual SPTAG::ErrorCode GetErrorCode();
+
 	virtual void Close();
 
 	const void* GetTarget();

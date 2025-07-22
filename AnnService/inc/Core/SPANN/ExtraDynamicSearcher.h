@@ -1396,7 +1396,7 @@ namespace SPTAG::SPANN {
             return ret;
         }
 
-        virtual bool SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+        virtual ErrorCode SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
             QueryResult& p_queryResults,
             std::shared_ptr<VectorIndex>& p_index)
         {
@@ -1419,7 +1419,7 @@ namespace SPTAG::SPANN {
                     p_exWorkSpace->m_offset++;
 
                     int vectorID = *(reinterpret_cast<int*>(vectorInfo));
-                    if (vectorID >= m_versionMap->Count()) return false;
+                    if (vectorID >= m_versionMap->Count()) return ErrorCode::Key_OverFlow;
                     if (m_versionMap->Deleted(vectorID)) continue;
                     if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
 
@@ -1438,16 +1438,16 @@ namespace SPTAG::SPANN {
                     head = headResults.GetResult(++p_exWorkSpace->m_ri);
                     foundResult = true;
             }
-            return foundResult;
+            return (foundResult) ? ErrorCode::Success : ErrorCode::VectorNotFound;
         }
 
-        virtual bool SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
+        virtual ErrorCode SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
             QueryResult& p_query,
             std::shared_ptr<VectorIndex> p_index)
         {
             if (p_exWorkSpace->m_loadPosting) {
-                if (SearchIndexWithoutParsing(p_exWorkSpace) != ErrorCode::Success)
-                    return false;
+                ErrorCode ret = SearchIndexWithoutParsing(p_exWorkSpace);
+                if (ret != ErrorCode::Success) return ret;
                 p_exWorkSpace->m_ri = 0;
                 p_exWorkSpace->m_pi = 0;
                 p_exWorkSpace->m_offset = 0;

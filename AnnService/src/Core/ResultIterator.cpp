@@ -64,7 +64,12 @@ bool ResultIterator::GetRelaxedMono()
     return (((UniqueHandler *)m_workspace)->m_handler)->m_relaxedMono;
 }
 
-// Add end into destructor.
+SPTAG::ErrorCode ResultIterator::GetErrorCode()
+{
+    return SPTAG::ErrorCode::Success;
+}
+
+    // Add end into destructor.
 void ResultIterator::Close()
 {
     if (m_workspace != nullptr)
