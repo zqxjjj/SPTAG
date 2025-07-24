@@ -120,8 +120,8 @@ namespace SPTAG::SPANN
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPDK: saving block pool\n");
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Reload reserved blocks!\n");
                 AddressType currBlockAddress = 0;
-                for (int count = 0; count < m_blockAddresses_reserve.unsafe_size(); count++) {
-                    m_blockAddresses_reserve.try_pop(currBlockAddress);
+                while (m_blockAddresses_reserve.try_pop(currBlockAddress))
+                {
                     m_blockAddresses.push(currBlockAddress);
                 }
                 AddressType blocks = RemainBlocks();

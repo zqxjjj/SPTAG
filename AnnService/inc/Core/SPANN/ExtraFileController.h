@@ -90,10 +90,9 @@ namespace SPTAG::SPANN {
 
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO::BlockController::Checkpoint - Reload reserved blocks...\n");
                 AddressType currBlockAddress = 0;
-                for (int count = 0; count < m_blockAddresses_reserve.unsafe_size(); count++) {
-                    if (m_blockAddresses_reserve.try_pop(currBlockAddress)) {
-                        m_blockAddresses.push(currBlockAddress);
-                    }
+                while (m_blockAddresses_reserve.try_pop(currBlockAddress))
+                {
+                    m_blockAddresses.push(currBlockAddress);
                 }
                 AddressType blocks = RemainBlocks();
                 AddressType totalBlocks = m_totalAllocatedBlocks.load();
