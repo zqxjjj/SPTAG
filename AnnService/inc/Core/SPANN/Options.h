@@ -180,6 +180,7 @@ namespace SPTAG {
             int m_startFileSize;
             int m_growthFileSize;
             float m_growThreshold;
+            float m_fDeletePercentageForRefine;
 
             // Iterative
             int m_headBatch;

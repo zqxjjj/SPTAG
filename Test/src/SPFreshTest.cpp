@@ -91,10 +91,10 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
         )";
 
     std::shared_ptr<Helper::DiskIO> buffer(new Helper::SimpleBufferIO());
-    SPTAG::Helper::IniReader reader;
+    Helper::IniReader reader;
     if (!buffer->Initialize(configuration.data(), std::ios::in, configuration.size()))
         return nullptr;
-    if (SPTAG::ErrorCode::Success != reader.LoadIni(buffer))
+    if (ErrorCode::Success != reader.LoadIni(buffer))
         return nullptr;
 
     std::string sections[] = {"Base", "SelectHead", "BuildHead", "BuildSSDIndex"};
@@ -137,7 +137,7 @@ std::vector<QueryResult> SearchOnly(std::shared_ptr<VectorIndex> &vecIndex, std:
 template <typename T>
 float EvaluateRecall(const std::vector<QueryResult> &res, std::shared_ptr<VectorIndex> &vecIndex,
                      std::shared_ptr<VectorSet> &queryset, std::shared_ptr<VectorSet> &truth,
-                     std::shared_ptr<VectorSet> &baseVec, std::shared_ptr<VectorSet> &addVec, SizeType baseCount, int k)
+                     std::shared_ptr<VectorSet> &baseVec, std::shared_ptr<VectorSet> &addVec, SizeType baseCount, int k, int batch)
 {
     if (!truth)
     {
@@ -151,7 +151,7 @@ float EvaluateRecall(const std::vector<QueryResult> &res, std::shared_ptr<Vector
 
     for (SizeType i = 0; i < queryset->Count(); ++i)
     {
-        const SizeType *truthNN = reinterpret_cast<const SizeType *>(truth->GetVector(i));
+        const SizeType *truthNN = reinterpret_cast<const SizeType *>(truth->GetVector(i + batch * queryset->Count()));
         for (int j = 0; j < recallK; ++j)
         {
             SizeType truthVid = truthNN[j];
@@ -181,15 +181,15 @@ float EvaluateRecall(const std::vector<QueryResult> &res, std::shared_ptr<Vector
 template <typename T>
 float Search(std::shared_ptr<VectorIndex> &vecIndex, std::shared_ptr<VectorSet> &queryset,
              std::shared_ptr<VectorSet> &baseVec, std::shared_ptr<VectorSet> &addVec, int k,
-             std::shared_ptr<VectorSet> &truth, SizeType baseCount)
+             std::shared_ptr<VectorSet> &truth, SizeType baseCount, int batch = 0)
 {
     auto results = SearchOnly<T>(vecIndex, queryset, k);
-    return EvaluateRecall<T>(results, vecIndex, queryset, truth, baseVec, addVec, baseCount, k);
+    return EvaluateRecall<T>(results, vecIndex, queryset, truth, baseVec, addVec, baseCount, k, batch);
 }
 
 template <typename ValueType>
 void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step,
-                   std::shared_ptr<SPTAG::VectorSet> addset, std::shared_ptr<MetadataSet> &metaset)
+                   std::shared_ptr<VectorSet> addset, std::shared_ptr<MetadataSet> &metaset, int start = 0)
 {
     SPANN::Options &p_opts = *(p_index->GetOptions());
     p_index->ForceCompaction();
@@ -197,13 +197,13 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
 
     std::vector<std::thread> threads;
 
-    std::atomic_size_t vectorsSent(0);
+    std::atomic_size_t vectorsSent(start);
     auto func = [&]() {
-        size_t index = 0;
+        size_t index = start;
         while (true)
         {
             index = vectorsSent.fetch_add(1);
-            if (index < step)
+            if (index < start + step)
             {
                 if ((index & ((1 << 5) - 1)) == 0)
                 {
@@ -211,7 +211,7 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
                 }
                 ByteArray p_meta = metaset->GetMetadata((SizeType)index);
                 std::uint64_t *offsets = new std::uint64_t[2]{0, p_meta.Length()};
-                std::shared_ptr<SPTAG::MetadataSet> meta(new SPTAG::MemMetadataSet(
+                std::shared_ptr<MetadataSet> meta(new MemMetadataSet(
                     p_meta, ByteArray((std::uint8_t *)offsets, 2 * sizeof(std::uint64_t), true), 1));
                 auto status = p_index->AddIndex(addset->GetVector((SizeType)index), 1, p_opts.m_dim, meta, true);
                 BOOST_REQUIRE(status == ErrorCode::Success);
@@ -572,7 +572,7 @@ BOOST_AUTO_TEST_CASE(IndexPersistenceAndInsertSanity)
     BOOST_REQUIRE(loadedClone != nullptr);
 
     // Insert new vectors
-    InsertVectors<int8_t>(static_cast<SPTAG::SPANN::Index<int8_t> *>(loadedClone.get()), 1,
+    InsertVectors<int8_t>(static_cast<SPANN::Index<int8_t> *>(loadedClone.get()), 1,
                           static_cast<int>(addvecset->Count()), addvecset, addmetaset);
 
     // Final save and reload after insert
@@ -631,7 +631,7 @@ BOOST_AUTO_TEST_CASE(IndexPersistenceAndInsertMultipleThreads)
     BOOST_REQUIRE(loadedClone != nullptr);
 
     // Insert new vectors
-    InsertVectors<int8_t>(static_cast<SPTAG::SPANN::Index<int8_t> *>(loadedClone.get()), 2,
+    InsertVectors<int8_t>(static_cast<SPANN::Index<int8_t> *>(loadedClone.get()), 2,
                           static_cast<int>(addvecset->Count()), addvecset, addmetaset);
 
     // Final save and reload after insert
@@ -719,7 +719,7 @@ BOOST_AUTO_TEST_CASE(IndexMultiThreadedQuerySanity)
     BOOST_REQUIRE(loaded != nullptr);
 
     // Insert additional vectors
-    InsertVectors<int8_t>(static_cast<SPTAG::SPANN::Index<int8_t> *>(loaded.get()), 2,
+    InsertVectors<int8_t>(static_cast<SPANN::Index<int8_t> *>(loaded.get()), 2,
                           static_cast<int>(addvecset->Count()), addvecset, addmetaset);
 
     // Perform multithreaded query
@@ -738,7 +738,7 @@ BOOST_AUTO_TEST_CASE(IndexMultiThreadedQuerySanity)
                 if (i >= queryset->Count())
                     break;
 
-                result.SetTarget(queryset->GetVector(static_cast<SPTAG::SizeType>(i)));
+                result.SetTarget(queryset->GetVector(static_cast<SizeType>(i)));
                 loaded->SearchIndex(result);
 
                 ++completedQueries;
@@ -806,7 +806,7 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
         std::shared_ptr<VectorIndex> shadowLoaded;
         BOOST_REQUIRE(VectorIndex::LoadIndex(shadowIndexName, shadowLoaded) == ErrorCode::Success);
         BOOST_REQUIRE(shadowLoaded != nullptr);
-        auto *shadowIndex = static_cast<SPTAG::SPANN::Index<int8_t> *>(shadowLoaded.get());
+        auto *shadowIndex = static_cast<SPANN::Index<int8_t> *>(shadowLoaded.get());
 
         // Prepare insert batch
         const int insertOffset = (iter * insertBatchSize) % static_cast<int>(addvecset->Count());
@@ -831,7 +831,7 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
                             offsetTable.size() * sizeof(std::uint64_t), true);
         std::memcpy(offsetBuf.Data(), offsetTable.data(), offsetTable.size() * sizeof(std::uint64_t));
 
-        auto batchMeta = std::make_shared<SPTAG::MemMetadataSet>(metaBuf, offsetBuf, insertCount);
+        auto batchMeta = std::make_shared<MemMetadataSet>(metaBuf, offsetBuf, insertCount);
         const void *vectorStart = addvecset->GetVector(insertOffset);
 
         shadowIndex->AddIndex(vectorStart, insertCount, shadowIndex->GetOptions()->m_dim, batchMeta, true);
@@ -867,8 +867,8 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
     constexpr int insertIterations = 5;
     constexpr int insertBatchSize = 1000;
     constexpr int dimension = 1024;
-    std::shared_ptr<SPTAG::VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
-    std::shared_ptr<SPTAG::MetadataSet> metaset =
+    std::shared_ptr<VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
+    std::shared_ptr<MetadataSet> metaset =
         TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, 0);
 
     auto originalIndex = BuildIndex<float>("original_index", vecset, metaset);
@@ -880,15 +880,15 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
     for (int iter = 0; iter < insertIterations; iter++)
     {
         std::string clone_path = "clone_index_" + std::to_string(iter);
-        std::shared_ptr<SPTAG::VectorIndex> prevIndex;
+        std::shared_ptr<VectorIndex> prevIndex;
         BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
         BOOST_REQUIRE(prevIndex != nullptr);
 
         auto cloneIndex = prevIndex->Clone(clone_path);
-        auto *cloneIndexPtr = static_cast<SPTAG::SPANN::Index<float> *>(cloneIndex.get());
-        std::shared_ptr<SPTAG::VectorSet> tmpvecs =
+        auto *cloneIndexPtr = static_cast<SPANN::Index<float> *>(cloneIndex.get());
+        std::shared_ptr<VectorSet> tmpvecs =
             get_embeddings<float>((iter + 1) * insertBatchSize, (iter + 2) * insertBatchSize, dimension, -1);
-        std::shared_ptr<SPTAG::MetadataSet> tmpmetas =
+        std::shared_ptr<MetadataSet> tmpmetas =
             TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, (iter + 1) * insertBatchSize);
         InsertVectors<float>(cloneIndexPtr, 1, insertBatchSize, tmpvecs, tmpmetas);
 
@@ -899,7 +899,7 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
         BOOST_REQUIRE(VectorIndex::LoadIndex(clone_path, loadedIndex) == ErrorCode::Success);
         BOOST_REQUIRE(loadedIndex != nullptr);
 
-        std::shared_ptr<SPTAG::VectorSet> embedding =
+        std::shared_ptr<VectorSet> embedding =
             get_embeddings<float>((1000 * iter) + 500, ((1000 * iter) + 501), dimension, -1);
         std::shared_ptr<ResultIterator> resultIterator = loadedIndex->GetIterator(embedding->GetData(), false);
         int batch = 100;
@@ -938,4 +938,54 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
     std::filesystem::remove_all("original_index");
 }
 
+BOOST_AUTO_TEST_CASE(RefineIndex)
+{
+    using namespace SPFreshTest;
+
+    constexpr int iterations = 5;
+    constexpr int base = 10000;
+    constexpr int insertBatchSize = base / 5;
+    constexpr int deleteBatchSize = base / 5;
+    constexpr int dimension = 128;
+    constexpr int queries = 10;
+    constexpr int K = 5;
+
+    // Generate test data
+    std::shared_ptr<VectorSet> vecset, addvecset, queryset, truth;
+    std::shared_ptr<MetadataSet> metaset, addmetaset;
+
+    TestUtils::TestDataGenerator<int8_t> generator(base, queries, dimension, K, "L2");
+    generator.RunBatches(vecset, metaset, addvecset, addmetaset, queryset, base, insertBatchSize, deleteBatchSize,
+                         iterations, truth);
+
+    // Build and save index
+    auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
+    BOOST_REQUIRE(originalIndex != nullptr);
+    BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
+    originalIndex = nullptr;
+
+    float recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base);
+    std::cout << "original: recall@5=" << recall << std::endl;
+
+    for (int iter = 0; iter < iterations; iter++)
+    {
+
+        InsertVectors<int8_t>(static_cast<SPANN::Index<int8_t> *>(originalIndex.get()), 1, insertBatchSize, addvecset,
+                              metaset, iter * insertBatchSize);
+        for (int i = 0; i < deleteBatchSize; i++)
+            originalIndex->DeleteIndex(iter * deleteBatchSize + i);
+
+        recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base, iter + 1);
+        std::cout << "iter " << iter << ": recall@5=" << recall << std::endl;
+    }
+
+    BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
+    originalIndex = nullptr;
+
+    BOOST_REQUIRE(VectorIndex::LoadIndex("original_index", originalIndex) == ErrorCode::Success);
+    BOOST_REQUIRE(originalIndex != nullptr);
+
+    recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base, iterations);
+    std::cout << "After Refine:" << " recall@5=" << recall << std::endl;
+}
 BOOST_AUTO_TEST_SUITE_END()

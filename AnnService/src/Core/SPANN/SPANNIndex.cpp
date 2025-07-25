@@ -207,24 +207,7 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
 
     if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign)
     {
-        std::shared_ptr<Helper::ReaderOptions> vectorOptions(
-            new Helper::ReaderOptions(m_options.m_valueType, m_options.m_dim, m_options.m_vectorType,
-                                      m_options.m_vectorDelimiter, m_options.m_iSSDNumberOfThreads));
-        auto vectorReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
-        if (m_options.m_vectorPath.empty())
-        {
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Vector file is empty. Skipping loading.\n");
-        }
-        else
-        {
-            if (ErrorCode::Success != vectorReader->LoadFile(m_options.m_vectorPath))
-            {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read vector file.\n");
-                return ErrorCode::Fail;
-            }
-            // m_options.m_vectorSize = vectorReader->GetVectorSet()->Count();
-        }
-        m_extraSearcher->RefineIndex(vectorReader, m_index);
+        m_extraSearcher->RefineIndex(m_index);
     }
 
     return ErrorCode::Success;
@@ -284,6 +267,11 @@ ErrorCode Index<T>::SaveIndexData(const std::vector<std::shared_ptr<Helper::Disk
 {
     if (m_index == nullptr || m_versionMap.Count() == 0)
         return ErrorCode::EmptyIndex;
+
+    while (!AllFinished())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
 
     ErrorCode ret;
     if ((ret = m_index->SaveIndexData(p_indexStreams)) != ErrorCode::Success)
@@ -1222,7 +1210,7 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
             m_vectorTranslateMap.Load(ptr, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
             if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign)
             {
-                m_extraSearcher->RefineIndex(p_reader, m_index);
+                m_extraSearcher->RefineIndex(m_index);
             }
         }
     }
@@ -1313,6 +1301,78 @@ template <typename T> ErrorCode Index<T>::UpdateIndex()
     // m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
     m_index->UpdateIndex();
     return ErrorCode::Success;
+}
+
+template <typename T>
+ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>> &p_indexStreams,
+                                IAbortOperation *p_abort, std::vector<SizeType> *p_mapping)
+{
+    if (m_index == nullptr || m_versionMap.Count() == 0)
+        return ErrorCode::EmptyIndex;
+
+    while (!AllFinished())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    std::lock_guard<std::mutex> lock(m_dataAddLock);
+    std::unique_lock<std::shared_timed_mutex> uniquelock(m_dataDeleteLock);
+
+    std::vector<SizeType> headOldtoNew;
+    ErrorCode ret;
+    if ((ret = m_index->RefineIndex(p_indexStreams, nullptr, &headOldtoNew)) != ErrorCode::Success)
+        return ret;
+
+    COMMON::Dataset<std::uint64_t> new_vectorTranslateMap(m_index->GetNumSamples() - m_index->GetNumDeleted(), 1,
+                                                          m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
+    for (int i = 0; i < m_vectorTranslateMap.R(); i++)
+    {
+        if (m_index->ContainSample(i))
+            *(new_vectorTranslateMap[headOldtoNew[i]]) = *(m_vectorTranslateMap[i]);
+    }
+    new_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()]);
+
+    std::vector<SizeType> OldtoNew;
+    std::vector<SizeType> NewtoOld;
+    SizeType newR = m_versionMap.Count();
+    if (p_mapping == nullptr) p_mapping = &OldtoNew;
+    p_mapping->reserve(newR);
+    for (SizeType i = 0; i < newR; i++)
+    {
+        if (!m_versionMap.Deleted(i))
+        {
+            NewtoOld.push_back(i);
+            (*p_mapping)[i] = i;
+        }
+        else
+        {
+            while (m_versionMap.Deleted(newR - 1) && newR > i)
+                newR--;
+            if (newR == i)
+                break;
+            NewtoOld.push_back(newR - 1);
+            (*p_mapping)[newR - 1] = i;
+            newR--;
+        }
+    }
+    COMMON::VersionLabel new_versionMap;
+    new_versionMap.Initialize(newR, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
+    for (SizeType i = 0; i < newR; i++)
+        new_versionMap.SetVersion(i, m_versionMap.GetVersion(NewtoOld[i]));
+    new_versionMap.Save(m_options.m_indexDirectory + FolderSep + m_options.m_deleteIDFile);
+
+    m_extraSearcher->RefineIndex(m_index, false, &headOldtoNew, p_mapping);
+
+    if (nullptr != m_pMetadata)
+    {
+        if (p_indexStreams.size() < GetIndexFiles()->size() + 2)
+            return ErrorCode::LackOfInputs;
+        if ((ret = m_pMetadata->RefineMetadata(NewtoOld, p_indexStreams[GetIndexFiles()->size()],
+                                               p_indexStreams[GetIndexFiles()->size()+1])) !=
+            ErrorCode::Success)
+            return ret;
+    }
+    return ret;
 }
 
 template <typename T> ErrorCode Index<T>::SetParameter(const char *p_param, const char *p_value, const char *p_section)
@@ -1464,6 +1524,7 @@ ErrorCode Index<T>::AddIndex(const void *p_data, SizeType p_vectorNum, Dimension
 
 template <typename T> ErrorCode Index<T>::DeleteIndex(const SizeType &p_id)
 {
+    std::shared_lock<std::shared_timed_mutex> sharedlock(m_dataDeleteLock);
     // if (m_versionMap.Delete(p_id)) return ErrorCode::Success;
     // return ErrorCode::VectorNotFound;
     return m_extraSearcher->DeleteIndex(p_id);
@@ -1487,8 +1548,8 @@ template <typename T> ErrorCode Index<T>::DeleteIndex(const void *p_vectors, Siz
     }
     else
     {
-        vectorSet.reset(new BasicVectorSet(ByteArray((std::uint8_t *)p_vectors, sizeof(T) * 1 * p_dimension, false),
-                                           GetEnumValueType<T>(), p_dimension, 1));
+        vectorSet.reset(new BasicVectorSet(ByteArray((std::uint8_t *)p_vectors, sizeof(T) * p_vectorNum * p_dimension, false),
+                                           GetEnumValueType<T>(), p_dimension, p_vectorNum));
     }
 
     auto workSpace = m_workSpaceFactory->GetWorkSpace();

@@ -365,7 +365,7 @@ ErrorCode VectorIndex::SaveIndex(std::string &p_config, const std::vector<ByteAr
     size_t metaStart = BufferSize()->size();
     if (NeedRefine())
     {
-        ret = RefineIndex(p_indexStreams, nullptr);
+        ret = RefineIndex(p_indexStreams, nullptr, nullptr);
     }
     else
     {
@@ -462,7 +462,7 @@ ErrorCode VectorIndex::SaveIndex(const std::string &p_folderPath)
     size_t metaStart = GetIndexFiles()->size();
     if (NeedRefine())
     {
-        ret = RefineIndex(handles, nullptr);
+        ret = RefineIndex(handles, nullptr, nullptr);
     }
     else
     {
@@ -516,7 +516,7 @@ ErrorCode VectorIndex::SaveIndexToFile(const std::string &p_file, IAbortOperatio
 
         if (NeedRefine())
         {
-            ret = RefineIndex(p_indexStreams, p_abort);
+            ret = RefineIndex(p_indexStreams, p_abort, nullptr);
         }
         else
         {

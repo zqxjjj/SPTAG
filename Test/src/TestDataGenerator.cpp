@@ -27,7 +27,20 @@ void TestDataGenerator<T>::Run(std::shared_ptr<VectorSet> &vecset, std::shared_p
     LoadOrGenerateTruth("perftest_addtruth." + m_distMethod, CombineVectorSets(vecset, addvecset), queryset, addtruth,
                         true);
 }
-
+template <typename T>
+void TestDataGenerator<T>::RunBatches(std::shared_ptr<SPTAG::VectorSet>& vecset,
+    std::shared_ptr<SPTAG::MetadataSet>& metaset,
+    std::shared_ptr<SPTAG::VectorSet>& addvecset, std::shared_ptr<SPTAG::MetadataSet>& addmetaset,
+    std::shared_ptr<SPTAG::VectorSet>& queryset, int base, int batchinsert, int batchdelete, int batches,
+    std::shared_ptr<SPTAG::VectorSet>& truths)
+{
+    LoadOrGenerateBase(vecset, metaset);
+    LoadOrGenerateQuery(queryset);
+    LoadOrGenerateAdd(addvecset, addmetaset);
+    LoadOrGenerateBatchTruth("perftest_batchtruth." + m_distMethod, CombineVectorSets(vecset, addvecset), queryset,
+                             truths, base, batchinsert, batchdelete, batches, true);
+}
+    
 template <typename T>
 void TestDataGenerator<T>::LoadOrGenerateBase(std::shared_ptr<VectorSet> &vecset, std::shared_ptr<MetadataSet> &metaset)
 {
@@ -128,6 +141,61 @@ void TestDataGenerator<T>::LoadOrGenerateTruth(const std::string &filename, std:
     }
     truth = std::make_shared<BasicVectorSet>(tru, GetEnumValueType<float>(), m_k, queryset->Count());
     truth->Save(filename);
+}
+
+template <typename T>
+void TestDataGenerator<T>::LoadOrGenerateBatchTruth(const std::string &filename,
+                                                    std::shared_ptr<SPTAG::VectorSet> vecset,
+                                                    std::shared_ptr<SPTAG::VectorSet> queryset,
+                                                    std::shared_ptr<SPTAG::VectorSet> &truths, int base,
+                                                    int batchinsert, int batchdelete, int batches, bool normalize)
+{
+    if (fileexists(filename.c_str()))
+    {
+        auto opts = std::make_shared<Helper::ReaderOptions>(GetEnumValueType<float>(), m_m, VectorFileType::DEFAULT);
+        auto reader = Helper::VectorSetReader::CreateInstance(opts);
+        if (ErrorCode::Success != reader->LoadFile(filename))
+        {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read file %s\n", filename.c_str());
+            exit(1);
+        }
+        truths = reader->GetVectorSet();
+        return;
+    }
+
+    DistCalcMethod distMethod;
+    Helper::Convert::ConvertStringTo(m_distMethod.c_str(), distMethod);
+    if (normalize && distMethod == DistCalcMethod::Cosine)
+    {
+        COMMON::Utils::BatchNormalize((T *)vecset->GetData(), vecset->Count(), vecset->Dimension(),
+                                      COMMON::Utils::GetBase<T>(), 5);
+    }
+
+    ByteArray tru = ByteArray::Alloc(sizeof(float) * (batches + 1) * queryset->Count() * m_k);
+    int start = 0;
+    int end = base;
+    for (int iter = 0; iter < batches + 1; iter++)
+    {
+#pragma omp parallel for
+        for (SizeType i = 0; i < queryset->Count(); ++i)
+        {
+            SizeType *neighbors = ((SizeType *)tru.Data()) + iter * (queryset->Count() * m_k) + i * m_k;
+            COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), m_k);
+            for (SizeType j = start; j < end; ++j)
+            {
+                float dist = COMMON::DistanceUtils::ComputeDistance(
+                    res.GetTarget(), reinterpret_cast<T *>(vecset->GetVector(j)), m_m, distMethod);
+                res.AddPoint(j, dist);
+            }
+            res.SortResult();
+            for (int j = 0; j < m_k; ++j)
+                neighbors[j] = res.GetResult(j)->VID;
+        }
+        start += batchdelete;
+        end += batchinsert;
+    }
+    truths = std::make_shared<BasicVectorSet>(tru, GetEnumValueType<float>(), m_k, queryset->Count());
+    truths->Save(filename);
 }
 
 template <typename T>

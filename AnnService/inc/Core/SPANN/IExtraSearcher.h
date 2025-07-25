@@ -321,8 +321,12 @@ namespace SPTAG {
 
             virtual ErrorCode GetPostingDebug(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorIndex> p_index, SizeType vid, std::vector<SizeType>& VIDs, std::shared_ptr<VectorSet>& vecs) = 0;
             
-            virtual void RefineIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader,
-                std::shared_ptr<VectorIndex> p_index) { return; }
+            virtual ErrorCode RefineIndex(std::shared_ptr<VectorIndex> p_index, bool p_prereassign = true,
+                                          std::vector<SizeType> *p_headmapping = nullptr,
+                                          std::vector<SizeType> *p_mapping = nullptr)
+            {
+                return ErrorCode::Undefined;
+            }
             virtual ErrorCode AddIndex(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorSet>& p_vectorSet,
                 std::shared_ptr<VectorIndex> p_index, SizeType p_begin) { return ErrorCode::Undefined; }
             virtual ErrorCode DeleteIndex(SizeType p_id) { return ErrorCode::Undefined; }

@@ -21,8 +21,8 @@ template <typename T>
 void Search(std::shared_ptr<VectorIndex> &vecIndex, std::shared_ptr<VectorSet> &vecset,
             std::shared_ptr<VectorSet> &queryset, int k, std::shared_ptr<VectorSet> &truth)
 {
-    std::vector<SPTAG::COMMON::QueryResultSet<T>> res(queryset->Count(),
-                                                      SPTAG::COMMON::QueryResultSet<T>(nullptr, k * 2));
+    std::vector<COMMON::QueryResultSet<T>> res(queryset->Count(),
+                                                      COMMON::QueryResultSet<T>(nullptr, k * 2));
     auto t1 = std::chrono::high_resolution_clock::now();
     for (SizeType i = 0; i < queryset->Count(); i++)
     {
@@ -76,11 +76,11 @@ std::shared_ptr<VectorIndex> PerfBuild(IndexAlgoType algo, std::string distCalcM
                                        std::shared_ptr<VectorSet> &truth, std::string out,
                                        std::shared_ptr<COMMON::IQuantizer> quantizer)
 {
-    std::shared_ptr<VectorIndex> vecIndex = SPTAG::VectorIndex::CreateInstance(algo, SPTAG::GetEnumValueType<T>());
+    std::shared_ptr<VectorIndex> vecIndex = VectorIndex::CreateInstance(algo, GetEnumValueType<T>());
     vecIndex->SetQuantizer(quantizer);
     BOOST_CHECK(nullptr != vecIndex);
 
-    if (algo != SPTAG::IndexAlgoType::SPANN)
+    if (algo != IndexAlgoType::SPANN)
     {
         if (algo == IndexAlgoType::KDT)
             vecIndex->SetParameter("KDTNumber", "2");
@@ -117,8 +117,8 @@ std::shared_ptr<VectorIndex> PerfBuild(IndexAlgoType algo, std::string distCalcM
         vecIndex->SetParameter("SearchInternalResultNum", "64", "BuildSSDIndex");
     }
 
-    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->BuildIndex(vec, meta, true));
-    BOOST_CHECK(SPTAG::ErrorCode::Success == vecIndex->SaveIndex(out));
+    BOOST_CHECK(ErrorCode::Success == vecIndex->BuildIndex(vec, meta, true));
+    BOOST_CHECK(ErrorCode::Success == vecIndex->SaveIndex(out));
     // Search<T>(vecIndex, queryset, k, truth);
     return vecIndex;
 }
@@ -177,13 +177,13 @@ void GenerateReconstructData(std::shared_ptr<VectorSet> &real_vecset, std::share
         queryset->Save("quantest_query.bin");
     }
 
-    if (fileexists(("quantest_truth." + SPTAG::Helper::Convert::ConvertToString(distCalcMethod)).c_str()))
+    if (fileexists(("quantest_truth." + Helper::Convert::ConvertToString(distCalcMethod)).c_str()))
     {
         std::shared_ptr<Helper::ReaderOptions> options(
             new Helper::ReaderOptions(GetEnumValueType<float>(), k, VectorFileType::DEFAULT));
         auto vectorReader = Helper::VectorSetReader::CreateInstance(options);
         if (ErrorCode::Success !=
-            vectorReader->LoadFile("quantest_truth." + SPTAG::Helper::Convert::ConvertToString(distCalcMethod)))
+            vectorReader->LoadFile("quantest_truth." + Helper::Convert::ConvertToString(distCalcMethod)))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read truth file.\n");
             exit(1);
@@ -214,18 +214,18 @@ void GenerateReconstructData(std::shared_ptr<VectorSet> &real_vecset, std::share
                 neighbors[j] = res.GetResult(j)->VID;
         }
         truth.reset(new BasicVectorSet(tru, GetEnumValueType<float>(), k, queryset->Count()));
-        truth->Save("quantest_truth." + SPTAG::Helper::Convert::ConvertToString(distCalcMethod));
+        truth->Save("quantest_truth." + Helper::Convert::ConvertToString(distCalcMethod));
     }
 
     if (fileexists(CODEBOOK_FILE.c_str()) && fileexists("quantest_quan_vector.bin") &&
         fileexists("quantest_rec_vector.bin"))
     {
-        auto ptr = SPTAG::f_createIO();
+        auto ptr = f_createIO();
         if (ptr == nullptr || !ptr->Initialize(CODEBOOK_FILE.c_str(), std::ios::binary | std::ios::in))
         {
             BOOST_ASSERT("Canot Open CODEBOOK_FILE to read!" == "Error");
         }
-        quantizer = SPTAG::COMMON::IQuantizer::LoadIQuantizer(ptr);
+        quantizer = COMMON::IQuantizer::LoadIQuantizer(ptr);
         BOOST_ASSERT(quantizer);
 
         std::shared_ptr<Helper::ReaderOptions> options(
@@ -311,8 +311,8 @@ void GenerateReconstructData(std::shared_ptr<VectorSet> &real_vecset, std::share
         }
 
         std::cout << "Building Finish!" << std::endl;
-        quantizer = std::make_shared<SPTAG::COMMON::PQQuantizer<R>>(M, Ks, QuanDim, false, std::move(codebooks));
-        auto ptr = SPTAG::f_createIO();
+        quantizer = std::make_shared<COMMON::PQQuantizer<R>>(M, Ks, QuanDim, false, std::move(codebooks));
+        auto ptr = f_createIO();
         if (ptr == nullptr || !ptr->Initialize(CODEBOOK_FILE.c_str(), std::ios::binary | std::ios::out))
         {
             BOOST_ASSERT("Canot Open CODEBOOK_FILE to write!" == "Error");

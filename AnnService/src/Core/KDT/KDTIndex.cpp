@@ -295,6 +295,7 @@ void Index<T>::SearchIndex(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace
     {
         Search<Q, StaticDispatch::CheckIfNotDeleted>(p_query, p_space);
     }
+    p_query.SetScanned(p_space.m_iNumberOfCheckedLeaves);
 }
 
 template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool p_searchDeleted) const
@@ -600,7 +601,7 @@ template <typename T> ErrorCode Index<T>::RefineIndex(std::shared_ptr<VectorInde
 
 template <typename T>
 ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>> &p_indexStreams,
-                                IAbortOperation *p_abort)
+                                IAbortOperation *p_abort, std::vector<SizeType> *p_mapping)
 {
     std::lock_guard<std::mutex> lock(m_dataAddLock);
     std::unique_lock<std::shared_timed_mutex> uniquelock(m_dataDeleteLock);
@@ -608,13 +609,18 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
     SizeType newR = GetNumSamples();
 
     std::vector<SizeType> indices;
-    std::vector<SizeType> reverseIndices(newR);
+    std::vector<SizeType> reverseIndices;
+    if (p_mapping == nullptr)
+    {
+        p_mapping = &reverseIndices;
+    }
+    p_mapping->reserve(newR);
     for (SizeType i = 0; i < newR; i++)
     {
         if (!m_deletedID.Contains(i))
         {
             indices.push_back(i);
-            reverseIndices[i] = i;
+            (*p_mapping)[i] = i;
         }
         else
         {
@@ -623,7 +629,7 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
             if (newR == i)
                 break;
             indices.push_back(newR - 1);
-            reverseIndices[newR - 1] = i;
+            (*p_mapping)[newR - 1] = i;
             newR--;
         }
     }
@@ -645,9 +651,9 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
     for (SizeType i = 0; i < newTrees.size(); i++)
     {
         if (newTrees[i].left < 0)
-            newTrees[i].left = -reverseIndices[-newTrees[i].left - 1] - 1;
+            newTrees[i].left = -(*p_mapping)[-newTrees[i].left - 1] - 1;
         if (newTrees[i].right < 0)
-            newTrees[i].right = -reverseIndices[-newTrees[i].right - 1] - 1;
+            newTrees[i].right = -(*p_mapping)[-newTrees[i].right - 1] - 1;
     }
     if ((ret = newTrees.SaveTrees(p_indexStreams[1])) != ErrorCode::Success)
         return ret;
@@ -655,7 +661,7 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
     if (p_abort != nullptr && p_abort->ShouldAbort())
         return ErrorCode::ExternalAbort;
 
-    if ((ret = m_pGraph.RefineGraph<T>(this, indices, reverseIndices, p_indexStreams[2], nullptr)) !=
+    if ((ret = m_pGraph.RefineGraph<T>(this, indices, (*p_mapping), p_indexStreams[2], nullptr)) !=
         ErrorCode::Success)
         return ret;
 

@@ -50,7 +50,7 @@ namespace SPTAG
         {
         private:
             std::shared_ptr<VectorIndex> m_index;
-	    COMMON::Dataset<std::uint64_t> m_vectorTranslateMap;
+	        COMMON::Dataset<std::uint64_t> m_vectorTranslateMap;
             std::unordered_map<std::string, std::string> m_headParameters;
 
             COMMON::VersionLabel m_versionMap;
@@ -63,7 +63,7 @@ namespace SPTAG
             int m_iBaseSquare;
 
             std::mutex m_dataAddLock;
-            
+            std::shared_timed_mutex m_dataDeleteLock;
             std::shared_timed_mutex m_checkPointLock;
 
  
@@ -161,14 +161,18 @@ namespace SPTAG
 
             inline const void* GetSample(const SizeType idx) const { return nullptr; }
             inline SizeType GetNumDeleted() const { return m_versionMap.GetDeleteCount(); }
-            inline bool NeedRefine() const { return false; }
+            inline bool NeedRefine() const
+            {
+                return m_versionMap.GetDeleteCount() > (size_t)(GetNumSamples() * m_options.m_fDeletePercentageForRefine);
+            }
             ErrorCode RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const { return ErrorCode::Undefined; }
             ErrorCode SearchTree(QueryResult& p_query) const { return ErrorCode::Undefined; }
             ErrorCode AddIndex(const void* p_data, SizeType p_vectorNum, DimensionType p_dimension, std::shared_ptr<MetadataSet> p_metadataSet, bool p_withMetaIndex = false, bool p_normalized = false);
             ErrorCode DeleteIndex(const SizeType& p_id);
 
             ErrorCode DeleteIndex(const void* p_vectors, SizeType p_vectorNum);
-            ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>>& p_indexStreams, IAbortOperation* p_abort) { return ErrorCode::Undefined; }
+            ErrorCode RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO>> &p_indexStreams,
+                                  IAbortOperation *p_abort, std::vector<SizeType> *p_mapping);
             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex) { return ErrorCode::Undefined; }
 
             ErrorCode SetWorkSpaceFactory(std::unique_ptr<SPTAG::COMMON::IWorkSpaceFactory<SPTAG::COMMON::IWorkSpace>> up_workSpaceFactory)
@@ -229,9 +233,9 @@ namespace SPTAG
             
             void ForceCompaction() { if (m_options.m_storage == Storage::ROCKSDBIO) m_extraSearcher->ForceCompaction(); }
 
-            void StopMerge() { m_options.m_inPlace = true; }
+            //void StopMerge() { m_options.m_inPlace = true; }
 
-            void OpenMerge() { m_options.m_inPlace = false; }
+            //void OpenMerge() { m_options.m_inPlace = false; }
 
             void ForceGC() { 
                 auto workSpace = m_workSpaceFactory->GetWorkSpace();
@@ -249,6 +253,10 @@ namespace SPTAG
 
             void Checkpoint() {
                 /** Lock & wait until all jobs done **/
+                while (!AllFinished())
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
 
                 /** Lock **/
                 if (m_options.m_persistentBufferPath == "") return;

@@ -51,6 +51,11 @@ namespace SPTAG
                 return *m_data[key];
             }
 
+            inline void SetVersion(const SizeType& key, const uint8_t& version)
+            {
+                (*m_data[key]) = version;
+            }
+
             inline bool IncVersion(const SizeType& key, uint8_t* newVersion)
             {
                 while (true) {
