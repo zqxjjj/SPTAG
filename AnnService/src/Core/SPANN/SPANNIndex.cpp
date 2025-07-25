@@ -368,6 +368,7 @@ template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool
     {
         std::copy(p_queryResults->GetResults(), p_queryResults->GetResults() + p_query.GetResultNum(),
                   p_query.GetResults());
+        p_query.SetScanned(p_queryResults->GetScanned());
         delete p_queryResults;
     }
 

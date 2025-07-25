@@ -122,7 +122,7 @@ namespace SPTAG
             uint64_t offsetVectorID, offsetVector;\
             (this->*m_parsePosting)(offsetVectorID, offsetVector, i, listInfo->listEleCount);\
             int vectorID = *(reinterpret_cast<int*>(p_postingListFullData + offsetVectorID));\
-            if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue; \
+            if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) { listElements--; continue; } \
             (this->*m_parseEncoding)(p_index, listInfo, (ValueType*)(p_postingListFullData + offsetVector));\
             auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), p_postingListFullData + offsetVector); \
             queryResults.AddPoint(vectorID, distance2leaf); \
@@ -273,7 +273,7 @@ namespace SPTAG
                     request.m_success = false;
 
 #ifdef BATCH_READ // async batch read
-                    request.m_callback = [&p_exWorkSpace, &queryResults, &p_index, &request, this](bool success)
+                    request.m_callback = [&p_exWorkSpace, &queryResults, &p_index, &request, &listElements, this](bool success)
                     {
                         char* buffer = request.m_buffer;
                         ListInfo* listInfo = (ListInfo*)(request.m_payload);
@@ -379,9 +379,10 @@ namespace SPTAG
                     p_stats->m_diskIOCount = diskIO;
                     p_stats->m_diskAccessCount = diskRead;
                 }
+                queryResults.SetScanned(listElements);
             }
 
-            virtual ErrorCode SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace) override
+            virtual ErrorCode SearchIndexWithoutParsing(ExtraWorkSpace *p_exWorkSpace) override
             {
                 const uint32_t postingListCount = static_cast<uint32_t>(p_exWorkSpace->m_postingIDs.size());
 
@@ -531,6 +532,7 @@ namespace SPTAG
                     head = headResults.GetResult(++p_exWorkSpace->m_ri);
                     foundResult = true;
                 }
+                if (foundResult) p_queryResults.SetScanned(p_queryResults.GetScanned() + 1);
                 return (foundResult)? ErrorCode::Success : ErrorCode::VectorNotFound;
             }
 

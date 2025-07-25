@@ -1491,6 +1491,7 @@ namespace SPTAG::SPANN {
                 p_stats->m_diskIOCount = diskIO;
                 p_stats->m_diskAccessCount = diskRead / 1024;
             }
+            queryResults.SetScanned(listElements);
         }
 
         virtual ErrorCode SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace)
@@ -1548,6 +1549,7 @@ namespace SPTAG::SPANN {
                     head = headResults.GetResult(++p_exWorkSpace->m_ri);
                     foundResult = true;
             }
+            if (foundResult) p_queryResults.SetScanned(p_queryResults.GetScanned() + 1);
             return (foundResult) ? ErrorCode::Success : ErrorCode::VectorNotFound;
         }
 

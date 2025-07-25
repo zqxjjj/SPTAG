@@ -197,6 +197,7 @@ template <typename T> void TestIterativeScanRandom(IndexAlgoType algo, std::stri
         std::shared_ptr<ResultIterator> resultIterator = vecIndex->GetIterator((T *)(queryset->GetVector(i)));
         int batch = 1;
         int ri = 0;
+        int iterscanned = 0;
         bool relaxMono = false;
         while (!relaxMono)
         {
@@ -210,10 +211,11 @@ template <typename T> void TestIterativeScanRandom(IndexAlgoType algo, std::stri
                 ((COMMON::QueryResultSet<T> *)(&resiter[i]))->AddPoint(results->GetResult(j)->VID, results->GetResult(j)->Dist);
             }
             ri += resultCount;
+            iterscanned = results->GetScanned();
         }
         resultIterator->Close();
 
-        std::cout << "TopK scanned:" << scanned << " Iterator scanned:" << ri << std::endl;
+        std::cout << "TopK scanned:" << scanned << " Iterator scanned:" << iterscanned << std::endl;
     }
     std::cout << "TopK Recall:" << EvaluateRecall<T>(res, vecIndex, queryset, truth, vecset, k)
               << " Iterator Recall:" << EvaluateRecall<T>(resiter, vecIndex, queryset, truth, vecset, k) << std::endl;
