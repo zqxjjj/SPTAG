@@ -579,8 +579,11 @@ break;
 
                     ss.push(BKTStackItem(m_pTreeStart[i], 0, (SizeType)localindices.size(), true));
                     while (!ss.empty()) {
-                        if (abort && abort->ShouldAbort()) return;
-
+                        if (abort && abort->ShouldAbort())
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "Abort!!!\n");
+                            return;
+                        }
                         BKTStackItem item = ss.top(); ss.pop();
                         m_pTreeRoots[item.index].childStart = (SizeType)m_pTreeRoots.size();
                         if (item.last - item.first <= m_iBKTLeafSize) {

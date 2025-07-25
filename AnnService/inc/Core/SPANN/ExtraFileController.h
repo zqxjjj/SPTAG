@@ -478,6 +478,14 @@ namespace SPTAG::SPANN {
             if (m_shutdownCalled) {
                 return;
             }
+            while (!m_key_reserve.empty())
+            {
+                SizeType cleanKey;
+                if (m_key_reserve.try_pop(cleanKey))
+                {
+                    At(cleanKey) = 0xffffffffffffffff;
+                }
+            }
             if (!m_mappingPath.empty()) Save(m_mappingPath);
             // TODO: Should we add a lock here?
             for (int i = 0; i < m_pBlockMapping.R(); i++) {
@@ -919,7 +927,16 @@ namespace SPTAG::SPANN {
             int blocks = ((*postingSize + PageSize - 1) >> PageSizeEx);
             m_pBlockController.ReleaseBlocks(postingSize + 1, blocks);
             m_buffer.push((uintptr_t)postingSize);
-            At(key) = 0xffffffffffffffff;
+            m_key_reserve.push(key);
+            while (m_key_reserve.unsafe_size() > m_bufferLimit)
+            {
+                SizeType cleanKey;
+                if (m_key_reserve.try_pop(cleanKey))
+                {
+                    At(cleanKey) = 0xffffffffffffffff;
+                }
+            }
+            //At(key) = 0xffffffffffffffff;
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock();
             }
@@ -1038,6 +1055,7 @@ namespace SPTAG::SPANN {
         COMMON::Dataset<uintptr_t> m_pBlockMapping;
         SizeType m_bufferLimit;
         Helper::Concurrent::ConcurrentQueue<uintptr_t> m_buffer;
+        Helper::Concurrent::ConcurrentQueue<SizeType> m_key_reserve;
 
         std::shared_ptr<Helper::ThreadPool> m_compactionThreadPool;
         BlockController m_pBlockController;

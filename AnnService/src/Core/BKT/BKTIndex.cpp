@@ -964,26 +964,44 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
     COMMON::BKTree newTrees(m_pTrees);
     newTrees.BuildTrees<T>(m_pSamples, m_iDistCalcMethod, omp_get_num_threads(), &indices, p_mapping);
     if ((ret = newTrees.SaveTrees(p_indexStreams[1])) != ErrorCode::Success)
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Save Refine Tree!!\n");
         return ret;
+    }    
 
     if (p_abort != nullptr && p_abort->ShouldAbort())
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Abort!!\n");
         return ErrorCode::ExternalAbort;
+    }
+        
 
     if ((ret = m_pGraph.RefineGraph<T>(this, indices, (*p_mapping), p_indexStreams[2], nullptr,
                                        &(newTrees.GetSampleMap()))) != ErrorCode::Success)
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Save Refine Graph!!\n");
         return ret;
+    }
+        
 
     COMMON::Labelset newDeletedID;
     newDeletedID.Initialize(newR, m_iDataBlockSize, m_iDataCapacity,
                             COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
     if ((ret = newDeletedID.Save(p_indexStreams[3])) != ErrorCode::Success)
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Save Refine DeletedID!!\n");
         return ret;
+    }
+        
     if (nullptr != m_pMetadata)
     {
         if (p_indexStreams.size() < 6)
             return ErrorCode::LackOfInputs;
         if ((ret = m_pMetadata->RefineMetadata(indices, p_indexStreams[4], p_indexStreams[5])) != ErrorCode::Success)
+        {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to Save Refine Metadata!!\n");
             return ret;
+        }          
     }
     return ret;
 }
