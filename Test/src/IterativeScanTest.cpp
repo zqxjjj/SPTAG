@@ -42,10 +42,11 @@ void BuildIndex(IndexAlgoType algo, std::string distCalcMethod, std::shared_ptr<
         vecIndex->SetParameter("isExecute", "true", "BuildSSDIndex");
         vecIndex->SetParameter("BuildSsdIndex", "true", "BuildSSDIndex");
         vecIndex->SetParameter("NumberOfThreads", "4", "BuildSSDIndex");
-        vecIndex->SetParameter("PostingPageLimit", "12", "BuildSSDIndex");
-        vecIndex->SetParameter("SearchPostingPageLimit", "12", "BuildSSDIndex");
+        vecIndex->SetParameter("PostingPageLimit", std::to_string(4 * sizeof(T)), "BuildSSDIndex");
+        vecIndex->SetParameter("SearchPostingPageLimit", std::to_string(4 * sizeof(T)), "BuildSSDIndex");
         vecIndex->SetParameter("InternalResultNum", "64", "BuildSSDIndex");
         vecIndex->SetParameter("SearchInternalResultNum", "64", "BuildSSDIndex");
+        vecIndex->SetParameter("MaxCheck", "8192", "BuildSSDIndex");
     }
 
     BOOST_CHECK(ErrorCode::Success == vecIndex->BuildIndex(vec, meta));
