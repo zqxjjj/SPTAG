@@ -233,9 +233,9 @@ namespace SPTAG
             
             void ForceCompaction() { if (m_options.m_storage == Storage::ROCKSDBIO) m_extraSearcher->ForceCompaction(); }
 
-            //void StopMerge() { m_options.m_inPlace = true; }
+            void StopMerge() { m_options.m_inPlace = true; }
 
-            //void OpenMerge() { m_options.m_inPlace = false; }
+            void OpenMerge() { m_options.m_inPlace = false; }
 
             void ForceGC() { 
                 auto workSpace = m_workSpaceFactory->GetWorkSpace();
