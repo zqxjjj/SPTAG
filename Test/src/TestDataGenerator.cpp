@@ -194,7 +194,7 @@ void TestDataGenerator<T>::LoadOrGenerateBatchTruth(const std::string &filename,
         start += batchdelete;
         end += batchinsert;
     }
-    truths = std::make_shared<BasicVectorSet>(tru, GetEnumValueType<float>(), m_k, queryset->Count());
+    truths = std::make_shared<BasicVectorSet>(tru, GetEnumValueType<float>(), m_k, (batches + 1) * queryset->Count());
     truths->Save(filename);
 }
 
