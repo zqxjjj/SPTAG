@@ -230,7 +230,10 @@ template <typename T>
 std::shared_ptr<VectorSet> TestDataGenerator<T>::CombineVectorSets(std::shared_ptr<VectorSet> base,
                                                                    std::shared_ptr<VectorSet> add)
 {
-    return base;
+    ByteArray vec = ByteArray::Alloc(sizeof(T) * (base->Count() + add->Count()) * m_m);
+    memcpy(vec.Data(), base->GetData(), sizeof(T) * (base->Count()) * m_m);
+    memcpy(vec.Data() + sizeof(T) * (base->Count()) * m_m, add->GetData(), sizeof(T) * (add->Count()) * m_m);
+    return std::make_shared<BasicVectorSet>(vec, GetEnumValueType<T>(), m_m, base->Count() + add->Count());
 }
 
 template <typename T>

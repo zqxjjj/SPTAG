@@ -962,7 +962,6 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
     auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
     BOOST_REQUIRE(originalIndex != nullptr);
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
-    originalIndex = nullptr;
 
     float recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base);
     std::cout << "original: recall@5=" << recall << std::endl;
