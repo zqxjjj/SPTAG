@@ -158,6 +158,12 @@ bool FileIO::BlockController::ReadBlocks(AddressType *p_data, std::string *p_val
                                          const std::chrono::microseconds &timeout,
                                          std::vector<Helper::AsyncReadRequest> *reqs)
 {
+    if ((uintptr_t)p_data == 0xffffffffffffffff)
+    {
+        p_value->resize(0);
+        return true;
+    }
+
     size_t postingSize = (size_t)p_data[0];
     auto blockNum = (postingSize + PageSize - 1) >> PageSizeEx;
     if (blockNum > reqs->size())
@@ -209,7 +215,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType *> &p_dat
     {
         AddressType *p_data_i = p_data[i];
 
-        if (p_data_i == nullptr)
+        if (p_data_i == nullptr || (uintptr_t)p_data_i == 0xffffffffffffffff)
         {
             continue;
         }
@@ -252,7 +258,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType *> &p_dat
         AddressType *p_data_i = p_data[i];
         std::string *p_value = &((*p_values)[i]);
 
-        if (p_data_i == nullptr)
+        if (p_data_i == nullptr || (uintptr_t)p_data_i == 0xffffffffffffffff)
         {
             continue;
         }
@@ -284,7 +290,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType *> &p_dat
         AddressType *p_data_i = p_data[i];
         int numPages = (p_values[i].GetPageSize() >> PageSizeEx);
 
-        if (p_data_i == nullptr)
+        if (p_data_i == nullptr || (uintptr_t)p_data_i == 0xffffffffffffffff)
         {
             p_values[i].SetAvailableSize(0);
             for (std::uint32_t r = 0; r < numPages; r++)
