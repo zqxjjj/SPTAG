@@ -977,7 +977,8 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
         recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base, iter + 1);
         std::cout << "iter " << iter << ": recall@5=" << recall << std::endl;
     }
-
+    std::cout << "Before Refine:" << " recall@5=" << recall << std::endl;
+    static_cast<SPANN::Index<int8_t> *>(originalIndex.get())->GetDBStat();
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
     originalIndex = nullptr;
 
@@ -986,5 +987,6 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
 
     recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base, iterations);
     std::cout << "After Refine:" << " recall@5=" << recall << std::endl;
+    static_cast<SPANN::Index<int8_t> *>(originalIndex.get())->GetDBStat();
 }
 BOOST_AUTO_TEST_SUITE_END()

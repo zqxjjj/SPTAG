@@ -930,7 +930,7 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
     {
         p_mapping = &reverseIndices;
     }
-    p_mapping->reserve(newR);
+    p_mapping->resize(newR);
     for (SizeType i = 0; i < newR; i++)
     {
         if (!m_deletedID.Contains(i))

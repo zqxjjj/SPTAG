@@ -478,9 +478,10 @@ namespace SPTAG::SPANN {
             if (m_shutdownCalled) {
                 return;
             }
+            m_shutdownCalled = true;
             while (!m_key_reserve.empty())
             {
-                SizeType cleanKey;
+                SizeType cleanKey = 0xffffffff;
                 if (m_key_reserve.try_pop(cleanKey))
                 {
                     At(cleanKey) = 0xffffffffffffffff;
@@ -489,7 +490,11 @@ namespace SPTAG::SPANN {
             if (!m_mappingPath.empty()) Save(m_mappingPath);
             // TODO: Should we add a lock here?
             for (int i = 0; i < m_pBlockMapping.R(); i++) {
-                if (At(i) != 0xffffffffffffffff) delete[]((AddressType*)At(i));
+                if (At(i) != 0xffffffffffffffff) {
+                    //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "delete at %d for addr: %llu\n", i, At(i));
+                    delete[]((AddressType*)At(i));
+                    At(i) = 0xffffffffffffffff;
+                }
             }
             while (!m_buffer.empty()) {
                 uintptr_t ptr = 0xffffffffffffffff;
@@ -499,7 +504,6 @@ namespace SPTAG::SPANN {
             if (m_fileIoUseCache) {
                 delete m_pShardedLRUCache;
             }
-            m_shutdownCalled = true;
         }
 
         inline uintptr_t& At(SizeType key) {
@@ -927,16 +931,18 @@ namespace SPTAG::SPANN {
             int blocks = ((*postingSize + PageSize - 1) >> PageSizeEx);
             m_pBlockController.ReleaseBlocks(postingSize + 1, blocks);
             m_buffer.push((uintptr_t)postingSize);
-            m_key_reserve.push(key);
+            //m_key_reserve.push(key);
+            /*
             while (m_key_reserve.unsafe_size() > m_bufferLimit)
             {
-                SizeType cleanKey;
+                SizeType cleanKey = 0;
                 if (m_key_reserve.try_pop(cleanKey))
                 {
                     At(cleanKey) = 0xffffffffffffffff;
                 }
             }
-            //At(key) = 0xffffffffffffffff;
+            */
+            At(key) = 0xffffffffffffffff;
             if (m_fileIoUseLock) {
                 m_rwMutex[hash(key)].unlock();
             }

@@ -1337,7 +1337,7 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
     std::vector<SizeType> NewtoOld;
     SizeType newR = m_versionMap.Count();
     if (p_mapping == nullptr) p_mapping = &OldtoNew;
-    p_mapping->reserve(newR);
+    p_mapping->resize(newR);
     for (SizeType i = 0; i < newR; i++)
     {
         if (!m_versionMap.Deleted(i))

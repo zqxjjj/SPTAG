@@ -494,9 +494,9 @@ namespace SPTAG::SPANN {
                                     if (m_versionMap->Deleted(VID) || m_versionMap->GetVersion(VID) != version)
                                         continue;
 
+                                    *((SizeType *)(vectorId)) = (*p_mapping)[VID];
                                     if (j != vectorCount)
                                     {
-                                        *((SizeType *)(vectorId)) = (*p_mapping)[VID];
                                         memcpy(postingP + vectorCount * m_vectorInfoSize, vectorId, m_vectorInfoSize);
                                     }
                                     vectorCount++;
@@ -1135,7 +1135,7 @@ namespace SPTAG::SPANN {
                 p_exWorkSpace->Initialize(m_opt->m_maxCheck, m_opt->m_hashExp, m_opt->m_searchInternalResultNum, (max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit) + m_opt->m_bufferLength) << PageSizeEx, true, m_opt->m_enableDataCompression);
                 if (p_exWorkSpace->g_spaceCount.load() >=
                     max(m_opt->m_ioThreads,
-                        (max(m_opt->m_searchThreadNum, m_opt->m_iSSDNumberOfThreads) + m_opt->m_insertThreadNum +
+                        (2 * max(m_opt->m_searchThreadNum, m_opt->m_iSSDNumberOfThreads) + m_opt->m_insertThreadNum +
                          m_opt->m_reassignThreadNum + m_opt->m_appendThreadNum)))
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Warning,
                                  "The activate workspace number is larger or equal to the maximum IO thread number!\n");
