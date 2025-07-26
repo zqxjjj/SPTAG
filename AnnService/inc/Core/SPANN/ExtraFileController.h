@@ -82,7 +82,15 @@ namespace SPTAG::SPANN {
 
             int RemainBlocks() {
                 return (int)(m_blockAddresses.unsafe_size());
-            };
+            }
+
+            int ReserveBlocks() {
+                return (int)(m_blockAddresses_reserve.unsafe_size());
+            }
+
+            int TotalBlocks() {
+                return (int)(m_totalAllocatedBlocks.load());
+            }
 
             ErrorCode Checkpoint(std::string prefix) {
                 std::string filename = prefix + "_blockpool";
@@ -959,9 +967,11 @@ namespace SPTAG::SPANN {
 
         void GetStat() {
             int remainBlocks = m_pBlockController.RemainBlocks();
-            int remainGB = (long long)remainBlocks << PageSizeEx >> 30;
+            int reserveBlocks = m_pBlockController.ReserveBlocks();
+            int totalBlocks = m_pBlockController.TotalBlocks();
+            int remainGB = ((long long)(remainBlocks + reserveBlocks) >> (30 - PageSizeEx));
             // int remainGB = remainBlocks >> 20 << 2;
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Remain %d blocks, totally %d GB\n", remainBlocks, remainGB);
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Total %d blocks, Remain %d blocks, Reserve %d blocks, totally %d GB\n", totalBlocks, remainBlocks, reserveBlocks, remainGB);
             double average_read_time = (double)read_time_vec / get_times_vec;
             double average_get_time = (double)get_time_vec / get_times_vec;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Get times: %llu, get time: %llu us, read time: %llu us\n", get_times_vec.load(), get_time_vec.load(), read_time_vec.load());
