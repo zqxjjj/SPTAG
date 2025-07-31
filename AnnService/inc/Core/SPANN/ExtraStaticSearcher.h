@@ -162,6 +162,11 @@ namespace SPTAG
             {
             }
 
+            virtual bool Available() override
+            {
+                return m_available;
+            }
+
             void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace, bool clear = false) override
             {
                 if (clear) {
@@ -227,6 +232,7 @@ namespace SPTAG
 #ifndef _MSC_VER
                 Helper::AIOTimeout.tv_nsec = p_opt.m_iotimeout * 1000;
 #endif
+                m_available = true;
                 return true;
             }
 
@@ -967,7 +973,6 @@ namespace SPTAG
                 auto t5 = std::chrono::high_resolution_clock::now();
                 auto elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(t5 - t1).count();
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Total used time: %.2lf minutes (about %.2lf hours).\n", elapsedSeconds / 60.0, elapsedSeconds / 3600.0);
-             
                 return true;
             }
 
@@ -1631,7 +1636,8 @@ namespace SPTAG
             }
 
         private:
-            
+            bool m_available = false;
+
             std::string m_extraFullGraphFile;
 
             std::vector<ListInfo> m_listInfos;

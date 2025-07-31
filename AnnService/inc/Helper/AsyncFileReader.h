@@ -148,6 +148,11 @@ namespace SPTAG
 
             virtual ~AsyncFileIO() { ShutDown(); }
 
+            virtual bool Available()
+            {
+                return !m_shutdown;
+            }
+
             virtual bool NewFile(const char* filePath, uint64_t maxFileSize) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO: Create a file\n");
                 m_fileHandle.Reset(::CreateFile(filePath,
@@ -540,7 +545,7 @@ namespace SPTAG
             }
 
         private:
-            bool m_shutdown;
+            bool m_shutdown = true;
 
             HandleWrapper m_fileHandle;
 
@@ -563,9 +568,14 @@ namespace SPTAG
             AsyncFileIO(DiskIOScenario scenario = DiskIOScenario::DIS_UserRead) {}
 
             virtual ~AsyncFileIO() {
-		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader: Destroying fd=%d!\n", m_fileHandle);
+		        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader: Destroying fd=%d!\n", m_fileHandle);
                 ShutDown(); 
-	    }
+	        }
+
+            virtual bool Available()
+            {
+                return !m_shutdown;
+            }
 
             virtual bool NewFile(const char* filePath, uint64_t maxFileSize) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO: Create a file\n");
@@ -874,7 +884,7 @@ namespace SPTAG
 
             std::vector<std::thread> m_fileIocpThreads;
 #endif
-            bool m_shutdown;
+            bool m_shutdown = true;
 
             int m_fileHandle;
 

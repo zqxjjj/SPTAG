@@ -295,6 +295,7 @@ namespace SPTAG {
             ~IExtraSearcher()
             {
             }
+            virtual bool Available() = 0;
 
             virtual bool LoadIndex(Options& p_options, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& m_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) = 0;
 

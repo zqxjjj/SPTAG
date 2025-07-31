@@ -51,7 +51,7 @@ namespace SPTAG::SPANN {
 
         private:
             bool ExpandFile(AddressType blocksToAdd);
-            bool NeedsExpansion();
+            bool NeedsExpansion(int psize);
 
             // static void Start(void* args);
 

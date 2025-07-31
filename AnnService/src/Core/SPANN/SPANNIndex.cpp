@@ -161,7 +161,8 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
             }
             handles.push_back(std::move(ptr));
         }
-        m_index->LoadIndexData(handles);
+        if (m_index->LoadIndexData(handles) != ErrorCode::Success)
+            return ErrorCode::Fail;
     }
     else if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success)
         return ErrorCode::Fail;
@@ -207,7 +208,8 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
 
     if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign)
     {
-        m_extraSearcher->RefineIndex(m_index);
+        if (m_extraSearcher->RefineIndex(m_index) != ErrorCode::Success)
+            return ErrorCode::Fail;
     }
 
     return ErrorCode::Success;
@@ -1150,14 +1152,7 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
             if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap))
             {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "BuildSSDIndex Failed!\n");
-                if (m_options.m_buildSsdIndex)
-                {
-                    return ErrorCode::Fail;
-                }
-                else
-                {
-                    m_extraSearcher.reset();
-                }
+                return ErrorCode::Fail;
             }
 
             if (!m_options.m_excludehead)
@@ -1211,7 +1206,8 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
             m_vectorTranslateMap.Load(ptr, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
             if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign)
             {
-                m_extraSearcher->RefineIndex(m_index);
+                if (m_extraSearcher->RefineIndex(m_index) != ErrorCode::Success)
+                    return ErrorCode::Fail;
             }
         }
     }

@@ -51,7 +51,7 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt)
     return true;
 }
 
-bool FileIO::BlockController::NeedsExpansion()
+bool FileIO::BlockController::NeedsExpansion(int p_size)
 {
     // TODO: Replace RemainBlocks() which internally uses tbb::concurrent_queue::unsafe_size().
     // unsafe_size() is *not thread-safe* and may yield inconsistent results under concurrent access.
@@ -59,7 +59,7 @@ bool FileIO::BlockController::NeedsExpansion()
     size_t total = m_totalAllocatedBlocks.load();
     float ratio = static_cast<float>(available) / static_cast<float>(total);
 
-    return (ratio < m_growthThreshold);
+    return (available < p_size) || (ratio < m_growthThreshold);
 }
 
 bool FileIO::BlockController::ExpandFile(AddressType blocksToAdd)
@@ -106,16 +106,14 @@ bool FileIO::BlockController::ExpandFile(AddressType blocksToAdd)
 
 bool FileIO::BlockController::GetBlocks(AddressType *p_data, int p_size)
 {
-    AddressType currBlockAddress = 0;
-
     // Trigger expansion if we're below threshold
-    if (NeedsExpansion())
+    if (NeedsExpansion(p_size))
     {
         std::unique_lock<std::mutex> lock(
             m_expandLock); // ensure only one thread tries expandingAdd commentMore actions
-        if (NeedsExpansion())
+        if (NeedsExpansion(p_size))
         { // recheck inside lock
-            AddressType growBy = static_cast<AddressType>(m_growthBlocks);
+            AddressType growBy = max(static_cast<AddressType>(m_growthBlocks), p_size);
             AddressType total = m_totalAllocatedBlocks.load();
             if (total + growBy <= m_maxBlocks)
             {
@@ -136,9 +134,13 @@ bool FileIO::BlockController::GetBlocks(AddressType *p_data, int p_size)
 
     for (int i = 0; i < p_size; i++)
     {
-        while (!m_blockAddresses.try_pop(currBlockAddress))
-            ;
-        p_data[i] = currBlockAddress;
+        int retry = 0;
+        AddressType currBlockAddress = 0xffffffffffffffff;
+        while (retry < 3 && !m_blockAddresses.try_pop(currBlockAddress)) retry++;
+        if (retry < 3)
+            p_data[i] = currBlockAddress;
+        else
+            return false;
     }
     return true;
 }

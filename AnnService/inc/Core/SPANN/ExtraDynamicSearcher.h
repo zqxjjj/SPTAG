@@ -212,6 +212,11 @@ namespace SPTAG::SPANN {
 
         ~ExtraDynamicSearcher() {}
 
+        virtual bool Available() override
+        {
+            return db->Available();
+        }
+
         //headCandidates: search data structrue for "vid" vector
         //headID: the head vector that stands for vid
         bool IsAssumptionBroken(VectorIndex* p_index, SizeType headID, QueryResult& headCandidates, SizeType vid)

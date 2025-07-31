@@ -557,8 +557,8 @@ ErrorCode VectorIndex::BuildIndex(std::shared_ptr<VectorSet> p_vectorSet, std::s
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Build meta mapping...\n");
         BuildMetaMapping(false);
     }
-    BuildIndex(p_vectorSet->GetData(), p_vectorSet->Count(), p_vectorSet->Dimension(), p_normalized, p_shareOwnership);
-    return ErrorCode::Success;
+    ErrorCode ret = BuildIndex(p_vectorSet->GetData(), p_vectorSet->Count(), p_vectorSet->Dimension(), p_normalized, p_shareOwnership);
+    return ret;
 }
 
 ErrorCode VectorIndex::SearchIndex(const void *p_vector, int p_vectorCount, int p_neighborCount, bool p_withMeta,
