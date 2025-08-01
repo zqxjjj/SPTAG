@@ -113,7 +113,7 @@ bool FileIO::BlockController::GetBlocks(AddressType *p_data, int p_size)
             m_expandLock); // ensure only one thread tries expandingAdd commentMore actions
         if (NeedsExpansion(p_size))
         { // recheck inside lock
-            AddressType growBy = max(static_cast<AddressType>(m_growthBlocks), p_size);
+            AddressType growBy = max(static_cast<AddressType>(m_growthBlocks), (AddressType)p_size);
             AddressType total = m_totalAllocatedBlocks.load();
             if (total + growBy <= m_maxBlocks)
             {
