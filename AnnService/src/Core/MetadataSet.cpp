@@ -431,7 +431,7 @@ ErrorCode MemMetadataSet::SaveMetadata(std::shared_ptr<Helper::DiskIO> p_metaOut
         IOBINARY(p_metaIndexOut, WriteBinary, sizeof(std::uint64_t), (const char *)(&m_offsets[i]));
     }
 
-    IOBINARY(p_metaOut, WriteBinary, m_metadataHolder.Length(),
+    IOBINARY(p_metaOut, WriteBinary, m_offsets[m_count],
              reinterpret_cast<const char *>(m_metadataHolder.Data()));
     if (m_newdata.size() > 0)
     {

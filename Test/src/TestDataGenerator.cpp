@@ -252,5 +252,6 @@ std::shared_ptr<Helper::VectorSetReader> TestDataGenerator<T>::LoadReader(const 
 // Explicit instantiation
 template class TestDataGenerator<int8_t>;
 template class TestDataGenerator<uint8_t>;
+template class TestDataGenerator<int16_t>;
 template class TestDataGenerator<float>;
 } // namespace TestUtils
