@@ -60,6 +60,8 @@ void SearchIterativeBatch(const std::string folder, T *vec, SizeType n, std::str
 
     BOOST_CHECK(ErrorCode::Success == VectorIndex::LoadIndex(folder, vecIndex));
     BOOST_CHECK(nullptr != vecIndex);
+    vecIndex->SetParameter("MaxCheck", "5", "BuildSSDIndex");
+    vecIndex->UpdateIndex();
 
     std::shared_ptr<ResultIterator> resultIterator = vecIndex->GetIterator(vec);
     // std::cout << "relaxedMono:" << resultIterator->GetRelaxedMono() << std::endl;
