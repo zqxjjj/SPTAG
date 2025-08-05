@@ -201,6 +201,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType *p_data, std::string *p_val
         SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads,
                      blockNum);
         m_batchReadTimeouts++;
+        return false;
     }
 
     p_value->resize(postingSize);
@@ -257,6 +258,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType *> &p_dat
         SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads,
                      reqcount);
         m_batchReadTimeouts++;
+        return false;
     }
 
     p_values->resize(p_data.size());
@@ -368,6 +370,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType *> &p_dat
         SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "FileIO::BlockController::ReadBlocks: %u < %u\n", totalReads,
                      reqcount - emptycount);
         m_batchReadTimeouts++;
+        return false;
     }
     return true;
 }
@@ -396,6 +399,7 @@ bool FileIO::BlockController::WriteBlocks(AddressType *p_data, int p_size, const
     {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "FileIO::BlockController::WriteBlocks: %u < %d\n", totalWrites,
                      p_size);
+        return false;
     }
     return true;
 }
