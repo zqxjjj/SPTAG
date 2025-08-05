@@ -35,6 +35,11 @@ namespace SPTAG
 
             inline bool Deleted(const SizeType& key) const
             {
+                if (key < 0 || key >= m_data.R())
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error vid in VersionLabel Deleted check:%d\n", key);
+                    return true;
+                }
                 return *m_data[key] == 0xfe;
             }
 
