@@ -14,6 +14,7 @@ bool FileIO::BlockController::Initialize(SPANN::Options &p_opt)
     m_maxBlocks = ((std::uint64_t)p_opt.m_maxFileSize) << (30 - PageSizeEx);
     m_batchSize = p_opt.m_spdkBatchSize;
     strcpy(m_filePath, (p_opt.m_indexDirectory + FolderSep + p_opt.m_ssdMappingFile + "_postings").c_str());
+    m_disableCheckpoint = p_opt.m_disableCheckpoint;
     m_startTime = std::chrono::high_resolution_clock::now();
 
     int numblocks = m_batchSize;
@@ -149,7 +150,14 @@ bool FileIO::BlockController::ReleaseBlocks(AddressType *p_data, int p_size)
 {
     for (int i = 0; i < p_size; i++)
     {
-        m_blockAddresses_reserve.push(p_data[i]);
+        if (m_disableCheckpoint)
+        {
+            m_blockAddresses.push(p_data[i]);
+        }
+        else
+        {
+            m_blockAddresses_reserve.push(p_data[i]);
+        }
     }
     return true;
 }

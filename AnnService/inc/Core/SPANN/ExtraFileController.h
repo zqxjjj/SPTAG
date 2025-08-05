@@ -39,6 +39,7 @@ namespace SPTAG::SPANN {
             int m_batchSize = 64;
             int m_preIOCompleteCount = 0;
             int64_t m_preIOBytes = 0;
+            bool m_disableCheckpoint = false;
 
             std::chrono::high_resolution_clock::time_point m_startTime;
             std::chrono::time_point<std::chrono::high_resolution_clock> m_preTime = std::chrono::high_resolution_clock::now();
