@@ -200,6 +200,12 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
 
     omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
 
+    if (!m_extraSearcher->Available())
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Extrasearcher is not available and failed to initialize.\n");
+        return ErrorCode::Fail;
+    }
+
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loading storage\n");
     if (!m_extraSearcher->LoadIndex(m_options, m_versionMap, m_vectorTranslateMap, m_index))
         return ErrorCode::Fail;
@@ -1147,6 +1153,11 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
 
         if (m_options.m_buildSsdIndex)
         {
+            if (!m_extraSearcher->Available())
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Extrasearcher is not available and failed to initialize.\n");
+                return ErrorCode::Fail;
+            }
             if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap))
             {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "BuildSSDIndex Failed!\n");
