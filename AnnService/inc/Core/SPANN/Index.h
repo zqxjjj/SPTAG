@@ -241,16 +241,16 @@ namespace SPTAG
                 auto workSpace = m_workSpaceFactory->GetWorkSpace();
                 if (!workSpace) {
                     workSpace.reset(new ExtraWorkSpace());
-                    workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                    m_extraSearcher->InitWorkSpace(workSpace.get(), false);
                 }
                 else {
-                    workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                    m_extraSearcher->InitWorkSpace(workSpace.get(), true);
                 }
                 workSpace->m_deduper.clear();
                 workSpace->m_postingIDs.clear();
                 m_extraSearcher->ForceGC(workSpace.get(), m_index.get()); 
             }
-
+            
             void Checkpoint() {
                 /** Lock & wait until all jobs done **/
                 while (!AllFinished())
@@ -318,10 +318,10 @@ namespace SPTAG
                 auto workSpace = m_workSpaceFactory->GetWorkSpace();
                 if (!workSpace) {
                     workSpace.reset(new ExtraWorkSpace());
-                    workSpace->Initialize(m_options.m_maxCheck, m_options.m_hashExp, m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                    m_extraSearcher->InitWorkSpace(workSpace.get(), false);
                 }
                 else {
-                    workSpace->Clear(m_options.m_searchInternalResultNum, max(m_options.m_postingPageLimit, m_options.m_searchPostingPageLimit + 1) << PageSizeEx, m_options.m_storage != Storage::STATIC, m_options.m_enableDataCompression);
+                    m_extraSearcher->InitWorkSpace(workSpace.get(), true);
                 }
                 workSpace->m_deduper.clear();
                 workSpace->m_postingIDs.clear();

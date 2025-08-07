@@ -274,7 +274,7 @@ namespace SPTAG
                     auto& request = p_exWorkSpace->m_diskRequests[pi];
                     request.m_offset = listInfo->listOffset;
                     request.m_readSize = totalBytes;
-                    request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
+                    request.m_status = fileid;
                     request.m_payload = (void*)listInfo; 
                     request.m_success = false;
 
@@ -420,7 +420,7 @@ namespace SPTAG
                     auto& request = p_exWorkSpace->m_diskRequests[pi];
                     request.m_offset = listInfo->listOffset;
                     request.m_readSize = totalBytes;
-                    request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
+                    request.m_status = fileid;
                     request.m_payload = (void*)listInfo;
                     request.m_success = false;
 
@@ -1004,7 +1004,7 @@ namespace SPTAG
                 auto& request = p_exWorkSpace->m_diskRequests[0];
                 request.m_offset = listInfo->listOffset;
                 request.m_readSize = totalBytes;
-                request.m_status = (fileid << 16) | p_exWorkSpace->m_spaceID;
+                request.m_status = fileid;
                 request.m_payload = (void*)listInfo;
                 request.m_success = false;
 

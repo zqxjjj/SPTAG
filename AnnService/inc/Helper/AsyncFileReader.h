@@ -648,6 +648,7 @@ namespace SPTAG
                         SPTAGLIB_LOG(LogLevel::LL_Error, "Cannot setup aio: %s\n", strerror(errno));
                         return false;
                     }
+                    m_freeiocps.push(i);
                 }
                 m_shutdown = false;
 
@@ -688,7 +689,12 @@ namespace SPTAG
                 if (batchSize < 0 || batchSize > requestCount) batchSize = requestCount;
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
-                int iocp = readRequests[0].m_status % m_iocps.size();
+                int iocp;
+                if (!m_freeiocps.try_pop(iocp))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "The iocp number is not enough! Please increase iothread number.\n");
+                    return 0;
+                }
 		        //struct timespec timeout_ts {0, 0};
 		        //while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
  
@@ -729,14 +735,21 @@ namespace SPTAG
                                 totalSubmitted += s;
                             } else {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_submit failed\n");
-				                return batchTotalDone;
+                                m_freeiocps.push(iocp);
+                                return batchTotalDone;
 			                } 
                         }
                         int wait = totalSubmitted - totalDone;
                         auto d = syscall(__NR_io_getevents, m_iocps[iocp], wait, wait, events.data() + totalDone, &AIOTimeout);
-			            if (d > 0) {
+			            if (d >= 0) {
                             totalDone += d;
-			            }
+                        }
+                        else
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_getevents failed\n");
+                            m_freeiocps.push(iocp);
+                            return batchTotalDone;
+                        }
                     }
                     batchTotalDone += totalDone;
                     auto t2 = std::chrono::high_resolution_clock::now();
@@ -747,6 +760,7 @@ namespace SPTAG
                         //break;
                     }
                 }
+                m_freeiocps.push(iocp);
                 //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: finish\n");
                 return batchTotalDone;
             }
@@ -760,7 +774,13 @@ namespace SPTAG
 		
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
-                int iocp = readRequests[0].m_status % m_iocps.size();
+                int iocp;
+                if (!m_freeiocps.try_pop(iocp))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "The iocp number is not enough! Please increase iothread number.\n");
+                    return 0;
+                }
 	         	//struct timespec timeout_ts {0, 0};
 		        //while (syscall(__NR_io_getevents, m_iocps[iocp], batchSize, batchSize, events.data(), &timeout_ts) > 0);
 		
@@ -796,13 +816,20 @@ namespace SPTAG
                                 totalSubmitted += s;
                             } else {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks: io_submit failed\n");
+                                m_freeiocps.push(iocp);
                                 return batchTotalDone;
 			                }
                         }
                         int wait = totalSubmitted - totalDone;
                         auto d = syscall(__NR_io_getevents, m_iocps[iocp], wait, wait, events.data() + totalDone, &AIOTimeout);
-			            if (d > 0) {
+			            if (d >= 0) {
                             totalDone += d;
+                        }
+                        else
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::WriteBlocks: io_getevents failed\n");
+                            m_freeiocps.push(iocp);
+                            return batchTotalDone;
                         }
                     }
                     batchTotalDone += totalDone;
@@ -814,6 +841,7 @@ namespace SPTAG
                         //break;
                     }
                 }
+                m_freeiocps.push(iocp);
                 //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::WriteBlocks: %d reqs finish\n", requestCount);
                 return batchTotalDone;
             }
@@ -828,12 +856,20 @@ namespace SPTAG
                 myiocb->aio_nbytes = readRequest.m_readSize;
                 myiocb->aio_offset = static_cast<std::int64_t>(readRequest.m_offset);
 
+                int iocp;
+                if (!m_freeiocps.try_pop(iocp))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "The iocp number is not enough! Please increase iothread number.\n");
+                    return false;
+                }
                 struct iocb* iocbs[1] = { myiocb };
                 int curTry = 0, maxTry = 10;
-                while (curTry < maxTry && syscall(__NR_io_submit, m_iocps[(readRequest.m_status & 0xffff) % m_iocps.size()], 1, iocbs) < 1) {
+                while (curTry < maxTry && syscall(__NR_io_submit, m_iocps[iocp], 1, iocbs) < 1) {
                     usleep(AIOTimeout.tv_nsec / 1000);
                     curTry++;
                 }
+                m_freeiocps.push(iocp);
                 if (curTry == maxTry) return false;
                 return true;
             }
@@ -860,6 +896,18 @@ namespace SPTAG
             }
 
             aio_context_t& GetIOCP(int i) { return m_iocps[i]; }
+
+            inline int GetFreeIOCP()
+            {
+                int iocp;
+                while (!m_freeiocps.try_pop(iocp));
+                return iocp;
+            }
+            
+            inline int ReturnFreeIOCP(int iocp)
+            {
+                m_freeiocps.push(iocp);
+            }
 
             int GetFileHandler() { return m_fileHandle; }
 
@@ -890,7 +938,9 @@ namespace SPTAG
 
             uint64_t m_currSize;
 
-	    std::vector<aio_context_t> m_iocps;
+	        std::vector<aio_context_t> m_iocps;
+
+            Helper::Concurrent::ConcurrentQueue<int> m_freeiocps;
         };
 #endif
         bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>>& handlers, AsyncReadRequest* readRequests, int num);
