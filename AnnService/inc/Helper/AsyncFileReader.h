@@ -689,7 +689,7 @@ namespace SPTAG
                 if (batchSize < 0 || batchSize > requestCount) batchSize = requestCount;
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
-                int iocp;
+                int iocp = 0;
                 if (!m_freeiocps.try_pop(iocp))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "The iocp number is not enough! Please increase iothread number.\n");
@@ -774,7 +774,7 @@ namespace SPTAG
 		
                 std::vector<struct iocb*> iocbs(batchSize);
                 std::vector<struct io_event> events(batchSize);
-                int iocp;
+                int iocp = 0;
                 if (!m_freeiocps.try_pop(iocp))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
@@ -856,7 +856,7 @@ namespace SPTAG
                 myiocb->aio_nbytes = readRequest.m_readSize;
                 myiocb->aio_offset = static_cast<std::int64_t>(readRequest.m_offset);
 
-                int iocp;
+                int iocp = 0;
                 if (!m_freeiocps.try_pop(iocp))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
@@ -899,12 +899,12 @@ namespace SPTAG
 
             inline int GetFreeIOCP()
             {
-                int iocp;
+                int iocp = 0;
                 while (!m_freeiocps.try_pop(iocp));
                 return iocp;
             }
             
-            inline int ReturnFreeIOCP(int iocp)
+            inline void ReturnFreeIOCP(int iocp)
             {
                 m_freeiocps.push(iocp);
             }
