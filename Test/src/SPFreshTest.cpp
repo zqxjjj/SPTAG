@@ -29,6 +29,7 @@ namespace SPFreshTest
 SizeType N = 1000;
 DimensionType M = 100;
 int K = 10;
+int queries = 10;
 
 template <typename T>
 std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::shared_ptr<VectorSet> vecset,
@@ -381,7 +382,7 @@ BOOST_AUTO_TEST_CASE(TestLoadAndSave)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
@@ -412,7 +413,7 @@ BOOST_AUTO_TEST_CASE(TestReopenIndexRecall)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
@@ -447,7 +448,7 @@ BOOST_AUTO_TEST_CASE(TestInsertAndSearch)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     // Build base index
@@ -475,7 +476,7 @@ BOOST_AUTO_TEST_CASE(TestClone)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
@@ -506,7 +507,7 @@ BOOST_AUTO_TEST_CASE(TestCloneRecall)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
@@ -541,7 +542,7 @@ BOOST_AUTO_TEST_CASE(IndexPersistenceAndInsertSanity)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     // Build and save base index
@@ -600,7 +601,7 @@ BOOST_AUTO_TEST_CASE(IndexPersistenceAndInsertMultipleThreads)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     // Build and save base index
@@ -658,7 +659,7 @@ BOOST_AUTO_TEST_CASE(IndexSaveDuringQuery)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     auto index = BuildIndex<int8_t>("save_during_query_index", vecset, metaset);
@@ -704,7 +705,7 @@ BOOST_AUTO_TEST_CASE(IndexMultiThreadedQuerySanity)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     // Build and save index
@@ -768,7 +769,7 @@ BOOST_AUTO_TEST_CASE(IndexShadowCloneLifecycleKeepLast)
     std::shared_ptr<VectorSet> vecset, queryset, truth, addvecset, addtruth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(N, 10, M, K, "L2");
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
     generator.Run(vecset, metaset, queryset, truth, addvecset, addmetaset, addtruth);
 
     const std::string baseIndexName = "base_index";
@@ -942,20 +943,16 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
 {
     using namespace SPFreshTest;
 
-    constexpr int iterations = 5;
-    constexpr int base = 10000;
-    constexpr int insertBatchSize = base / 5;
-    constexpr int deleteBatchSize = base / 5;
-    constexpr int dimension = 128;
-    constexpr int queries = 10;
-    constexpr int K = 5;
+    int iterations = 5;
+    int insertBatchSize = N / iterations;
+    int deleteBatchSize = N / iterations;
 
     // Generate test data
     std::shared_ptr<VectorSet> vecset, addvecset, queryset, truth;
     std::shared_ptr<MetadataSet> metaset, addmetaset;
 
-    TestUtils::TestDataGenerator<int8_t> generator(base, queries, dimension, K, "L2");
-    generator.RunBatches(vecset, metaset, addvecset, addmetaset, queryset, base, insertBatchSize, deleteBatchSize,
+    TestUtils::TestDataGenerator<int8_t> generator(N, queries, M, K, "L2");
+    generator.RunBatches(vecset, metaset, addvecset, addmetaset, queryset, N, insertBatchSize, deleteBatchSize,
                          iterations, truth);
 
     // Build and save index
@@ -963,7 +960,7 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
     BOOST_REQUIRE(originalIndex != nullptr);
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
 
-    float recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base);
+    float recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N);
     std::cout << "original: recall@5=" << recall << std::endl;
 
     for (int iter = 0; iter < iterations; iter++)
@@ -974,7 +971,7 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
         for (int i = 0; i < deleteBatchSize; i++)
             originalIndex->DeleteIndex(iter * deleteBatchSize + i);
 
-        recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base, iter + 1);
+        recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N, iter + 1);
         std::cout << "iter " << iter << ": recall@5=" << recall << std::endl;
     }
     std::cout << "Before Refine:" << " recall@5=" << recall << std::endl;
@@ -985,7 +982,7 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
     BOOST_REQUIRE(VectorIndex::LoadIndex("original_index", originalIndex) == ErrorCode::Success);
     BOOST_REQUIRE(originalIndex != nullptr);
 
-    recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, base, iterations);
+    recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
     std::cout << "After Refine:" << " recall@5=" << recall << std::endl;
     static_cast<SPANN::Index<int8_t> *>(originalIndex.get())->GetDBStat();
 }
