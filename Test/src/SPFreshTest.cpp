@@ -986,4 +986,53 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
     std::cout << "After Refine:" << " recall@5=" << recall << std::endl;
     static_cast<SPANN::Index<int8_t> *>(originalIndex.get())->GetDBStat();
 }
+
+BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
+{
+    using namespace SPFreshTest;
+
+    constexpr int insertIterations = 5;
+    constexpr int insertBatchSize = 100000;
+    constexpr int appendBatchSize = 8000;
+    constexpr int dimension = 1024;
+    std::shared_ptr<VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
+    std::shared_ptr<MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, 0);
+
+    auto originalIndex = BuildIndex<float>("original_index", vecset, metaset);
+    BOOST_REQUIRE(originalIndex != nullptr);
+    BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
+    originalIndex = nullptr;
+
+    std::string prevPath = "original_index";
+    for (int iter = 0; iter < insertIterations; iter++)
+    {
+        std::string clone_path = "clone_index_" + std::to_string(iter);
+        std::shared_ptr<VectorIndex> prevIndex;
+        BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
+        BOOST_REQUIRE(prevIndex != nullptr);
+
+        auto cloneIndex = prevIndex->Clone(clone_path);
+        auto *cloneIndexPtr = static_cast<SPANN::Index<float> *>(cloneIndex.get());
+        std::shared_ptr<VectorSet> tmpvecs = get_embeddings<float>(
+            insertBatchSize + iter * appendBatchSize, insertBatchSize + (iter + 1) * appendBatchSize, dimension, -1);
+        std::shared_ptr<MetadataSet> tmpmetas = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(
+            appendBatchSize, insertBatchSize + (iter)*appendBatchSize);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        InsertVectors<float>(cloneIndexPtr, 1, appendBatchSize, tmpvecs, tmpmetas);
+        std::cout << "Insert time for iteration " << iter << ": "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() -
+                                                                           t1)
+                         .count()
+                  << " ms" << std::endl;
+
+        BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
+        cloneIndex = nullptr;
+    }
+
+    for (int iter = 0; iter < insertIterations; iter++)
+    {
+        std::filesystem::remove_all("clone_index_" + std::to_string(iter));
+    }
+    // std::filesystem::remove_all("original_index");
+}
 BOOST_AUTO_TEST_SUITE_END()
