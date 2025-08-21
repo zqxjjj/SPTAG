@@ -44,7 +44,7 @@ public:
 
     virtual ErrorCode SearchIndex(QueryResult& p_results, bool p_searchDeleted = false) const = 0;
     
-    virtual std::shared_ptr<ResultIterator> GetIterator(const void* p_target, bool p_searchDeleted = false) const = 0;
+    virtual std::shared_ptr<ResultIterator> GetIterator(const void* p_target, std::function<bool(const ByteArray&)> p_filterFunc = nullptr, int p_maxCheck = 0, bool p_searchDeleted = false) const = 0;
 
     virtual ErrorCode SearchIndexIterativeNext(QueryResult& p_query, COMMON::WorkSpace* workSpace, int p_batch, int& resultCount, bool p_isFirst, bool p_searchDeleted) const = 0;
 
@@ -52,7 +52,7 @@ public:
 
     virtual bool SearchIndexIterativeFromNeareast(QueryResult& p_query, COMMON::WorkSpace* p_space, bool p_isFirst, bool p_searchDeleted = false) const = 0;
 
-    virtual std::unique_ptr<COMMON::WorkSpace> RentWorkSpace(int batch) const = 0;
+    virtual std::unique_ptr<COMMON::WorkSpace> RentWorkSpace(int batch, std::function<bool(const ByteArray&)> p_filterFunc = nullptr, int p_maxCheck = 0) const = 0;
 
     virtual ErrorCode RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted = false) const = 0;
 

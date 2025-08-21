@@ -440,7 +440,7 @@ ErrorCode Index<T>::SearchIndexIterative(QueryResult &p_headQuery, QueryResult &
 }
 
 template <typename T>
-std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool p_searchDeleted) const
+std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck, bool p_searchDeleted) const
 {
     if (!m_bReady)
         return nullptr;
@@ -454,12 +454,13 @@ std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool
     {
         m_extraSearcher->InitWorkSpace(extraWorkspace.get(), true);
     }
+    extraWorkspace->m_filterFunc = p_filterFunc;
     extraWorkspace->m_relaxedMono = false;
     extraWorkspace->m_loadedPostingNum = 0;
     extraWorkspace->m_deduper.clear();
     extraWorkspace->m_postingIDs.clear();
     std::shared_ptr<ResultIterator> resultIterator = std::make_shared<SPANNResultIterator<T>>(
-        this, m_index.get(), p_target, std::move(extraWorkspace), m_options.m_headBatch);
+        this, m_index.get(), p_target, std::move(extraWorkspace), m_options.m_headBatch, p_maxCheck);
     return resultIterator;
 }
 
@@ -620,7 +621,7 @@ ErrorCode Index<T>::SearchDiskIndexIterative(QueryResult &p_headQuery, QueryResu
         extraWorkspace->m_loadedPostingNum += (int)(extraWorkspace->m_postingIDs.size());
     }
 
-    return m_extraSearcher->SearchIterativeNext(extraWorkspace, p_headQuery, p_query, m_index);
+    return m_extraSearcher->SearchIterativeNext(extraWorkspace, p_headQuery, p_query, m_index, this);
 }
 
 template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch) const

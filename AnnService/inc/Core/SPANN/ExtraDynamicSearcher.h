@@ -1508,14 +1508,15 @@ namespace SPTAG::SPANN {
 
         virtual ErrorCode SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
             QueryResult& p_queryResults,
-            std::shared_ptr<VectorIndex>& p_index)
+            std::shared_ptr<VectorIndex>& p_index, VectorIndex* p_spann)
         {
             COMMON::QueryResultSet<ValueType>& headResults = *((COMMON::QueryResultSet<ValueType>*) & p_headResults);
             COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
             bool foundResult = false;
             BasicResult* head = headResults.GetResult(p_exWorkSpace->m_ri);
             while (!foundResult && p_exWorkSpace->m_pi < p_exWorkSpace->m_postingIDs.size()) {
-                if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi) {
+                if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi && 
+                    (p_exWorkSpace->m_filterFunc == nullptr || p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(head->VID)))) {
                     queryResults.AddPoint(head->VID, head->Dist);
                     head = headResults.GetResult(++p_exWorkSpace->m_ri);
                     foundResult = true;
@@ -1532,6 +1533,7 @@ namespace SPTAG::SPANN {
                     if (vectorID >= m_versionMap->Count()) return ErrorCode::Key_OverFlow;
                     if (m_versionMap->Deleted(vectorID)) continue;
                     if (p_exWorkSpace->m_deduper.CheckAndSet(vectorID)) continue;
+                    if (p_exWorkSpace->m_filterFunc != nullptr && !p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(vectorID))) continue;
 
                     auto distance2leaf = p_index->ComputeDistance(queryResults.GetQuantizedTarget(), vectorInfo + m_metaDataSize);
                     queryResults.AddPoint(vectorID, distance2leaf);
@@ -1543,7 +1545,8 @@ namespace SPTAG::SPANN {
                     p_exWorkSpace->m_offset = 0;
                 }
             }
-            if (!foundResult && head && head->VID != -1) {
+            if (!foundResult && head && head->VID != -1 &&
+               (p_exWorkSpace->m_filterFunc == nullptr || p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(head->VID)))) {
                     queryResults.AddPoint(head->VID, head->Dist);
                     head = headResults.GetResult(++p_exWorkSpace->m_ri);
                     foundResult = true;
@@ -1554,7 +1557,7 @@ namespace SPTAG::SPANN {
 
         virtual ErrorCode SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
             QueryResult& p_query,
-            std::shared_ptr<VectorIndex> p_index)
+            std::shared_ptr<VectorIndex> p_index, VectorIndex* p_spann)
         {
             if (p_exWorkSpace->m_loadPosting) {
                 ErrorCode ret = SearchIndexWithoutParsing(p_exWorkSpace);
@@ -1565,7 +1568,7 @@ namespace SPTAG::SPANN {
                 p_exWorkSpace->m_loadPosting = false;
             }
 
-            return SearchNextInPosting(p_exWorkSpace, p_headResults, p_query, p_index);
+            return SearchNextInPosting(p_exWorkSpace, p_headResults, p_query, p_index, p_spann);
         }
 
         std::string GetPostingListFullData(
