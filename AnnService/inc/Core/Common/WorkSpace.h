@@ -9,6 +9,7 @@
 #include "Heap.h"
 
 #include <stdarg.h>
+#include <functional>
 
 namespace SPTAG
 {
