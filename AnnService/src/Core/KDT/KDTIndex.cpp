@@ -383,7 +383,7 @@ template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace
         workSpace.reset(new COMMON::WorkSpace());
         workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
     }
-    workSpace->ResetResult(p_maxCheck > 0? p_maxCheck: m_iMaxCheck, batch);
+    workSpace->Reset(p_maxCheck > 0? p_maxCheck: m_iMaxCheck, batch);
     workSpace->m_filterFunc = p_filterFunc;
     return std::move(workSpace);
 }
