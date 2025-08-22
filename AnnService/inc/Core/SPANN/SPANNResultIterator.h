@@ -22,7 +22,7 @@ namespace SPTAG
 		public:
 			SPANNResultIterator(const Index<T>* p_spannIndex, const VectorIndex* p_index, const void* p_target,
 				std::unique_ptr<SPANN::ExtraWorkSpace> p_extraWorkspace,
-				int p_batch): ResultIterator(p_index, p_target, false, p_batch),
+				int p_batch, int p_maxCheck): ResultIterator(p_index, p_target, false, p_batch, nullptr, p_maxCheck),
 				m_spannIndex(p_spannIndex),
                 m_extraWorkspace(std::move(p_extraWorkspace)), 
 				m_errorCode(ErrorCode::Success)

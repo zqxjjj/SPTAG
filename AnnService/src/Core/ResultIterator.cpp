@@ -5,11 +5,11 @@ struct UniqueHandler
     std::unique_ptr<SPTAG::COMMON::WorkSpace> m_handler;
 };
 
-ResultIterator::ResultIterator(const void *p_index, const void *p_target, bool p_searchDeleted, int p_workspaceBatch)
+ResultIterator::ResultIterator(const void *p_index, const void *p_target, bool p_searchDeleted, int p_workspaceBatch, std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck)
     : m_index((const VectorIndex *)p_index), m_target(p_target), m_searchDeleted(p_searchDeleted)
 {
     m_workspace = new UniqueHandler;
-    ((UniqueHandler *)m_workspace)->m_handler = std::move(m_index->RentWorkSpace(p_workspaceBatch));
+    ((UniqueHandler *)m_workspace)->m_handler = std::move(m_index->RentWorkSpace(p_workspaceBatch, p_filterFunc, p_maxCheck));
     m_isFirstResult = true;
 }
 

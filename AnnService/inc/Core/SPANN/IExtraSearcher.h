@@ -266,6 +266,8 @@ namespace SPTAG {
             bool m_relaxedMono = false;
 
             int m_loadedPostingNum = 0;
+
+            std::function<bool(const ByteArray&)> m_filterFunc;
         };
 
         class IExtraSearcher
@@ -289,13 +291,13 @@ namespace SPTAG {
 
             virtual ErrorCode SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
-                std::shared_ptr<VectorIndex> p_index) = 0;
+                std::shared_ptr<VectorIndex> p_index, const VectorIndex* p_spann) = 0;
 
             virtual ErrorCode SearchIndexWithoutParsing(ExtraWorkSpace* p_exWorkSpace) = 0;
 
             virtual ErrorCode SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
-                std::shared_ptr<VectorIndex>& p_index) = 0;
+                std::shared_ptr<VectorIndex>& p_index, const VectorIndex* p_spann) = 0;
 
             virtual bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, 
                 std::shared_ptr<VectorIndex> p_index, 

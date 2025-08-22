@@ -303,13 +303,7 @@ template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool
     if (!m_bReady)
         return ErrorCode::EmptyIndex;
 
-    auto workSpace = m_workSpaceFactory->GetWorkSpace();
-    if (!workSpace)
-    {
-        workSpace.reset(new COMMON::WorkSpace());
-        workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
-    }
-    workSpace->Reset(m_iMaxCheck, p_query.GetResultNum());
+    auto workSpace = RentWorkSpace(p_query.GetResultNum(), nullptr, m_iMaxCheck);
 
     COMMON::QueryResultSet<T> *p_results = (COMMON::QueryResultSet<T> *)&p_query;
 
@@ -353,7 +347,7 @@ template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool
 }
 
 template <typename T>
-std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool p_searchDeleted) const
+std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool p_searchDeleted,  std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck) const
 {
     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ITERATIVE NOT SUPPORT FOR KDT");
     return nullptr;
@@ -381,7 +375,7 @@ bool Index<T>::SearchIndexIterativeFromNeareast(QueryResult &p_query, COMMON::Wo
     return false;
 }
 
-template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch) const
+template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch,  std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck) const
 {
     auto workSpace = m_workSpaceFactory->GetWorkSpace();
     if (!workSpace)
@@ -389,7 +383,8 @@ template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace
         workSpace.reset(new COMMON::WorkSpace());
         workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
     }
-    workSpace->ResetResult(m_iMaxCheck, batch);
+    workSpace->ResetResult(p_maxCheck > 0? p_maxCheck: m_iMaxCheck, batch);
+    workSpace->m_filterFunc = p_filterFunc;
     return std::move(workSpace);
 }
 
@@ -403,13 +398,7 @@ ErrorCode Index<T>::SearchIndexWithFilter(QueryResult &p_query, std::function<bo
 
 template <typename T> ErrorCode Index<T>::RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted) const
 {
-    auto workSpace = m_workSpaceFactory->GetWorkSpace();
-    if (!workSpace)
-    {
-        workSpace.reset(new COMMON::WorkSpace());
-        workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
-    }
-    workSpace->Reset(m_pGraph.m_iMaxCheckForRefineGraph, p_query.GetResultNum());
+    auto workSpace = RentWorkSpace(p_query.GetResultNum(), nullptr, m_pGraph.m_iMaxCheckForRefineGraph);
 
     COMMON::QueryResultSet<T> *p_results = (COMMON::QueryResultSet<T> *)&p_query;
 
@@ -444,13 +433,7 @@ template <typename T> ErrorCode Index<T>::RefineSearchIndex(QueryResult &p_query
 
 template <typename T> ErrorCode Index<T>::SearchTree(QueryResult &p_query) const
 {
-    auto workSpace = m_workSpaceFactory->GetWorkSpace();
-    if (!workSpace)
-    {
-        workSpace.reset(new COMMON::WorkSpace());
-        workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
-    }
-    workSpace->Reset(m_pGraph.m_iMaxCheckForRefineGraph, p_query.GetResultNum());
+    auto workSpace = RentWorkSpace(p_query.GetResultNum(), nullptr, m_pGraph.m_iMaxCheckForRefineGraph);
 
     COMMON::QueryResultSet<T> *p_results = (COMMON::QueryResultSet<T> *)&p_query;
 

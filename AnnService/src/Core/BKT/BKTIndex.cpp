@@ -395,7 +395,8 @@ void Index<T>::Search(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_s
 
 template <typename T>
 template <bool (*notDeleted)(const COMMON::Labelset &, SizeType),
-          bool (*isDup)(COMMON::QueryResultSet<T> &, SizeType, float)>
+          bool (*isDup)(COMMON::QueryResultSet<T> &, SizeType, float),
+          bool (*checkFilter)(const std::shared_ptr<MetadataSet> &, SizeType, std::function<bool(const ByteArray &)>)>
 int Index<T>::SearchIterative(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space, bool p_isFirst,
                               int batch) const
 {
@@ -420,10 +421,13 @@ int Index<T>::SearchIterative(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSp
                 break;
             _mm_prefetch((const char *)(m_pSamples)[futureNode], _MM_HINT_T0);
         }
-        if (notDeleted(m_deletedID, tmpNode))
+        if (notDeleted(m_deletedID, tmpNode)) 
         {
-            p_query.AddPoint(tmpNode, gnode.distance);
-            count++;
+            if (checkFilter(m_pMetadata, tmpNode, p_space.m_filterFunc))
+            {
+                p_query.AddPoint(tmpNode, gnode.distance);
+                count++;
+            }
             if (gnode.distance > p_space.m_Results.worst() || p_space.m_iNumberOfCheckedLeaves > p_space.m_iMaxCheck)
             {
                 p_space.m_relaxedMono = true;
@@ -570,26 +574,43 @@ int Index<T>::SearchIndexIterative(COMMON::QueryResultSet<T> &p_query, COMMON::W
     int count = 0;
     // bitflags for which dispatch to take
     uint8_t flags = 0;
-    flags += (m_deletedID.Count() == 0 || p_searchDeleted) << 1;
-    flags += p_searchDuplicated;
+    flags += (m_deletedID.Count() == 0 || p_searchDeleted) << 2;
+    flags += p_searchDuplicated << 1;
+    flags += (p_space.m_filterFunc == nullptr);
 
     switch (flags)
     {
-    case 0b00:
-        count = SearchIterative<StaticDispatch::CheckIfNotDeleted, StaticDispatch::NeverDup>(p_query, p_space,
-                                                                                             p_isFirst, batch);
+    case 0b000:
+        count = SearchIterative<StaticDispatch::CheckIfNotDeleted, StaticDispatch::NeverDup, StaticDispatch::CheckFilter>(
+            p_query, p_space, p_isFirst, batch);
         break;
-    case 0b01:
-        count = SearchIterative<StaticDispatch::CheckIfNotDeleted, StaticDispatch::CheckDup>(p_query, p_space,
-                                                                                             p_isFirst, batch);
+    case 0b001:
+        count = SearchIterative<StaticDispatch::CheckIfNotDeleted, StaticDispatch::NeverDup, StaticDispatch::AlwaysTrue>(
+            p_query, p_space, p_isFirst, batch);
         break;
-    case 0b10:
-        count =
-            SearchIterative<StaticDispatch::AlwaysTrue, StaticDispatch::NeverDup>(p_query, p_space, p_isFirst, batch);
+    case 0b010:
+        count = SearchIterative<StaticDispatch::CheckIfNotDeleted, StaticDispatch::CheckDup, StaticDispatch::CheckFilter>(
+            p_query, p_space, p_isFirst, batch);
         break;
-    case 0b11:
-        count =
-            SearchIterative<StaticDispatch::AlwaysTrue, StaticDispatch::CheckDup>(p_query, p_space, p_isFirst, batch);
+    case 0b011:
+        count = SearchIterative<StaticDispatch::CheckIfNotDeleted, StaticDispatch::CheckDup, StaticDispatch::AlwaysTrue>(
+            p_query, p_space, p_isFirst, batch);
+        break;
+    case 0b100:
+        count = SearchIterative<StaticDispatch::AlwaysTrue, StaticDispatch::NeverDup, StaticDispatch::CheckFilter>(
+            p_query, p_space, p_isFirst, batch);
+        break;
+    case 0b101:
+        count = SearchIterative<StaticDispatch::AlwaysTrue, StaticDispatch::NeverDup, StaticDispatch::AlwaysTrue>(
+            p_query, p_space, p_isFirst, batch);
+        break;
+    case 0b110:
+        count = SearchIterative<StaticDispatch::AlwaysTrue, StaticDispatch::CheckDup, StaticDispatch::CheckFilter>(
+            p_query, p_space, p_isFirst, batch);
+        break;
+    case 0b111:
+        count = SearchIterative<StaticDispatch::AlwaysTrue, StaticDispatch::CheckDup, StaticDispatch::AlwaysTrue>(
+            p_query, p_space, p_isFirst, batch);
         break;
     default:
         std::ostringstream oss;
@@ -608,7 +629,7 @@ bool Index<T>::SearchIndexIterativeFromNeareast(QueryResult &p_query, COMMON::Wo
     if (p_isFirst)
     {
         p_space->ResetResult(m_iMaxCheck, p_query.GetResultNum());
-        SearchIndex(*((COMMON::QueryResultSet<T> *)&p_query), *p_space, p_searchDeleted, true);
+        SearchIndex(*((COMMON::QueryResultSet<T> *)&p_query), *p_space, p_searchDeleted, true, p_space->m_filterFunc);
         // make sure other node can be traversed after topk found
         p_space->nodeCheckStatus.clear();
         for (int i = 0; i < p_query.GetResultNum(); ++i)
@@ -666,13 +687,7 @@ template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool
     if (!m_bReady)
         return ErrorCode::EmptyIndex;
 
-    auto workSpace = m_workSpaceFactory->GetWorkSpace();
-    if (!workSpace)
-    {
-        workSpace.reset(new COMMON::WorkSpace());
-        workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
-    }
-    workSpace->Reset(m_iMaxCheck, p_query.GetResultNum());
+    auto workSpace = RentWorkSpace(p_query.GetResultNum(), nullptr, m_iMaxCheck);
 
     SearchIndex(*((COMMON::QueryResultSet<T> *)&p_query), *workSpace, p_searchDeleted, true);
 
@@ -696,13 +711,7 @@ ErrorCode Index<T>::SearchIndexWithFilter(QueryResult &p_query, std::function<bo
     if (!m_bReady)
         return ErrorCode::EmptyIndex;
 
-    auto workSpace = m_workSpaceFactory->GetWorkSpace();
-    if (!workSpace)
-    {
-        workSpace.reset(new COMMON::WorkSpace());
-        workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
-    }
-    workSpace->Reset(maxCheck == 0 ? m_iMaxCheck : maxCheck, p_query.GetResultNum());
+    auto workSpace = RentWorkSpace(p_query.GetResultNum(), filterFunc, maxCheck);
 
     SearchIndex(*((COMMON::QueryResultSet<T> *)&p_query), *workSpace, p_searchDeleted, true, filterFunc);
 
@@ -720,13 +729,13 @@ ErrorCode Index<T>::SearchIndexWithFilter(QueryResult &p_query, std::function<bo
 }
 
 template <typename T>
-std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool p_searchDeleted) const
+std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool p_searchDeleted, std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck) const
 {
     if (!m_bReady)
         return nullptr;
 
     std::shared_ptr<ResultIterator> resultIterator =
-        std::make_shared<ResultIterator>((const void *)this, p_target, p_searchDeleted, 1);
+        std::make_shared<ResultIterator>((const void *)this, p_target, p_searchDeleted, 1, p_filterFunc, p_maxCheck);
     return resultIterator;
 }
 
@@ -760,7 +769,7 @@ template <typename T> ErrorCode Index<T>::SearchIndexIterativeEnd(std::unique_pt
     return ErrorCode::Success;
 }
 
-template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch) const
+template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch, std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck) const
 {
     auto workSpace = m_workSpaceFactory->GetWorkSpace();
     if (!workSpace)
@@ -768,34 +777,22 @@ template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace
         workSpace.reset(new COMMON::WorkSpace());
         workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
     }
-    workSpace->Reset(m_iMaxCheck, batch);
+    workSpace->Reset(p_maxCheck > 0? p_maxCheck: m_iMaxCheck, batch);
+    workSpace->m_filterFunc = p_filterFunc;
     return std::move(workSpace);
 }
 
 template <typename T> ErrorCode Index<T>::RefineSearchIndex(QueryResult &p_query, bool p_searchDeleted) const
 {
-    auto workSpace = m_workSpaceFactory->GetWorkSpace();
-    if (!workSpace)
-    {
-        workSpace.reset(new COMMON::WorkSpace());
-        workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
-    }
-    workSpace->Reset(m_pGraph.m_iMaxCheckForRefineGraph, p_query.GetResultNum());
+    auto workSpace = RentWorkSpace(p_query.GetResultNum(), nullptr, m_pGraph.m_iMaxCheckForRefineGraph);
     SearchIndex(*((COMMON::QueryResultSet<T> *)&p_query), *workSpace, p_searchDeleted, false);
     m_workSpaceFactory->ReturnWorkSpace(std::move(workSpace));
-
     return ErrorCode::Success;
 }
 
 template <typename T> ErrorCode Index<T>::SearchTree(QueryResult &p_query) const
 {
-    auto workSpace = m_workSpaceFactory->GetWorkSpace();
-    if (!workSpace)
-    {
-        workSpace.reset(new COMMON::WorkSpace());
-        workSpace->Initialize(max(m_iMaxCheck, m_pGraph.m_iMaxCheckForRefineGraph), m_iHashTableExp);
-    }
-    workSpace->Reset(m_pGraph.m_iMaxCheckForRefineGraph, p_query.GetResultNum());
+    auto workSpace = RentWorkSpace(p_query.GetResultNum(), nullptr, m_pGraph.m_iMaxCheckForRefineGraph);
 
     COMMON::QueryResultSet<T> *p_results = (COMMON::QueryResultSet<T> *)&p_query;
     m_pTrees.InitSearchTrees(m_pSamples, m_fComputeDistance, *p_results, *workSpace);
