@@ -511,7 +511,7 @@ namespace SPTAG
 
             virtual ErrorCode SearchNextInPosting(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_queryResults,
-		        std::shared_ptr<VectorIndex>& p_index, VectorIndex* p_spann) override
+		        std::shared_ptr<VectorIndex>& p_index, const VectorIndex* p_spann) override
             {
                 COMMON::QueryResultSet<ValueType>& headResults = *((COMMON::QueryResultSet<ValueType>*) & p_headResults);
                 COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
@@ -547,7 +547,7 @@ namespace SPTAG
 
             virtual ErrorCode SearchIterativeNext(ExtraWorkSpace* p_exWorkSpace, QueryResult& p_headResults,
                 QueryResult& p_query,
-		        std::shared_ptr<VectorIndex> p_index, VectorIndex* p_spann) override
+		        std::shared_ptr<VectorIndex> p_index, const VectorIndex* p_spann) override
             {
                 if (p_exWorkSpace->m_loadPosting) {
                     ErrorCode ret = SearchIndexWithoutParsing(p_exWorkSpace);

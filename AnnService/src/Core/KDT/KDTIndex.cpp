@@ -347,7 +347,7 @@ template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool
 }
 
 template <typename T>
-std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target,  std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck, bool p_searchDeleted) const
+std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool p_searchDeleted,  std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck) const
 {
     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ITERATIVE NOT SUPPORT FOR KDT");
     return nullptr;
