@@ -172,7 +172,7 @@ bool FileIO::BlockController::ReadBlocks(AddressType *p_data, std::string *p_val
         return true;
     }
 
-    size_t postingSize = (size_t)p_data[0];
+    const int64_t postingSize = (int64_t)(p_data[0]);
     auto blockNum = (postingSize + PageSize - 1) >> PageSizeEx;
     if (blockNum > reqs->size())
     {

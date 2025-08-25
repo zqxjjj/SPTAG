@@ -870,7 +870,11 @@ namespace SPTAG::SPANN {
             if (sizeInPage != 0) {
                 std::string newValue;
                 AddressType readreq[] = { sizeInPage, *(postingSize + 1 + oldblocks) };
-                m_pBlockController.ReadBlocks(readreq, &newValue, timeout, reqs);
+                if (!m_pBlockController.ReadBlocks(readreq, &newValue, timeout, reqs))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Cannot read original posting!\n");
+                    return ErrorCode::DiskIOFail;
+                }
                 //std::string lastblock = before.substr(before.size() - sizeInPage);
                 //PrintPostingDiff(lastblock, newValue, "0");
                 newValue += value;
@@ -878,8 +882,18 @@ namespace SPTAG::SPANN {
                 uintptr_t tmpblocks = 0xffffffffffffffff;
                 while (!m_buffer.try_pop(tmpblocks));
                 memcpy((AddressType*)tmpblocks, postingSize, sizeof(AddressType) * (oldblocks + 1));
-                m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks);
-                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1 + oldblocks, allocblocks, newValue, timeout, reqs);
+                if (!m_pBlockController.GetBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Not enough blocks in the pool can be allocated!\n");
+                    return ErrorCode::DiskIOFail;
+                }
+                if (!m_pBlockController.WriteBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks, newValue,
+                                                    timeout, reqs))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "[Merge] Write new block failed!\n");
+                    return ErrorCode::DiskIOFail;
+                }
                 *((int64_t*)tmpblocks) = newSize;
 
                 // This is also to ensure checkpoint correctness, so we release the partially used block and allocate a new one.
@@ -890,8 +904,17 @@ namespace SPTAG::SPANN {
                 m_buffer.push((uintptr_t)postingSize);
             }
             else {  // Otherwise, directly allocate a new batch of blocks to append after the current ones.
-                m_pBlockController.GetBlocks(postingSize + 1 + oldblocks, allocblocks);
-                m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs);
+                if (!m_pBlockController.GetBlocks(postingSize + 1 + oldblocks, allocblocks))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "[Merge] Not enough blocks in the pool can be allocated!\n");
+                    return ErrorCode::DiskIOFail;
+                }
+                if (!m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Write new block failed!\n");
+                    return ErrorCode::DiskIOFail;
+                }
                 *postingSize = newSize;
             }
 	    /*
