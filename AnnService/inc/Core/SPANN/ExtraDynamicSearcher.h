@@ -725,17 +725,20 @@ namespace SPTAG::SPANN {
                         auto splitPutEnd = std::chrono::high_resolution_clock::now();
                         elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(splitPutEnd - splitPutBegin).count();
                         m_stat.m_putCost += elapsedMSeconds;
+
+                        std::lock_guard<std::mutex> tmplock(m_dataAddLock);
+                        if (m_postingSizes.AddBatch(1) == ErrorCode::MemoryOverFlow)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "MemoryOverFlow: NnewHeadVID: %d, Map Size:%d\n",
+                                         newHeadVID, m_postingSizes.BufferSize());
+                            return ErrorCode::MemoryOverFlow;
+                        }
+
                         auto updateHeadBegin = std::chrono::high_resolution_clock::now();
                         p_index->AddIndexIdx(begin, end);
                         auto updateHeadEnd = std::chrono::high_resolution_clock::now();
                         elapsedMSeconds = std::chrono::duration_cast<std::chrono::milliseconds>(updateHeadEnd - updateHeadBegin).count();
                         m_stat.m_updateHeadCost += elapsedMSeconds;
-
-                        std::lock_guard<std::mutex> tmplock(m_dataAddLock);
-                        if (m_postingSizes.AddBatch(1) == ErrorCode::MemoryOverFlow) {
-                            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "MemoryOverFlow: NnewHeadVID: %d, Map Size:%d\n", newHeadVID, m_postingSizes.BufferSize());
-                            return ErrorCode::MemoryOverFlow;
-                        }
                     }
                     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Head id: %d split into : %d, length: %d\n", headID, newHeadVID, args.counts[k]);
                     first += args.counts[k];
@@ -1174,11 +1177,13 @@ namespace SPTAG::SPANN {
                 //std::shared_lock<std::shared_timed_mutex> lock(m_rwLocks[headID]); //ROCKSDB
                 std::unique_lock<std::shared_timed_mutex> lock(m_rwLocks[headID]); //SPDK
                 if (!p_index->ContainSample(headID)) {
+                    lock.unlock();
                     goto checkDeleted;
                 }
                 if (m_postingSizes.GetSize(headID) + appendNum > (m_postingSizeLimit + m_bufferSizeLimit)) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "After appending, the number of vectors exceeds the postingsize + buffersize (%d + %d)! Do split now...\n", m_postingSizeLimit, m_bufferSizeLimit);
                     Split(p_exWorkSpace, p_index, headID, !m_opt->m_disableReassign, false, false);
+                    lock.unlock();
                     goto checkDeleted;
                 }
 

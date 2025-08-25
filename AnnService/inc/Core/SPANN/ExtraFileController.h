@@ -769,8 +769,17 @@ namespace SPTAG::SPANN {
             int64_t* postingSize = (int64_t*)At(key);
             // If postingSize is less than 0, it means the mapping block is newly allocated—directly
             if (*postingSize < 0) {
-                m_pBlockController.GetBlocks(postingSize + 1, blocks);
-                m_pBlockController.WriteBlocks(postingSize + 1, blocks, value, timeout, reqs);
+                if (!m_pBlockController.GetBlocks(postingSize + 1, blocks))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "[Put] Not enough blocks in the pool can be allocated!\n");
+                    return ErrorCode::DiskIOFail;
+                }
+                if (!m_pBlockController.WriteBlocks(postingSize + 1, blocks, value, timeout, reqs))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
+                    return ErrorCode::DiskIOFail;
+                }
                 *postingSize = value.size();
             }
             else {
@@ -779,8 +788,16 @@ namespace SPTAG::SPANN {
                 while (!m_buffer.try_pop(tmpblocks));
                 // Acquire a new batch of disk blocks and write data directly.
                 // To ensure the effectiveness of the checkpoint, new blocks must be allocated for writing here.
-                m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks);
-                m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value, timeout, reqs);
+                if (!m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Not enough blocks in the pool can be allocated!\n");
+                    return ErrorCode::DiskIOFail;
+                }
+                if (!m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value, timeout, reqs))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
+                    return ErrorCode::DiskIOFail;
+                }
                 *((int64_t*)tmpblocks) = value.size();
 
                 // Release the original blocks
@@ -838,6 +855,12 @@ namespace SPTAG::SPANN {
             }
             
             int64_t* postingSize = (int64_t*)At(key);
+            if (((uintptr_t)postingSize) == 0xffffffffffffffff || *postingSize < 0)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                             "[Merge] Key %d failed: postingSize < 0\n");
+                return ErrorCode::Key_NotFound;
+            }
 
             if (m_fileIoUseCache) {
                 m_pShardedLRUCache->merge(key, (void *)(value.data()), value.size());
@@ -953,7 +976,8 @@ namespace SPTAG::SPANN {
             }
 
             int64_t* postingSize = (int64_t*)At(key);
-            if (*postingSize < 0) {
+            if (((uintptr_t)postingSize) == 0xffffffffffffffff || *postingSize < 0)
+            {
                 if (m_fileIoUseLock) {
                     m_rwMutex[hash(key)].unlock();
                 }
