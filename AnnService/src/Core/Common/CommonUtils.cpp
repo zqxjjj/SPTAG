@@ -10,11 +10,32 @@ using namespace SPTAG::COMMON;
 
 template <typename T> void Utils::BatchNormalize(T *data, SizeType row, DimensionType col, int base, int threads)
 {
-#pragma omp parallel for num_threads(threads)
-    for (SizeType i = 0; i < row; i++)
+    std::vector<std::thread> mythreads;
+    mythreads.reserve(threads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < threads; tid++)
     {
-        SPTAG::COMMON::Utils::Normalize(data + i * (size_t)col, col, base);
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < row)
+                {
+                    SPTAG::COMMON::Utils::Normalize(data + i * (size_t)col, col, base);
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
     }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
 }
 
 #define DefineVectorValueType(Name, Type)                                                                              \

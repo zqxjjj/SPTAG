@@ -192,27 +192,48 @@ void GenerateReconstructData(std::shared_ptr<VectorSet> &real_vecset, std::share
     }
     else
     {
-        omp_set_num_threads(5);
-
         ByteArray tru = ByteArray::Alloc(sizeof(SizeType) * queryset->Count() * k);
 
-#pragma omp parallel for
-        for (SizeType i = 0; i < queryset->Count(); ++i)
+        int testThreads = 5;
+        std::vector<std::thread> mythreads;
+        mythreads.reserve(testThreads);
+        std::atomic_size_t sent(0);
+        for (int tid = 0; tid < testThreads; tid++)
         {
-            SizeType *neighbors = ((SizeType *)tru.Data()) + i * k;
+            mythreads.emplace_back([&, tid]() {
+                size_t i = 0;
+                while (true)
+                {
+                    i = sent.fetch_add(1);
+                    if (i < queryset->Count())
+                    {
+                        SizeType *neighbors = ((SizeType *)tru.Data()) + i * k;
 
-            COMMON::QueryResultSet<R> res((const R *)queryset->GetVector(i), k);
-            for (SizeType j = 0; j < real_vecset->Count(); j++)
-            {
-                float dist = COMMON::DistanceUtils::ComputeDistance(res.GetTarget(),
-                                                                    reinterpret_cast<R *>(real_vecset->GetVector(j)),
-                                                                    queryset->Dimension(), distCalcMethod);
-                res.AddPoint(j, dist);
-            }
-            res.SortResult();
-            for (int j = 0; j < k; j++)
-                neighbors[j] = res.GetResult(j)->VID;
+                        COMMON::QueryResultSet<R> res((const R *)queryset->GetVector(i), k);
+                        for (SizeType j = 0; j < real_vecset->Count(); j++)
+                        {
+                            float dist = COMMON::DistanceUtils::ComputeDistance(
+                                res.GetTarget(), reinterpret_cast<R *>(real_vecset->GetVector(j)),
+                                queryset->Dimension(), distCalcMethod);
+                            res.AddPoint(j, dist);
+                        }
+                        res.SortResult();
+                        for (int j = 0; j < k; j++)
+                            neighbors[j] = res.GetResult(j)->VID;
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+            });
         }
+        for (auto &t : mythreads)
+        {
+            t.join();
+        }
+        mythreads.clear();
+
         truth.reset(new BasicVectorSet(tru, GetEnumValueType<float>(), k, queryset->Count()));
         truth->Save("quantest_truth." + Helper::Convert::ConvertToString(distCalcMethod));
     }
@@ -250,8 +271,7 @@ void GenerateReconstructData(std::shared_ptr<VectorSet> &real_vecset, std::share
     }
     else
     {
-        omp_set_num_threads(16);
-
+        int testThreads = 16;
         std::cout << "Building codebooks!" << std::endl;
         R *vecs = (R *)(real_vecset->GetData());
 
@@ -268,45 +288,90 @@ void GenerateReconstructData(std::shared_ptr<VectorSet> &real_vecset, std::share
             while (cnt--)
             {
                 // calculate cluster
-#pragma omp parallel for
-                for (int ii = 0; ii < n; ii++)
+                std::vector<std::thread> mythreads;
+                mythreads.reserve(testThreads);
                 {
-                    double min_dis = 1e9;
-                    int min_id = 0;
-                    for (int jj = 0; jj < Ks; jj++)
+                    std::atomic_size_t sent(0);
+                    for (int tid = 0; tid < testThreads; tid++)
                     {
-                        double now_dis = COMMON::DistanceUtils::ComputeDistance(
-                            vecs + ii * m + i * QuanDim, kmeans + jj * QuanDim, QuanDim, DistCalcMethod::L2);
-                        if (now_dis < min_dis)
-                        {
-                            min_dis = now_dis;
-                            min_id = jj;
-                        }
+                        mythreads.emplace_back([&, tid]() {
+                            size_t ii = 0;
+                            while (true)
+                            {
+                                ii = sent.fetch_add(1);
+                                if (ii < n)
+                                {
+                                    double min_dis = 1e9;
+                                    int min_id = 0;
+                                    for (int jj = 0; jj < Ks; jj++)
+                                    {
+                                        double now_dis = COMMON::DistanceUtils::ComputeDistance(
+                                            vecs + ii * m + i * QuanDim, kmeans + jj * QuanDim, QuanDim,
+                                            DistCalcMethod::L2);
+                                        if (now_dis < min_dis)
+                                        {
+                                            min_dis = now_dis;
+                                            min_id = jj;
+                                        }
+                                    }
+                                    belong[ii] = min_id;
+                                }
+                                else
+                                {
+                                    return;
+                                }
+                            }
+                        });
                     }
-                    belong[ii] = min_id;
+                    for (auto &t : mythreads)
+                    {
+                        t.join();
+                    }
+                    mythreads.clear();
                 }
+
                 // recalculate kmeans
                 std::memset(kmeans, 0, sizeof(R) * Ks * QuanDim);
-#pragma omp parallel for
-                for (int ii = 0; ii < Ks; ii++)
+
+                std::atomic_size_t sent(0);
+                for (int tid = 0; tid < testThreads; tid++)
                 {
-                    int num = 0;
-                    for (int jj = 0; jj < n; jj++)
-                    {
-                        if (belong[jj] == ii)
+                    mythreads.emplace_back([&, tid]() {
+                        size_t ii = 0;
+                        while (true)
                         {
-                            num++;
-                            for (int kk = 0; kk < QuanDim; kk++)
+                            ii = sent.fetch_add(1);
+                            if (ii < Ks)
                             {
-                                kmeans[ii * QuanDim + kk] += vecs[jj * m + i * QuanDim + kk];
+                                int num = 0;
+                                for (int jj = 0; jj < n; jj++)
+                                {
+                                    if (belong[jj] == ii)
+                                    {
+                                        num++;
+                                        for (int kk = 0; kk < QuanDim; kk++)
+                                        {
+                                            kmeans[ii * QuanDim + kk] += vecs[jj * m + i * QuanDim + kk];
+                                        }
+                                    }
+                                }
+                                for (int jj = 0; jj < QuanDim; jj++)
+                                {
+                                    kmeans[ii * QuanDim + jj] /= num;
+                                }
+                            }
+                            else
+                            {
+                                return;
                             }
                         }
-                    }
-                    for (int jj = 0; jj < QuanDim; jj++)
-                    {
-                        kmeans[ii * QuanDim + jj] /= num;
-                    }
+                    });
                 }
+                for (auto &t : mythreads)
+                {
+                    t.join();
+                }
+                mythreads.clear();
             }
         }
 

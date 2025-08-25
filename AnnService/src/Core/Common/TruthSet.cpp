@@ -88,25 +88,50 @@ void TruthSet::GenerateTruth(std::shared_ptr<VectorSet> querySet, std::shared_pt
     std::vector<std::vector<float>> distset(querySet->Count(), std::vector<float>(K, 0));
     auto fComputeDistance =
         quantizer ? quantizer->DistanceCalcSelector<T>(distMethod) : COMMON::DistanceCalcSelector<T>(distMethod);
-#pragma omp parallel for
-    for (int i = 0; i < querySet->Count(); ++i)
-    {
-        SPTAG::COMMON::QueryResultSet<T> query((const T *)(querySet->GetVector(i)), K);
-        query.SetTarget((const T *)(querySet->GetVector(i)), quantizer);
-        for (SPTAG::SizeType j = 0; j < vectorSet->Count(); j++)
-        {
-            float dist = fComputeDistance(query.GetQuantizedTarget(), reinterpret_cast<T *>(vectorSet->GetVector(j)),
-                                          vectorSet->Dimension());
-            query.AddPoint(j, dist);
-        }
-        query.SortResult();
 
-        for (int k = 0; k < K; k++)
-        {
-            truthset[i][k] = (query.GetResult(k))->VID;
-            distset[i][k] = (query.GetResult(k))->Dist;
-        }
+    std::vector<std::thread> mythreads;
+    int maxthreads = std::thread::hardware_concurrency();
+    mythreads.reserve(maxthreads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < maxthreads; tid++)
+    {
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < querySet->Count())
+                {
+                    SPTAG::COMMON::QueryResultSet<T> query((const T *)(querySet->GetVector(i)), K);
+                    query.SetTarget((const T *)(querySet->GetVector(i)), quantizer);
+                    for (SPTAG::SizeType j = 0; j < vectorSet->Count(); j++)
+                    {
+                        float dist =
+                            fComputeDistance(query.GetQuantizedTarget(), reinterpret_cast<T *>(vectorSet->GetVector(j)),
+                                             vectorSet->Dimension());
+                        query.AddPoint(j, dist);
+                    }
+                    query.SortResult();
+
+                    for (int k = 0; k < K; k++)
+                    {
+                        truthset[i][k] = (query.GetResult(k))->VID;
+                        distset[i][k] = (query.GetResult(k))->Dist;
+                    }
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
     }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
+
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Start to write truth file...\n");
     writeTruthFile(truthFile, querySet->Count(), K, truthset, distset, p_truthFileType);
 

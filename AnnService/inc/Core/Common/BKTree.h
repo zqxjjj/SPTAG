@@ -224,59 +224,81 @@ namespace SPTAG
             float currDist = 0;
             SizeType subsize = (last - first - 1) / args._TH + 1;
 
-#pragma omp parallel for num_threads(args._TH) shared(data, indices) reduction(+:currDist)
+            std::vector<std::thread> mythreads;
+            mythreads.reserve(args._TH);
             for (int tid = 0; tid < args._TH; tid++)
             {
-                SizeType istart = first + tid * subsize;
-                SizeType iend = min(first + (tid + 1) * subsize, last);
-                SizeType *inewCounts = args.newCounts + tid * args._K;
-                float *inewCenters = args.newCenters + tid * args._K * args._RD;
-                SizeType * iclusterIdx = args.clusterIdx + tid * args._K;
-                float * iclusterDist = args.clusterDist + tid * args._K;
-                float * iweightedCounts = args.newWeightedCounts + tid * args._K;
-                float idist = 0;
-                R* reconstructVector = nullptr;
-                if (args.m_pQuantizer) reconstructVector = (R*)ALIGN_ALLOC(args.m_pQuantizer->ReconstructSize());
+                mythreads.emplace_back([&, tid]() {
+                    SizeType istart = first + tid * subsize;
+                    SizeType iend = min(first + (tid + 1) * subsize, last);
+                    SizeType *inewCounts = args.newCounts + tid * args._K;
+                    float *inewCenters = args.newCenters + tid * args._K * args._RD;
+                    SizeType *iclusterIdx = args.clusterIdx + tid * args._K;
+                    float *iclusterDist = args.clusterDist + tid * args._K;
+                    float *iweightedCounts = args.newWeightedCounts + tid * args._K;
+                    float idist = 0;
+                    R *reconstructVector = nullptr;
+                    if (args.m_pQuantizer)
+                        reconstructVector = (R *)ALIGN_ALLOC(args.m_pQuantizer->ReconstructSize());
 
-                for (SizeType i = istart; i < iend; i++) {
-                    int clusterid = 0;
-                    float smallestDist = MaxDist;
-                    for (int k = 0; k < args._DK; k++) {
-                        float dist = args.fComputeDistance(data[indices[i]], args.centers + k*args._D, args._D) + lambda*args.counts[k];
-                        if (dist > -MaxDist && dist < smallestDist) {
-                            clusterid = k; smallestDist = dist;
+                    for (SizeType i = istart; i < iend; i++)
+                    {
+                        int clusterid = 0;
+                        float smallestDist = MaxDist;
+                        for (int k = 0; k < args._DK; k++)
+                        {
+                            float dist = args.fComputeDistance(data[indices[i]], args.centers + k * args._D, args._D) +
+                                         lambda * args.counts[k];
+                            if (dist > -MaxDist && dist < smallestDist)
+                            {
+                                clusterid = k;
+                                smallestDist = dist;
+                            }
                         }
-                    }
-                    args.label[i] = clusterid;
-                    inewCounts[clusterid]++;
-                    iweightedCounts[clusterid] += smallestDist;
-                    idist += smallestDist;
-                    if (updateCenters) {
-                        if (args.m_pQuantizer) {
-                            args.m_pQuantizer->ReconstructVector((const uint8_t*)data[indices[i]], reconstructVector);
-                        }
-                        else {
-                            reconstructVector = (R*)data[indices[i]];
-                        }
-                        float* center = inewCenters + clusterid*args._RD;
-                        for (DimensionType j = 0; j < args._RD; j++) center[j] += reconstructVector[j];
+                        args.label[i] = clusterid;
+                        inewCounts[clusterid]++;
+                        iweightedCounts[clusterid] += smallestDist;
+                        idist += smallestDist;
+                        if (updateCenters)
+                        {
+                            if (args.m_pQuantizer)
+                            {
+                                args.m_pQuantizer->ReconstructVector((const uint8_t *)data[indices[i]],
+                                                                     reconstructVector);
+                            }
+                            else
+                            {
+                                reconstructVector = (R *)data[indices[i]];
+                            }
+                            float *center = inewCenters + clusterid * args._RD;
+                            for (DimensionType j = 0; j < args._RD; j++)
+                                center[j] += reconstructVector[j];
 
-                        if (smallestDist > iclusterDist[clusterid]) {
-                            iclusterDist[clusterid] = smallestDist;
-                            iclusterIdx[clusterid] = indices[i];
+                            if (smallestDist > iclusterDist[clusterid])
+                            {
+                                iclusterDist[clusterid] = smallestDist;
+                                iclusterIdx[clusterid] = indices[i];
+                            }
+                        }
+                        else
+                        {
+                            if (smallestDist <= iclusterDist[clusterid])
+                            {
+                                iclusterDist[clusterid] = smallestDist;
+                                iclusterIdx[clusterid] = indices[i];
+                            }
                         }
                     }
-                    else {
-                        if (smallestDist <= iclusterDist[clusterid]) {
-                            iclusterDist[clusterid] = smallestDist;
-                            iclusterIdx[clusterid] = indices[i];
-                        }
-                    }
-                }
-                if (args.m_pQuantizer) ALIGN_FREE(reconstructVector);
-                currDist += idist;
+                    if (args.m_pQuantizer)
+                        ALIGN_FREE(reconstructVector);
+                    COMMON::Utils::atomic_float_add(&currDist, idist);
+                });
             }
-
+            for (auto &t : mythreads)
+            {
+                t.join();
+            }
+            mythreads.clear();
             for (int i = 1; i < args._TH; i++) {
                 for (int k = 0; k < args._DK; k++) {
                     args.newCounts[k] += args.newCounts[i * args._K + k];

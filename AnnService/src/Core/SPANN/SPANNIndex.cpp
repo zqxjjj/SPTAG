@@ -126,7 +126,6 @@ template <typename T> ErrorCode Index<T>::LoadIndexDataFromMemory(const std::vec
     m_vectorTranslateMap.Initialize(m_index->GetNumSamples(), 1, m_index->m_iDataBlockSize, m_index->m_iDataCapacity,
                                     p_indexBlobs.back().Data(), false);
 
-    omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
     return ErrorCode::Success;
 }
 
@@ -197,8 +196,6 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
         else
             m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
     }
-
-    omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
 
     if (m_options.m_storage != Storage::STATIC && !m_extraSearcher->Available())
     {
@@ -1042,7 +1039,6 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
     auto t1 = std::chrono::high_resolution_clock::now();
     if (m_options.m_selectHead)
     {
-        omp_set_num_threads(m_options.m_iSelectHeadNumberOfThreads);
         bool success = false;
         if (m_pQuantizer)
         {
@@ -1118,8 +1114,6 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin Build SSDIndex...\n");
     if (m_options.m_enableSSD)
     {
-        omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
-
         if (m_index == nullptr && LoadIndex(m_options.m_indexDirectory + FolderSep + m_options.m_headIndexFolder,
                                             m_index) != ErrorCode::Success)
         {
@@ -1302,7 +1296,6 @@ ErrorCode Index<T>::BuildIndex(const void *p_data, SizeType p_vectorNum, Dimensi
 
 template <typename T> ErrorCode Index<T>::UpdateIndex()
 {
-    omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
     m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
     // m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
     // m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));

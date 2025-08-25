@@ -261,7 +261,7 @@ namespace SPTAG::SPANN {
             float maxDist;
             float avgDist = 0;
             std::vector<float> distanceSet;
-            //#pragma omp parallel for num_threads(32)
+
             for (int j = 0; j < postVectorNum; j++) {
                 uint8_t* vectorId = postingP + j * m_vectorInfoSize;
                 SizeType vid = *(reinterpret_cast<int*>(vectorId));
@@ -1727,7 +1727,6 @@ namespace SPTAG::SPANN {
                     }
 
                     float acc = 0;
-                    #pragma omp parallel for schedule(dynamic)
                     for (int j = 0; j < sampleNum; j++)
                     {
                         COMMON::Utils::atomic_float_add(&acc, COMMON::TruthSet::CalculateRecall(p_headIndex.get(), fullVectors->GetVector(samples[j]), candidateNum));
@@ -1796,19 +1795,46 @@ namespace SPTAG::SPANN {
                 }
             }
 
-    #pragma omp parallel for schedule(dynamic)
-            for (int i = 0; i < postingListSize.size(); ++i)
             {
-                if (postingListSize[i] <= m_postingSizeLimit) continue;
-
-                std::size_t selectIdx = std::lower_bound(selections.m_selections.begin(), selections.m_selections.end(), i, Selection::g_edgeComparer) - selections.m_selections.begin();
-
-                for (size_t dropID = m_postingSizeLimit; dropID < postingListSize[i]; ++dropID)
+                std::vector<std::thread> mythreads;
+                mythreads.reserve(m_opt->m_iSSDNumberOfThreads);
+                std::atomic_size_t sent(0);
+                for (int tid = 0; tid < m_opt->m_iSSDNumberOfThreads; tid++)
                 {
-                    int tonode = selections.m_selections[selectIdx + dropID].tonode;
-                    --replicaCount[tonode];
+                    mythreads.emplace_back([&, tid]() {
+                        size_t i = 0;
+                        while (true)
+                        {
+                            i = sent.fetch_add(1);
+                            if (i < postingListSize.size())
+                            {
+                                if (postingListSize[i] <= m_postingSizeLimit)
+                                    continue;
+
+                                std::size_t selectIdx =
+                                    std::lower_bound(selections.m_selections.begin(), selections.m_selections.end(), i,
+                                                     Selection::g_edgeComparer) -
+                                    selections.m_selections.begin();
+
+                                for (size_t dropID = m_postingSizeLimit; dropID < postingListSize[i]; ++dropID)
+                                {
+                                    int tonode = selections.m_selections[selectIdx + dropID].tonode;
+                                    --replicaCount[tonode];
+                                }
+                                postingListSize[i] = m_postingSizeLimit;
+                            }
+                            else
+                            {
+                                return;
+                            }
+                        }
+                    });
                 }
-                postingListSize[i] = m_postingSizeLimit;
+                for (auto &t : mythreads)
+                {
+                    t.join();
+                }
+                mythreads.clear();
             }
             {
                 std::vector<int> replicaCountDist(m_opt->m_replicaCount + 1, 0);

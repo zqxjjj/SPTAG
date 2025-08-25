@@ -565,13 +565,35 @@ ErrorCode VectorIndex::SearchIndex(const void *p_vector, int p_vectorCount, int 
                                    BasicResult *p_results) const
 {
     size_t vectorSize = GetValueTypeSize(GetVectorValueType()) * GetFeatureDim();
-#pragma omp parallel for schedule(dynamic, 10)
-    for (int i = 0; i < p_vectorCount; i++)
+    std::vector<std::thread> mythreads;
+    int maxthreads = std::thread::hardware_concurrency();
+    mythreads.reserve(maxthreads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < maxthreads; tid++)
     {
-        QueryResult res((char *)p_vector + i * vectorSize, p_neighborCount, p_withMeta,
-                        p_results + i * p_neighborCount);
-        SearchIndex(res);
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < p_vectorCount)
+                {
+                    QueryResult res((char *)p_vector + i * vectorSize, p_neighborCount, p_withMeta,
+                                    p_results + i * p_neighborCount);
+                    SearchIndex(res);
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
     }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
     return ErrorCode::Success;
 }
 
@@ -604,45 +626,87 @@ ErrorCode VectorIndex::MergeIndex(VectorIndex *p_addindex, int p_threadnum, IAbo
     ErrorCode ret = ErrorCode::Success;
     if (p_addindex->m_pMetadata != nullptr)
     {
-#pragma omp parallel for num_threads(p_threadnum) schedule(dynamic, 128)
-        for (SizeType i = 0; i < p_addindex->GetNumSamples(); i++)
+        std::vector<std::thread> mythreads;
+        mythreads.reserve(p_threadnum);
+        std::atomic_size_t sent(0);
+        for (int tid = 0; tid < p_threadnum; tid++)
         {
-            if (ret == ErrorCode::ExternalAbort)
-                continue;
+            mythreads.emplace_back([&, tid]() {
+                size_t i = 0;
+                while (true)
+                {
+                    i = sent.fetch_add(1);
+                    if (i < p_addindex->GetNumSamples())
+                    {
+                        if (ret == ErrorCode::ExternalAbort)
+                            continue;
 
-            if (p_addindex->ContainSample(i))
-            {
-                ByteArray meta = p_addindex->GetMetadata(i);
-                std::uint64_t offsets[2] = {0, meta.Length()};
-                std::shared_ptr<MetadataSet> p_metaSet(
-                    new MemMetadataSet(meta, ByteArray((std::uint8_t *)offsets, sizeof(offsets), false), 1));
-                AddIndex(p_addindex->GetSample(i), 1, p_addindex->GetFeatureDim(), p_metaSet);
-            }
+                        if (p_addindex->ContainSample(i))
+                        {
+                            ByteArray meta = p_addindex->GetMetadata(i);
+                            std::uint64_t offsets[2] = {0, meta.Length()};
+                            std::shared_ptr<MetadataSet> p_metaSet(new MemMetadataSet(
+                                meta, ByteArray((std::uint8_t *)offsets, sizeof(offsets), false), 1));
+                            AddIndex(p_addindex->GetSample(i), 1, p_addindex->GetFeatureDim(), p_metaSet);
+                        }
 
-            if (p_abort != nullptr && p_abort->ShouldAbort())
-            {
-                ret = ErrorCode::ExternalAbort;
-            }
+                        if (p_abort != nullptr && p_abort->ShouldAbort())
+                        {
+                            ret = ErrorCode::ExternalAbort;
+                        }
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+            });
         }
+        for (auto &t : mythreads)
+        {
+            t.join();
+        }
+        mythreads.clear();
     }
     else
     {
-#pragma omp parallel for num_threads(p_threadnum) schedule(dynamic, 128)
-        for (SizeType i = 0; i < p_addindex->GetNumSamples(); i++)
+        std::vector<std::thread> mythreads;
+        mythreads.reserve(p_threadnum);
+        std::atomic_size_t sent(0);
+        for (int tid = 0; tid < p_threadnum; tid++)
         {
-            if (ret == ErrorCode::ExternalAbort)
-                continue;
+            mythreads.emplace_back([&, tid]() {
+                size_t i = 0;
+                while (true)
+                {
+                    i = sent.fetch_add(1);
+                    if (i < p_addindex->GetNumSamples())
+                    {
+                        if (ret == ErrorCode::ExternalAbort)
+                            continue;
 
-            if (p_addindex->ContainSample(i))
-            {
-                AddIndex(p_addindex->GetSample(i), 1, p_addindex->GetFeatureDim(), nullptr);
-            }
+                        if (p_addindex->ContainSample(i))
+                        {
+                            AddIndex(p_addindex->GetSample(i), 1, p_addindex->GetFeatureDim(), nullptr);
+                        }
 
-            if (p_abort != nullptr && p_abort->ShouldAbort())
-            {
-                ret = ErrorCode::ExternalAbort;
-            }
+                        if (p_abort != nullptr && p_abort->ShouldAbort())
+                        {
+                            ret = ErrorCode::ExternalAbort;
+                        }
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+            });
         }
+        for (auto &t : mythreads)
+        {
+            t.join();
+        }
+        mythreads.clear();
     }
     return ret;
 }

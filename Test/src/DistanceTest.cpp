@@ -57,7 +57,7 @@ template <typename T> void test(int high)
 
 template <typename T>
 void test_dist_calc_performance(int high, SPTAG::DimensionType dimension = 256, SPTAG::SizeType size = 100,
-                                SPTAG::DistCalcMethod calc_method = SPTAG::DistCalcMethod::L2)
+                                SPTAG::DistCalcMethod calc_method = SPTAG::DistCalcMethod::L2, int threads = 1)
 {
     T **X = new T *[size];
     T **Y = new T *[size];
@@ -72,15 +72,38 @@ void test_dist_calc_performance(int high, SPTAG::DimensionType dimension = 256, 
         }
     }
 
-    double start, end;
-    start = omp_get_wtime();
-#pragma omp parallel for
-    for (SPTAG::SizeType i = 0; i < size; i++)
+    auto start = std::chrono::steady_clock::now();
+    std::vector<std::thread> mythreads;
+    mythreads.reserve(threads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < threads; tid++)
     {
-        SPTAG::COMMON::DistanceUtils::ComputeDistance(X[i], Y[i], dimension, calc_method);
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < size)
+                {
+                    SPTAG::COMMON::DistanceUtils::ComputeDistance(X[i], Y[i], dimension, calc_method);
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
     }
-    end = omp_get_wtime();
-    std::cout << "Time to calculate distance (ms): " << (end - start) * 1000 << std::endl;
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "Time to calculate distance (ms): "
+              << (std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() * 1.0) / 1000.0
+              << std::endl;
 
     delete[] X;
     delete[] Y;
@@ -105,14 +128,13 @@ BOOST_AUTO_TEST_CASE(TestDistanceComputationPerformance)
     for (int num_threads : nums_threads)
     {
         std::cout << "num_thread: " << num_threads << std::endl;
-        omp_set_num_threads(num_threads);
         for (SPTAG::DistCalcMethod calc_method : calc_methods)
         {
             std::cout << "calc_method: " << (calc_method == SPTAG::DistCalcMethod::L2 ? "L2" : "Cosine") << std::endl;
             for (auto dimension : dimensions)
             {
                 std::cout << "type: int8, dimension: " << dimension << ", size: " << size << std::endl;
-                test_dist_calc_performance<std::int8_t>(127, dimension, size, calc_method);
+                test_dist_calc_performance<std::int8_t>(127, dimension, size, calc_method, num_threads);
             }
         }
     }

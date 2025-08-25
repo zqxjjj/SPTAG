@@ -13,8 +13,6 @@ using namespace SPTAG::Helper;
 TxtVectorReader::TxtVectorReader(std::shared_ptr<ReaderOptions> p_options)
     : VectorSetReader(p_options), m_subTaskBlocksize(0)
 {
-    omp_set_num_threads(m_options->m_threadNum);
-
     std::string tempFolder("tempfolder");
     if (!direxists(tempFolder.c_str()))
     {
@@ -90,16 +88,36 @@ ErrorCode TxtVectorReader::LoadFile(const std::string &p_filePaths)
 
     m_waitSignal.Reset(m_subTaskCount);
 
-#pragma omp parallel for schedule(dynamic)
-    for (int64_t i = 0; i < (int64_t)subWorks.size(); i++)
+    std::vector<std::thread> mythreads;
+    mythreads.reserve(m_options->m_threadNum);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < m_options->m_threadNum; tid++)
     {
-        ErrorCode code = subWorks[i]();
-        if (ErrorCode::Success != code)
-        {
-            throw std::runtime_error("LoadFileInternal failed");
-        }
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < subWorks.size())
+                {
+                    ErrorCode code = subWorks[i]();
+                    if (ErrorCode::Success != code)
+                    {
+                        throw std::runtime_error("LoadFileInternal failed");
+                    }
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
     }
-
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
     m_waitSignal.Wait();
 
     return MergeData();

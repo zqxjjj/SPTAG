@@ -714,7 +714,6 @@ namespace SPTAG
                         }
 
                         float acc = 0;
-#pragma omp parallel for schedule(dynamic)
                         for (int j = 0; j < sampleNum; j++)
                         {
                             COMMON::Utils::atomic_float_add(&acc, COMMON::TruthSet::CalculateRecall(p_headIndex.get(), fullVectors->GetVector(samples[j]), candidateNum));
@@ -793,22 +792,47 @@ namespace SPTAG
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Replica Count Dist: %d, %d\n", i, replicaCountDist[i]);
                     }
                 }
-
-#pragma omp parallel for schedule(dynamic)
-                for (int i = 0; i < postingListSize.size(); ++i)
                 {
-                    if (postingListSize[i] <= postingSizeLimit) continue;
-
-                    std::size_t selectIdx = std::lower_bound(selections.m_selections.begin(), selections.m_selections.end(), i, Selection::g_edgeComparer) - selections.m_selections.begin();
-
-                    for (size_t dropID = postingSizeLimit; dropID < postingListSize[i]; ++dropID)
+                    std::vector<std::thread> mythreads;
+                    mythreads.reserve(m_opt->m_iSSDNumberOfThreads);
+                    std::atomic_size_t sent(0);
+                    for (int tid = 0; tid < m_opt->m_iSSDNumberOfThreads; tid++)
                     {
-                        int tonode = selections.m_selections[selectIdx + dropID].tonode;
-                        --replicaCount[tonode];
-                    }
-                    postingListSize[i] = postingSizeLimit;
-                }
+                        mythreads.emplace_back([&, tid]() {
+                            size_t i = 0;
+                            while (true)
+                            {
+                                i = sent.fetch_add(1);
+                                if (i < postingListSize.size())
+                                {
+                                    if (postingListSize[i] <= postingSizeLimit)
+                                        continue;
 
+                                    std::size_t selectIdx =
+                                        std::lower_bound(selections.m_selections.begin(), selections.m_selections.end(),
+                                                         i, Selection::g_edgeComparer) -
+                                        selections.m_selections.begin();
+
+                                    for (size_t dropID = postingSizeLimit; dropID < postingListSize[i]; ++dropID)
+                                    {
+                                        int tonode = selections.m_selections[selectIdx + dropID].tonode;
+                                        --replicaCount[tonode];
+                                    }
+                                    postingListSize[i] = postingSizeLimit;
+                                }
+                                else
+                                {
+                                    return;
+                                }
+                            }
+                        });
+                    }
+                    for (auto &t : mythreads)
+                    {
+                        t.join();
+                    }
+                    mythreads.clear();
+                }
                 if (p_opt.m_outputEmptyReplicaID)
                 {
                     std::vector<int> replicaCountDist(p_opt.m_replicaCount + 1, 0);
@@ -913,31 +937,68 @@ namespace SPTAG
 
                     if (p_opt.m_enableDataCompression) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Getting compressed size of each posting list...\n");
-#pragma omp parallel for schedule(dynamic)
-                        for (int j = 0; j < curPostingListSizes.size(); j++) 
+                        std::vector<std::thread> mythreads;
+                        mythreads.reserve(m_opt->m_iSSDNumberOfThreads);
+                        std::atomic_size_t sent(0);
+                        for (int tid = 0; tid < m_opt->m_iSSDNumberOfThreads; tid++)
                         {
-                            SizeType postingListId = j + (SizeType)curPostingListOffSet;
-                            // do not compress if no data
-                            if (postingListSize[postingListId] == 0) {
-                                curPostingListBytes[j] = 0;
-                                continue;
-                            }
-                            ValueType* headVector = nullptr;
-                            if (p_opt.m_enableDeltaEncoding)
-                            {
-                                headVector = (ValueType*)p_headIndex->GetSample(postingListId);
-                            }
-                            std::string postingListFullData = GetPostingListFullData(
-                                postingListId, postingListSize[postingListId], selections, fullVectors, p_opt.m_enableDeltaEncoding, p_opt.m_enablePostingListRearrange, headVector);
-                            size_t sizeToCompress = postingListSize[postingListId] * vectorInfoSize;
-                            if (sizeToCompress != postingListFullData.size()) {
-                                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Size to compress NOT MATCH! PostingListFullData size: %zu sizeToCompress: %zu \n", postingListFullData.size(), sizeToCompress);
-                            }
-                            curPostingListBytes[j] = m_pCompressor->GetCompressedSize(postingListFullData, p_opt.m_enableDictTraining);
-                            if (postingListId % 10000 == 0 || curPostingListBytes[j] > static_cast<uint64_t>(p_opt.m_postingPageLimit) * PageSize) {
-                                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Posting list %d/%d, compressed size: %d, compression ratio: %.4f\n", postingListId, postingListSize.size(), curPostingListBytes[j], curPostingListBytes[j] / float(sizeToCompress));
-                            }
+                            mythreads.emplace_back([&, tid]() {
+                                size_t j = 0;
+                                while (true)
+                                {
+                                    j = sent.fetch_add(1);
+                                    if (j < curPostingListSizes.size())
+                                    {
+                                        SizeType postingListId = j + (SizeType)curPostingListOffSet;
+                                        // do not compress if no data
+                                        if (postingListSize[postingListId] == 0)
+                                        {
+                                            curPostingListBytes[j] = 0;
+                                            continue;
+                                        }
+                                        ValueType *headVector = nullptr;
+                                        if (p_opt.m_enableDeltaEncoding)
+                                        {
+                                            headVector = (ValueType *)p_headIndex->GetSample(postingListId);
+                                        }
+                                        std::string postingListFullData =
+                                            GetPostingListFullData(postingListId, postingListSize[postingListId],
+                                                                   selections, fullVectors, p_opt.m_enableDeltaEncoding,
+                                                                   p_opt.m_enablePostingListRearrange, headVector);
+                                        size_t sizeToCompress = postingListSize[postingListId] * vectorInfoSize;
+                                        if (sizeToCompress != postingListFullData.size())
+                                        {
+                                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                                         "Size to compress NOT MATCH! PostingListFullData size: %zu "
+                                                         "sizeToCompress: %zu \n",
+                                                         postingListFullData.size(), sizeToCompress);
+                                        }
+                                        curPostingListBytes[j] = m_pCompressor->GetCompressedSize(
+                                            postingListFullData, p_opt.m_enableDictTraining);
+                                        if (postingListId % 10000 == 0 ||
+                                            curPostingListBytes[j] >
+                                                static_cast<uint64_t>(p_opt.m_postingPageLimit) * PageSize)
+                                        {
+                                            SPTAGLIB_LOG(
+                                                Helper::LogLevel::LL_Info,
+                                                "Posting list %d/%d, compressed size: %d, compression ratio: %.4f\n",
+                                                postingListId, postingListSize.size(), curPostingListBytes[j],
+                                                curPostingListBytes[j] / float(sizeToCompress));
+                                        }
+                                    }
+                                    else
+                                    {
+                                        return;
+                                    }
+                                }
+                            });
                         }
+                        for (auto &t : mythreads)
+                        {
+                            t.join();
+                        }
+                        mythreads.clear();
+
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Getted compressed size for all the %d posting lists in SSD Index file %d.\n", curPostingListBytes.size(), i);
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Mean compressed size: %.4f \n", std::accumulate(curPostingListBytes.begin(), curPostingListBytes.end(), 0.0) / curPostingListBytes.size());
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Mean compression ratio: %.4f \n", std::accumulate(curPostingListBytes.begin(), curPostingListBytes.end(), 0.0) / (std::accumulate(curPostingListSizes.begin(), curPostingListSizes.end(), 0.0) * vectorInfoSize));

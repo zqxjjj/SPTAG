@@ -124,21 +124,45 @@ void TestDataGenerator<T>::LoadOrGenerateTruth(const std::string &filename, std:
     }
 
     ByteArray tru = ByteArray::Alloc(sizeof(float) * queryset->Count() * m_k);
-#pragma omp parallel for
-    for (SizeType i = 0; i < queryset->Count(); ++i)
+    
+    std::vector<std::thread> mythreads;
+    int maxthreads = std::thread::hardware_concurrency();
+    mythreads.reserve(maxthreads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < maxthreads; tid++)
     {
-        SizeType *neighbors = ((SizeType *)tru.Data()) + i * m_k;
-        COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), m_k);
-        for (SizeType j = 0; j < vecset->Count(); ++j)
-        {
-            float dist = COMMON::DistanceUtils::ComputeDistance(
-                res.GetTarget(), reinterpret_cast<T *>(vecset->GetVector(j)), m_m, distMethod);
-            res.AddPoint(j, dist);
-        }
-        res.SortResult();
-        for (int j = 0; j < m_k; ++j)
-            neighbors[j] = res.GetResult(j)->VID;
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < queryset->Count())
+                {
+                    SizeType *neighbors = ((SizeType *)tru.Data()) + i * m_k;
+                    COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), m_k);
+                    for (SizeType j = 0; j < vecset->Count(); ++j)
+                    {
+                        float dist = COMMON::DistanceUtils::ComputeDistance(
+                            res.GetTarget(), reinterpret_cast<T *>(vecset->GetVector(j)), m_m, distMethod);
+                        res.AddPoint(j, dist);
+                    }
+                    res.SortResult();
+                    for (int j = 0; j < m_k; ++j)
+                        neighbors[j] = res.GetResult(j)->VID;
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
     }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
+
     truth = std::make_shared<BasicVectorSet>(tru, GetEnumValueType<float>(), m_k, queryset->Count());
     truth->Save(filename);
 }
@@ -174,23 +198,45 @@ void TestDataGenerator<T>::LoadOrGenerateBatchTruth(const std::string &filename,
     ByteArray tru = ByteArray::Alloc(sizeof(float) * (batches + 1) * queryset->Count() * m_k);
     int start = 0;
     int end = base;
+    int maxthreads = std::thread::hardware_concurrency();
     for (int iter = 0; iter < batches + 1; iter++)
     {
-#pragma omp parallel for
-        for (SizeType i = 0; i < queryset->Count(); ++i)
+        std::vector<std::thread> mythreads;
+        mythreads.reserve(maxthreads);
+        std::atomic_size_t sent(0);
+        for (int tid = 0; tid < maxthreads; tid++)
         {
-            SizeType *neighbors = ((SizeType *)tru.Data()) + iter * (queryset->Count() * m_k) + i * m_k;
-            COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), m_k);
-            for (SizeType j = start; j < end; ++j)
-            {
-                float dist = COMMON::DistanceUtils::ComputeDistance(
-                    res.GetTarget(), reinterpret_cast<T *>(vecset->GetVector(j)), m_m, distMethod);
-                res.AddPoint(j, dist);
-            }
-            res.SortResult();
-            for (int j = 0; j < m_k; ++j)
-                neighbors[j] = res.GetResult(j)->VID;
+            mythreads.emplace_back([&, tid]() {
+                size_t i = 0;
+                while (true)
+                {
+                    i = sent.fetch_add(1);
+                    if (i < queryset->Count())
+                    {
+                        SizeType *neighbors = ((SizeType *)tru.Data()) + iter * (queryset->Count() * m_k) + i * m_k;
+                        COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), m_k);
+                        for (SizeType j = start; j < end; ++j)
+                        {
+                            float dist = COMMON::DistanceUtils::ComputeDistance(
+                                res.GetTarget(), reinterpret_cast<T *>(vecset->GetVector(j)), m_m, distMethod);
+                            res.AddPoint(j, dist);
+                        }
+                        res.SortResult();
+                        for (int j = 0; j < m_k; ++j)
+                            neighbors[j] = res.GetResult(j)->VID;
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+            });
         }
+        for (auto &t : mythreads)
+        {
+            t.join();
+        }
+        mythreads.clear();
         start += batchdelete;
         end += batchinsert;
     }

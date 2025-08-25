@@ -164,8 +164,6 @@ int BootProgram(bool forANNIndexTestTool, std::map<std::string, std::map<std::st
         if (distCalcMethod == DistCalcMethod::Cosine && !index->m_pQuantizer)
             vectorSet->Normalize(opts->m_iSSDNumberOfThreads);
 
-        omp_set_num_threads(opts->m_iSSDNumberOfThreads);
-
 #define DefineVectorValueType(Name, Type)                                                                              \
     if (opts->m_valueType == VectorValueType::Name)                                                                    \
     {                                                                                                                  \

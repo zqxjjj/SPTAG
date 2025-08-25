@@ -81,7 +81,7 @@ template <typename T> ErrorCode Index<T>::LoadIndexDataFromMemory(const std::vec
         return ErrorCode::FailedParseValue;
     }
 
-    omp_set_num_threads(m_iNumberOfThreads);
+    m_pGraph.m_iThreadNum = m_iNumberOfThreads;
     m_threadPool.init();
     return ErrorCode::Success;
 }
@@ -116,7 +116,7 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
         return ErrorCode::FailedParseValue;
     }
 
-    omp_set_num_threads(m_iNumberOfThreads);
+    m_pGraph.m_iThreadNum = m_iNumberOfThreads;
     m_threadPool.init();
     return ret;
 }
@@ -486,7 +486,7 @@ ErrorCode Index<T>::BuildIndex(const void *p_data, SizeType p_vectorNum, Dimensi
     if (p_data == nullptr || p_vectorNum == 0 || p_dimension == 0)
         return ErrorCode::EmptyData;
 
-    omp_set_num_threads(m_iNumberOfThreads);
+    m_pGraph.m_iThreadNum = m_iNumberOfThreads;
 
     m_pSamples.Initialize(p_vectorNum, p_dimension, m_iDataBlockSize, m_iDataCapacity, (T *)p_data, p_shareOwnership);
     m_deletedID.Initialize(p_vectorNum, m_iDataBlockSize, m_iDataCapacity,
@@ -495,11 +495,7 @@ ErrorCode Index<T>::BuildIndex(const void *p_data, SizeType p_vectorNum, Dimensi
     if (DistCalcMethod::Cosine == m_iDistCalcMethod && !p_normalized)
     {
         int base = m_pQuantizer ? m_pQuantizer->GetBase() : COMMON::Utils::GetBase<T>();
-#pragma omp parallel for
-        for (SizeType i = 0; i < GetNumSamples(); i++)
-        {
-            COMMON::Utils::Normalize(m_pSamples[i], GetFeatureDim(), base);
-        }
+        COMMON::Utils::BatchNormalize(m_pSamples[0], p_vectorNum, p_dimension, base, m_iNumberOfThreads);
     }
 
     m_threadPool.init();
@@ -574,7 +570,7 @@ template <typename T> ErrorCode Index<T>::RefineIndex(std::shared_ptr<VectorInde
                                 COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
     COMMON::KDTree *newtree = &(ptr->m_pTrees);
 
-    (*newtree).BuildTrees<T>(ptr->m_pSamples, omp_get_num_threads());
+    (*newtree).BuildTrees<T>(ptr->m_pSamples, m_iNumberOfThreads);
     m_pGraph.RefineGraph<T>(this, indices, reverseIndices, nullptr, &(ptr->m_pGraph));
     if (HasMetaMapping())
         ptr->BuildMetaMapping(false);
@@ -629,15 +625,37 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
         return ErrorCode::ExternalAbort;
 
     COMMON::KDTree newTrees(m_pTrees);
-    newTrees.BuildTrees<T>(m_pSamples, omp_get_num_threads(), &indices);
-#pragma omp parallel for
-    for (SizeType i = 0; i < newTrees.size(); i++)
+    newTrees.BuildTrees<T>(m_pSamples, m_iNumberOfThreads, &indices);
+    std::vector<std::thread> mythreads;
+    mythreads.reserve(m_iNumberOfThreads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < m_iNumberOfThreads; tid++)
     {
-        if (newTrees[i].left < 0)
-            newTrees[i].left = -(*p_mapping)[-newTrees[i].left - 1] - 1;
-        if (newTrees[i].right < 0)
-            newTrees[i].right = -(*p_mapping)[-newTrees[i].right - 1] - 1;
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < newTrees.size())
+                {
+                    if (newTrees[i].left < 0)
+                        newTrees[i].left = -(*p_mapping)[-newTrees[i].left - 1] - 1;
+                    if (newTrees[i].right < 0)
+                        newTrees[i].right = -(*p_mapping)[-newTrees[i].right - 1] - 1;
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
     }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
+
     if ((ret = newTrees.SaveTrees(p_indexStreams[1])) != ErrorCode::Success)
         return ret;
 
@@ -667,20 +685,41 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
 template <typename T> ErrorCode Index<T>::DeleteIndex(const void *p_vectors, SizeType p_vectorNum)
 {
     const T *ptr_v = (const T *)p_vectors;
-#pragma omp parallel for schedule(dynamic)
-    for (SizeType i = 0; i < p_vectorNum; i++)
+    std::vector<std::thread> mythreads;
+    mythreads.reserve(m_iNumberOfThreads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < m_iNumberOfThreads; tid++)
     {
-        COMMON::QueryResultSet<T> query(ptr_v + i * GetFeatureDim(), m_pGraph.m_iCEF);
-        SearchIndex(query);
-
-        for (int j = 0; j < m_pGraph.m_iCEF; j++)
-        {
-            if (query.GetResult(j)->Dist < 1e-6)
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
             {
-                DeleteIndex(query.GetResult(j)->VID);
+                i = sent.fetch_add(1);
+                if (i < p_vectorNum)
+                {
+                    COMMON::QueryResultSet<T> query(ptr_v + i * GetFeatureDim(), m_pGraph.m_iCEF);
+                    SearchIndex(query);
+
+                    for (int j = 0; j < m_pGraph.m_iCEF; j++)
+                    {
+                        if (query.GetResult(j)->Dist < 1e-6)
+                        {
+                            DeleteIndex(query.GetResult(j)->VID);
+                        }
+                    }
+                }
+                else
+                {
+                    return;
+                }
             }
-        }
+        });
     }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
     return ErrorCode::Success;
 }
 
@@ -836,7 +875,7 @@ template <typename T> ErrorCode Index<T>::AddIndexIdx(SizeType begin, SizeType e
 
 template <typename T> ErrorCode Index<T>::UpdateIndex()
 {
-    omp_set_num_threads(m_iNumberOfThreads);
+    m_pGraph.m_iThreadNum = m_iNumberOfThreads;
     return ErrorCode::Success;
 }
 

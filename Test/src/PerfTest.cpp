@@ -204,8 +204,6 @@ void GenerateData(std::shared_ptr<VectorSet> &vecset, std::shared_ptr<MetadataSe
     }
     else
     {
-        omp_set_num_threads(5);
-
         DistCalcMethod distMethod;
         Helper::Convert::ConvertStringTo(distCalcMethod.c_str(), distMethod);
         if (distMethod == DistCalcMethod::Cosine)
@@ -217,22 +215,46 @@ void GenerateData(std::shared_ptr<VectorSet> &vecset, std::shared_ptr<MetadataSe
 
         ByteArray tru = ByteArray::Alloc(sizeof(float) * queryset->Count() * k);
 
-#pragma omp parallel for
-        for (SizeType i = 0; i < queryset->Count(); ++i)
+        int testThreads = 5;
+        std::vector<std::thread> mythreads;
+        mythreads.reserve(testThreads);
+        std::atomic_size_t sent(0);
+        for (int tid = 0; tid < testThreads; tid++)
         {
-            SizeType *neighbors = ((SizeType *)tru.Data()) + i * k;
+            mythreads.emplace_back([&, tid]() {
+                size_t i = 0;
+                while (true)
+                {
+                    i = sent.fetch_add(1);
+                    if (i < queryset->Count())
+                    {
+                        SizeType *neighbors = ((SizeType *)tru.Data()) + i * k;
 
-            COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), k);
-            for (SizeType j = 0; j < vecset->Count(); j++)
-            {
-                float dist = COMMON::DistanceUtils::ComputeDistance(
-                    res.GetTarget(), reinterpret_cast<T *>(vecset->GetVector(j)), queryset->Dimension(), distMethod);
-                res.AddPoint(j, dist);
-            }
-            res.SortResult();
-            for (int j = 0; j < k; j++)
-                neighbors[j] = res.GetResult(j)->VID;
+                        COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), k);
+                        for (SizeType j = 0; j < vecset->Count(); j++)
+                        {
+                            float dist = COMMON::DistanceUtils::ComputeDistance(
+                                res.GetTarget(), reinterpret_cast<T *>(vecset->GetVector(j)), queryset->Dimension(),
+                                distMethod);
+                            res.AddPoint(j, dist);
+                        }
+                        res.SortResult();
+                        for (int j = 0; j < k; j++)
+                            neighbors[j] = res.GetResult(j)->VID;
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+            });
         }
+        for (auto &t : mythreads)
+        {
+            t.join();
+        }
+        mythreads.clear();
+
         truth.reset(new BasicVectorSet(tru, GetEnumValueType<float>(), k, queryset->Count()));
         truth->Save("perftest_truth." + distCalcMethod);
     }

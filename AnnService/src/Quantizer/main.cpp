@@ -32,13 +32,34 @@ void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader> &vectorRead
         ByteArray PQ_vector_array = ByteArray::Alloc(sizeof(std::uint8_t) * options->m_quantizedDim * set->Count());
         quantized_vectors = std::make_shared<BasicVectorSet>(PQ_vector_array, VectorValueType::UInt8,
                                                              options->m_quantizedDim, set->Count());
-
-#pragma omp parallel for
-        for (int i = 0; i < set->Count(); i++)
         {
-            quantizer->QuantizeVector(set->GetVector(i), (uint8_t *)quantized_vectors->GetVector(i));
+            std::vector<std::thread> mythreads;
+            mythreads.reserve(options->m_threadNum);
+            std::atomic_size_t sent(0);
+            for (int tid = 0; tid < options->m_threadNum; tid++)
+            {
+                mythreads.emplace_back([&, tid]() {
+                    size_t i = 0;
+                    while (true)
+                    {
+                        i = sent.fetch_add(1);
+                        if (i < set->Count())
+                        {
+                            quantizer->QuantizeVector(set->GetVector(i), (uint8_t *)quantized_vectors->GetVector(i));
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+                });
+            }
+            for (auto &t : mythreads)
+            {
+                t.join();
+            }
+            mythreads.clear();
         }
-
         ErrorCode code;
         if ((code = quantized_vectors->AppendSave(options->m_outputFile)) != ErrorCode::Success)
         {
@@ -56,11 +77,33 @@ void QuantizeAndSave(std::shared_ptr<SPTAG::Helper::VectorSetReader> &vectorRead
         }
         if (!options->m_outputReconstructVecFile.empty())
         {
-#pragma omp parallel for
-            for (int i = 0; i < set->Count(); i++)
+            std::vector<std::thread> mythreads;
+            mythreads.reserve(options->m_threadNum);
+            std::atomic_size_t sent(0);
+            for (int tid = 0; tid < options->m_threadNum; tid++)
             {
-                quantizer->ReconstructVector((uint8_t *)quantized_vectors->GetVector(i), set->GetVector(i));
+                mythreads.emplace_back([&, tid]() {
+                    size_t i = 0;
+                    while (true)
+                    {
+                        i = sent.fetch_add(1);
+                        if (i < set->Count())
+                        {
+                            quantizer->ReconstructVector((uint8_t *)quantized_vectors->GetVector(i), set->GetVector(i));
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+                });
             }
+            for (auto &t : mythreads)
+            {
+                t.join();
+            }
+            mythreads.clear();
+
             if (ErrorCode::Success != set->AppendSave(options->m_outputReconstructVecFile))
             {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to save uncompressed vectors.\n");
