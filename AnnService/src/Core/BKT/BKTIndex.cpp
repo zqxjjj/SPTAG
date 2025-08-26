@@ -20,11 +20,13 @@ namespace SPTAG
         template <typename T>
         ErrorCode Index<T>::LoadConfig(Helper::IniReader& p_reader)
         {
+            ErrorCode code = ErrorCode::Success;
 #define DefineBKTParameter(VarName, VarType, DefaultValue, RepresentStr) \
-            SetParameter(RepresentStr, \
+            code = SetParameter(RepresentStr, \
                          p_reader.GetParameter("Index", \
                          RepresentStr, \
                          std::string(#DefaultValue)).c_str()); \
+            if (code != ErrorCode::Success) return code;
 
 #include "inc/Core/BKT/ParameterDefinitionList.h"
 #undef DefineBKTParameter
