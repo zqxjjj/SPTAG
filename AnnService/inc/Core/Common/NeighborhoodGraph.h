@@ -518,7 +518,6 @@ break;
                     ErrorCode internal_ret =index->RefineSearchIndex(query, false);
                     if (internal_ret != ErrorCode::Success) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "RefineSearchIndex failed \n");
-                        #pragma omp atomic write
                         ret = internal_ret;
                     }
                     RebuildNeighbors(index, indices[i], outnodes, query.GetResults(), m_iCEF + 1);

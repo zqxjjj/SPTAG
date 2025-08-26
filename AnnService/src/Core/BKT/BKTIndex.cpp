@@ -884,7 +884,6 @@ namespace SPTAG
                 ErrorCode search_ret = SearchIndex(query);
                 if (search_ret != ErrorCode::Success || query.GetResultNum() == 0) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "Cannot find vector to delete!\n");
-                    #pragma omp atomic write
                     ret = search_ret;
                 }
 
@@ -894,7 +893,6 @@ namespace SPTAG
                         ErrorCode delete_ret = DeleteIndex(vid);
                         if (delete_ret != ErrorCode::Success) {
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "Cannot delete vector! ID: %llu\n", vid);
-                            #pragma omp atomic write
                             ret = delete_ret;
                         }
                     }
