@@ -816,7 +816,7 @@ namespace SPTAG
             ptr->m_deletedID.Initialize(newR, m_iDataBlockSize, m_iDataCapacity, COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
             COMMON::BKTree* newtree = &(ptr->m_pTrees);
             (*newtree).BuildTrees<T>(ptr->m_pSamples, ptr->m_iDistCalcMethod, omp_get_num_threads());
-            m_pGraph.RefineGraph<T>(this, indices, reverseIndices, nullptr, &(ptr->m_pGraph), &(ptr->m_pTrees.GetSampleMap()));
+            if ((ret = m_pGraph.RefineGraph<T>(this, indices, reverseIndices, nullptr, &(ptr->m_pGraph), &(ptr->m_pTrees.GetSampleMap()))) != ErrorCode::Success) return ret;
             if (HasMetaMapping()) ptr->BuildMetaMapping(false);
             ptr->m_bReady = true;
             return ret;
@@ -875,18 +875,30 @@ namespace SPTAG
         template <typename T>
         ErrorCode Index<T>::DeleteIndex(const void* p_vectors, SizeType p_vectorNum) {
             const T* ptr_v = (const T*)p_vectors;
+            ErrorCode ret = ErrorCode::Success;
 #pragma omp parallel for schedule(dynamic)
             for (SizeType i = 0; i < p_vectorNum; i++) {
                 COMMON::QueryResultSet<T> query(ptr_v + i * GetFeatureDim(), m_pGraph.m_iCEF);
-                SearchIndex(query);
+                ErrorCode search_ret = SearchIndex(query);
+                if (search_ret != ErrorCode::Success || query.GetResultNum() == 0) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "Cannot find vector to delete!\n");
+                    #pragma omp atomic write
+                    ret = search_ret;
+                }
 
                 for (int j = 0; j < m_pGraph.m_iCEF; j++) {
                     if (query.GetResult(j)->Dist < 1e-6) {
-                        DeleteIndex(query.GetResult(j)->VID);
+                        SizeType vid = query.GetResult(j)->VID;
+                        ErrorCode delete_ret = DeleteIndex(vid);
+                        if (delete_ret != ErrorCode::Success) {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "Cannot delete vector! ID: %llu\n", vid);
+                            #pragma omp atomic write
+                            ret = delete_ret;
+                        }
                     }
                 }
             }
-            return ErrorCode::Success;
+            return ret;
         }
 
         template <typename T>
