@@ -751,7 +751,11 @@ namespace SPTAG
                     bktFileNameBuilder << m_options.m_vectorPath << ".bkt." << m_options.m_iBKTKmeansK << "_"
                         << m_options.m_iBKTLeafSize << "_" << m_options.m_iTreeNumber << "_" << m_options.m_iSamples << "_"
                         << static_cast<int>(m_options.m_distCalcMethod) << ".bin";
-                    bkt->SaveTrees(bktFileNameBuilder.str());
+                    ErrorCode saveTreesRet = bkt->SaveTrees(bktFileNameBuilder.str());
+                    if (saveTreesRet != ErrorCode::Success) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to save BKT to file %s\n", bktFileNameBuilder.str().c_str());
+                        return false;
+                    }
                 }
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Finish generating BKT.\n");
 
@@ -851,11 +855,11 @@ namespace SPTAG
                 auto dims = m_pQuantizer ? m_pQuantizer->GetNumSubvectors() : m_options.m_dim;
 
                 m_index = SPTAG::VectorIndex::CreateInstance(m_options.m_indexAlgoType, valueType);
-                m_index->SetParameter("DistCalcMethod", SPTAG::Helper::Convert::ConvertToString(m_options.m_distCalcMethod));
+                RETURN_IF_ERROR(m_index->SetParameter("DistCalcMethod", SPTAG::Helper::Convert::ConvertToString(m_options.m_distCalcMethod)));
                 m_index->SetQuantizer(m_pQuantizer);
                 for (const auto& iter : m_headParameters)
                 {
-                    m_index->SetParameter(iter.first.c_str(), iter.second.c_str());
+                    RETURN_IF_ERROR(m_index->SetParameter(iter.first.c_str(), iter.second.c_str()));
                 }
 
                 std::shared_ptr<Helper::ReaderOptions> vectorOptions(new Helper::ReaderOptions(valueType, dims, VectorFileType::DEFAULT));
@@ -1046,7 +1050,7 @@ namespace SPTAG
                 else m_headParameters[p_param] = p_value;
             }
             else {
-                m_options.SetParameter(p_section, p_param, p_value);
+                RETURN_IF_ERROR(m_options.SetParameter(p_section, p_param, p_value));
             }
             if (SPTAG::Helper::StrUtils::StrEqualIgnoreCase(p_param, "DistCalcMethod")) {
                 if (m_pQuantizer)
