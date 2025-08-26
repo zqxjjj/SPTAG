@@ -1021,11 +1021,20 @@ namespace SPTAG
             Index<T>::UpdateIndex()
         {
             omp_set_num_threads(m_options.m_iSSDNumberOfThreads);
-            m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+            ErrorCode ret = m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+            if (ret != ErrorCode::Success)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to set NumberOfThreads parameter to %d\n", m_options.m_iSSDNumberOfThreads);
+                return ret;
+            }
             //m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
             //m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
-            m_index->UpdateIndex();
-            return ErrorCode::Success;
+            ret = m_index->UpdateIndex();
+            if (ret != ErrorCode::Success)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to update index\n");
+            }
+            return ret;
         }
 
         template <typename T>
