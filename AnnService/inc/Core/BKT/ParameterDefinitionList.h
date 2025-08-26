@@ -25,7 +25,6 @@ DefineBKTParameter(m_pGraph.m_fNeighborhoodScale, float, 2.0F, "GraphNeighborhoo
 DefineBKTParameter(m_pGraph.m_fCEFScale, float, 2.0F, "GraphCEFScale")
 DefineBKTParameter(m_pGraph.m_iRefineIter, int, 2L, "RefineIterations")
 DefineBKTParameter(m_pGraph.m_rebuild, int, 0L, "EnableRebuild")
-DefineBKTParameter(m_pGraph.m_iThreadNum, int, 1L, "GraphNumberOfThreads")
 DefineBKTParameter(m_pGraph.m_iCEF, int, 1000L, "CEF")
 DefineBKTParameter(m_pGraph.m_iAddCEF, int, 500L, "AddCEF")
 DefineBKTParameter(m_pGraph.m_iMaxCheckForRefineGraph, int, 8192L, "MaxCheckForRefineGraph")

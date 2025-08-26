@@ -228,7 +228,7 @@ namespace SPTAG
             mythreads.reserve(args._TH);
             for (int tid = 0; tid < args._TH; tid++)
             {
-                mythreads.emplace_back([&, tid]() {
+                mythreads.emplace_back([tid, first, last, updateCenters, lambda, subsize, &data, &indices, &args, &currDist]() {
                     SizeType istart = first + tid * subsize;
                     SizeType iend = min(first + (tid + 1) * subsize, last);
                     SizeType *inewCounts = args.newCounts + tid * args._K;
