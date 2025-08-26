@@ -897,10 +897,10 @@ namespace SPTAG
                 m_index->SetQuantizer(m_pQuantizer);
                 if (!CheckHeadIndexType()) return ErrorCode::Fail;
 
-                m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
-                m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
-                m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
-                m_index->UpdateIndex();
+                RETURN_IF_ERROR(m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads)));
+                RETURN_IF_ERROR(m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck)));
+                RETURN_IF_ERROR(m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp)));
+                RETURN_IF_ERROR(m_index->UpdateIndex());
 
                 if (m_pQuantizer)
                 {
