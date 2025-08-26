@@ -66,7 +66,7 @@ namespace SPTAG
             for (int i = 0; i < 4; i++) {
                 auto parameters = p_reader.GetParameters(sections[i].c_str());
                 for (auto iter = parameters.begin(); iter != parameters.end(); iter++) {
-                    SetParameter(iter->first.c_str(), iter->second.c_str(), sections[i].c_str());
+                    RETURN_IF_ERROR(SetParameter(iter->first.c_str(), iter->second.c_str(), sections[i].c_str()));
                 }
             }
 
@@ -84,10 +84,10 @@ namespace SPTAG
             m_index->SetQuantizer(m_pQuantizer);
             if (m_index->LoadIndexDataFromMemory(p_indexBlobs) != ErrorCode::Success) return ErrorCode::Fail;
 
-            m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+            RETURN_IF_ERROR(m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads)));
             //m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
             //m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
-            m_index->UpdateIndex();
+            RETURN_IF_ERROR(m_index->UpdateIndex());
             m_index->SetReady(true);
 
             if (m_pQuantizer)
@@ -113,10 +113,10 @@ namespace SPTAG
             m_index->SetQuantizer(m_pQuantizer);
             if (m_index->LoadIndexData(p_indexStreams) != ErrorCode::Success) return ErrorCode::Fail;
 
-            m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads));
+            RETURN_IF_ERROR(m_index->SetParameter("NumberOfThreads", std::to_string(m_options.m_iSSDNumberOfThreads)));
             //m_index->SetParameter("MaxCheck", std::to_string(m_options.m_maxCheck));
             //m_index->SetParameter("HashTableExponent", std::to_string(m_options.m_hashExp));
-            m_index->UpdateIndex();
+            RETURN_IF_ERROR(m_index->UpdateIndex());
             m_index->SetReady(true);
 
             if (m_pQuantizer)
@@ -161,7 +161,7 @@ namespace SPTAG
 #include "inc/Core/SPANN/ParameterDefinitionList.h"
 #undef DefineBuildHeadParameter
 
-            m_index->SaveConfig(p_configOut);
+            RETURN_IF_ERROR_WITH_LOG(m_index->SaveConfig(p_configOut), Helper::LogLevel::LL_Error, "Failed to save head index config.\n");
 
             Helper::Convert::ConvertStringTo<int>(m_index->GetParameter("HashTableExponent").c_str(), m_options.m_hashExp);
             IOSTRING(p_configOut, WriteString, "[BuildSSDIndex]\n");
@@ -200,7 +200,7 @@ namespace SPTAG
             else
                 p_queryResults = new COMMON::QueryResultSet<T>((const T*)p_query.GetTarget(), m_options.m_searchInternalResultNum);
 
-            m_index->SearchIndex(*p_queryResults);
+            RETURN_IF_ERROR(m_index->SearchIndex(*p_queryResults));
             
             if (m_extraSearcher != nullptr) {
                 auto workSpace = m_workSpaceFactory->GetWorkSpace();
