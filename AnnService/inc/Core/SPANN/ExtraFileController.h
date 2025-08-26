@@ -777,6 +777,8 @@ namespace SPTAG::SPANN {
                 }
                 if (!m_pBlockController.WriteBlocks(postingSize + 1, blocks, value, timeout, reqs))
                 {
+                    m_pBlockController.ReleaseBlocks(postingSize + 1, blocks);
+                    memset(postingSize + 1, -1, sizeof(AddressType) * blocks);
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
                     return ErrorCode::DiskIOFail;
                 }
@@ -846,7 +848,8 @@ namespace SPTAG::SPANN {
             else {
                 r = m_pBlockMapping.R();
             }
-            if (key >= r) {
+            if (key >= r || At(key) == 0xffffffffffffffff)
+            {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key range error: key: %d, mapping size: %d\n", key, r);
                 if (m_fileIoUseLock) {
                     m_rwMutex[hash(key)].unlock();
@@ -855,13 +858,12 @@ namespace SPTAG::SPANN {
             }
             
             int64_t* postingSize = (int64_t*)At(key);
-            if (((uintptr_t)postingSize) == 0xffffffffffffffff || *postingSize < 0)
+            if (*postingSize < 0)
             {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
-                             "[Merge] Key %d failed: postingSize < 0\n");
-                return ErrorCode::Key_NotFound;
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Key %d failed: postingSize < 0\n");
+                return Put(key, value, timeout, reqs);
             }
-
+            
             if (m_fileIoUseCache) {
                 m_pShardedLRUCache->merge(key, (void *)(value.data()), value.size());
             }

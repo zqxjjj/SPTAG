@@ -1306,7 +1306,7 @@ namespace SPTAG::SPANN {
 
 			        std::vector<std::thread> threads;
 			        std::atomic_size_t vectorsSent(0);
-
+                    ErrorCode ret = ErrorCode::Success;
 			        auto func = [&]() {
                         ExtraWorkSpace workSpace;
                         InitWorkSpace(&workSpace);
@@ -1323,7 +1323,13 @@ namespace SPTAG::SPANN {
                                                  index * 100.0 / totalPostingNum);
                                 }
                                 std::string tempPosting;
-                                storeExtraSearcher->GetWritePosting(&workSpace, index, tempPosting);
+                                if (storeExtraSearcher->GetWritePosting(&workSpace, index, tempPosting) !=
+                                    ErrorCode::Success)
+                                {
+                                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Static Index Read Posting fail\n");
+                                    ret = ErrorCode::Fail;
+                                    return;
+                                }
                                 int vectorNum = (int)(tempPosting.size() / (m_vectorInfoSize - sizeof(uint8_t)));
 
                                 if (vectorNum > m_postingSizeLimit)
@@ -1341,7 +1347,12 @@ namespace SPTAG::SPANN {
                                     memcpy(ptr + sizeof(int) + sizeof(uint8_t), vectorInfo + sizeof(int),
                                            m_vectorInfoSize - sizeof(uint8_t) - sizeof(int));
                                 }
-                                GetWritePosting(&workSpace, index, newPosting, true);
+                                if (GetWritePosting(&workSpace, index, newPosting, true) != ErrorCode::Success)
+                                {
+                                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Index Write Posting fail\n");                                  
+                                    ret = ErrorCode::Fail;
+                                    return;
+                                }
                             }
                             else
                             {
@@ -1349,8 +1360,10 @@ namespace SPTAG::SPANN {
                             }
                         }
                     };
-			for (int j = 0; j < m_opt->m_iSSDNumberOfThreads; j++) { threads.emplace_back(func); }
-			for (auto& thread : threads) { thread.join(); }
+			    for (int j = 0; j < m_opt->m_iSSDNumberOfThreads; j++) { threads.emplace_back(func); }
+			    for (auto& thread : threads) { thread.join(); }
+                if (ret != ErrorCode::Success)
+                    return false;
 		    } else {
                         m_versionMap->Load(versionmapPath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
                         m_postingSizes.Load(postingSizePath, m_opt->m_datasetRowsInBlock, m_opt->m_datasetCapacity);
@@ -1933,6 +1946,7 @@ namespace SPTAG::SPANN {
                             if (p_postingSelections[selectIdx].node != index) {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Selection ID NOT MATCH\n");
                                 ret = ErrorCode::Fail;
+                                return;
                             }
                             SizeType fullID = p_postingSelections[selectIdx++].tonode;
                             // if (id == 0) SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ID: %d\n", fullID);
@@ -1941,7 +1955,14 @@ namespace SPTAG::SPANN {
                             Serialize(ptr, fullID, version, p_fullVectors->GetVector(fullID));
                             ptr += m_vectorInfoSize;
                         }
-                        db->Put(index, postinglist, MaxTimeout, &(workSpace.m_diskRequests));
+                        ErrorCode tmp;
+                        if ((tmp = db->Put(index, postinglist, MaxTimeout, &(workSpace.m_diskRequests))) !=
+                            ErrorCode::Success)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[WriteDB] Put fail!\n");
+                            ret = tmp;
+                            return;
+                        }
                     }
                     else
                     {
@@ -1973,7 +1994,10 @@ namespace SPTAG::SPANN {
                 for (int i = 0; i < replicaCount; i++)
                 {
                     // AppendAsync(selections[i].node, 1, appendPosting_ptr);
-                    Append(p_exWorkSpace, p_index.get(), selections[i].node, 1, appendPosting);
+                    ErrorCode ret;
+                    if ((ret = Append(p_exWorkSpace, p_index.get(), selections[i].node, 1, appendPosting)) !=
+                        ErrorCode::Success)
+                        return ret;
                 }
             }
             return ErrorCode::Success;
@@ -2037,14 +2061,25 @@ namespace SPTAG::SPANN {
             return (postingID < m_postingSizes.GetPostingNum()) && (m_postingSizes.GetSize(postingID) > 0);
         }
 
-        void GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) override {
+        ErrorCode GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) override {
+            ErrorCode ret;
             if (write) {
-                db->Put(pid, posting, MaxTimeout, &(p_exWorkSpace->m_diskRequests));
+                if ((ret = db->Put(pid, posting, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[GetWritePosting] Put fail!\n");
+                    return ret;
+                }
+                    
                 m_postingSizes.UpdateSize(pid, posting.size() / m_vectorInfoSize);
                 // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "PostingSize: %d\n", m_postingSizes.GetSize(pid));
             } else {
-                db->Get(pid, &posting, MaxTimeout, &(p_exWorkSpace->m_diskRequests));
+                if ((ret = db->Get(pid, &posting, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) 
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[GetWritePosting] Get fail!\n");
+                    return ret;
+                }
             }
+            return ErrorCode::Success;
         }
 
         void Checkpoint(std::string prefix) override {

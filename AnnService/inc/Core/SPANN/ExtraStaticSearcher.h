@@ -1678,10 +1678,10 @@ namespace SPTAG
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Time to write results:%.2lf sec.\n", ((double)std::chrono::duration_cast<std::chrono::seconds>(t2 - t1).count()) + ((double)std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()) / 1000);
             }
 
-            void GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) override {
+            ErrorCode GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) override {
                 if (write) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Unsupport write\n");
-                    return;
+                    return ErrorCode::Undefined;
                 }
                 ListInfo* listInfo = &(m_listInfos[pid]);
                 size_t totalBytes = (static_cast<size_t>(listInfo->listPageCount) << PageSizeEx);
@@ -1692,11 +1692,12 @@ namespace SPTAG
                 auto numRead = indexFile->ReadBinary(totalBytes, (char*)posting.data(), listInfo->listOffset);
                 if (numRead != totalBytes) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "File %s read bytes, expected: %zu, acutal: %llu.\n", m_extraFullGraphFile.c_str(), totalBytes, numRead);
-                    throw std::runtime_error("File read mismatch");
+                    return ErrorCode::DiskIOFail;
                 }
                 char* ptr = (char*)(posting.c_str());
                 memcpy(ptr, posting.c_str() + listInfo->pageOffset, realBytes);
                 posting.resize(realBytes);
+                return ErrorCode::Success;
             }
 
         private:

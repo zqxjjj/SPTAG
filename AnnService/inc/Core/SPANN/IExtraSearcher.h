@@ -327,7 +327,11 @@ namespace SPTAG {
                 std::shared_ptr<VectorIndex> p_index, int testNum = 64, SizeType VID = -1) { return -1; }
             virtual void ForceGC(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index) { return; }
 
-            virtual void GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) { return; }
+            virtual ErrorCode GetWritePosting(ExtraWorkSpace *p_exWorkSpace, SizeType pid, std::string &posting,
+                                              bool write = false)
+            {
+                return ErrorCode::Undefined;
+            }
 
             virtual void Checkpoint(std::string prefix) { return; }
         };
