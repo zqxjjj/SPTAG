@@ -150,7 +150,7 @@ public:
 #endif
 };
 
-enum class ErrorCode : std::uint16_t
+enum class [[nodiscard]] ErrorCode : std::uint16_t
 {
 #define DefineErrorCode(Name, Value) Name = Value,
 #include "DefinitionList.h"
