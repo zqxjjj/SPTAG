@@ -2083,7 +2083,7 @@ namespace SPTAG::SPANN {
                              m_postingSizes.GetSize(postingID));
                 return ErrorCode::Posting_SizeError;
             }
-            ErrorCode ret = db ->Check(postingID, m_postingSizes.GetSize(postingID));
+            ErrorCode ret = db ->Check(postingID, m_postingSizes.GetSize(postingID) * m_vectorInfoSize);
             if (ret != ErrorCode::Success)
             {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting]: postingID %d has wrong meta data\n",
