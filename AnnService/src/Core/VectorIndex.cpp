@@ -232,13 +232,14 @@ VectorIndex::GetMetaMapping(std::string& meta) const
 }
 
 
-void
+ErrorCode
 VectorIndex::UpdateMetaMapping(const std::string& meta, SizeType i)
 {
     MetadataMap* ptr = static_cast<MetadataMap*>(m_pMetaToVec.get());
     auto iter = ptr->find(meta);
-    if (iter != ptr->end()) DeleteIndex(iter->second);;
+    if (iter != ptr->end()) RETURN_IF_ERROR(DeleteIndex(iter->second));
     (*ptr)[meta] = i;
+    return ErrorCode::Success;
 }
 
 

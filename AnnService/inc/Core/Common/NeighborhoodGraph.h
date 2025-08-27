@@ -532,7 +532,7 @@ break;
                         outnodes[m_iNeighborhoodSize - 1] = -2 - iter->second;
                 }
 
-                if (output != nullptr) newGraph->SaveGraph(output);
+                if (output != nullptr) RETURN_IF_ERROR(newGraph->SaveGraph(output));
                 return ret;
             }
 
