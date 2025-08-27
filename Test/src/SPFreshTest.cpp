@@ -1010,6 +1010,11 @@ BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
         std::shared_ptr<VectorIndex> prevIndex;
         BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
         BOOST_REQUIRE(prevIndex != nullptr);
+        auto t0 = std::chrono::high_resolution_clock::now();
+        BOOST_REQUIRE(prevIndex->Check() == ErrorCode::Success);
+        std::cout << "Check time for iteration " << iter << ": "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t0).count()
+                  << " ms" << std::endl;
 
         auto cloneIndex = prevIndex->Clone(clone_path);
         auto *cloneIndexPtr = static_cast<SPANN::Index<float> *>(cloneIndex.get());
