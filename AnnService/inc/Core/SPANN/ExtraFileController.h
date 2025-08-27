@@ -819,6 +819,67 @@ namespace SPTAG::SPANN {
             return Put(std::stoi(key), value, timeout, reqs);
         }
 
+        ErrorCode Check(const SizeType key, int size) override
+        {
+            if (m_fileIoUseLock)
+            {
+                m_rwMutex[hash(key)].lock();
+            }
+            SizeType r;
+            if (m_fileIoUseLock)
+            {
+                m_updateMutex.lock_shared();
+                r = m_pBlockMapping.R();
+                m_updateMutex.unlock_shared();
+            }
+            else
+            {
+                r = m_pBlockMapping.R();
+            }
+
+            if (key >= r || At(key) == 0xffffffffffffffff)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Check] Key range error: key: %d, mapping size: %d\n", key, r);
+                if (m_fileIoUseLock)
+                {
+                    m_rwMutex[hash(key)].unlock();
+                }
+                return ErrorCode::Key_OverFlow;
+            }
+
+            int64_t *postingSize = (int64_t *)At(key);
+            if ((*postingSize) != size)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Check] Key %d failed: postingSize %d is not match real size %d\n", key, (int)(*postingSize), size);
+                if (m_fileIoUseLock)
+                {
+                    m_rwMutex[hash(key)].unlock();
+                }
+                return ErrorCode::Posting_SizeError;
+            }
+
+            int blocks = ((*postingSize + PageSize - 1) >> PageSizeEx);
+            for (int i = 1; i <= blocks; i++)
+            {
+                if (postingSize[i] < 0 || postingSize[i] >= m_pBlockController.TotalBlocks())
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "[Check] Key %d failed: error block id %d (should be 0 ~ %d)\n", key,
+                                 (int)(postingSize[i]), m_pBlockController.TotalBlocks());
+                    if (m_fileIoUseLock)
+                    {
+                        m_rwMutex[hash(key)].unlock();
+                    }
+                    return ErrorCode::Block_IDError;
+                }
+            }
+            if (m_fileIoUseLock)
+            {
+                m_rwMutex[hash(key)].unlock();
+            }
+            return ErrorCode::Success;
+        }
+
         void PrintPostingDiff(std::string& p1, std::string& p2, const char* pos) {
             if (p1.size() != p2.size()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge %s: p1 and p2 have different sizes: before=%u after=%u\n", pos, p1.size(), p2.size());
@@ -860,8 +921,13 @@ namespace SPTAG::SPANN {
             int64_t* postingSize = (int64_t*)At(key);
             if (*postingSize < 0)
             {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Key %d failed: postingSize < 0\n");
-                return Put(key, value, timeout, reqs);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Key %d failed: postingSize < 0\n", key);
+                if (m_fileIoUseLock)
+                {
+                    m_rwMutex[hash(key)].unlock();
+                }
+                return ErrorCode::Key_NotFound;
+                //return Put(key, value, timeout, reqs);
             }
             
             if (m_fileIoUseCache) {

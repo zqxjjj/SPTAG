@@ -1197,6 +1197,46 @@ template <typename T> ErrorCode Index<T>::UpdateIndex()
     return ErrorCode::Success;
 }
 
+template <typename T> ErrorCode Index<T>::Check()
+{
+    std::vector<std::thread> mythreads;
+    mythreads.reserve(m_iNumberOfThreads);
+    std::atomic_size_t sent(0);
+    ErrorCode ret = ErrorCode::Success;
+    for (int tid = 0; tid < m_iNumberOfThreads; tid++)
+    {
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < m_pSamples.R())
+                {
+                    if (!m_deletedID.Contains(i))
+                    {
+                        COMMON::QueryResultSet<T> result(m_pSamples[i], 1);
+                        if (SearchIndex(result) != ErrorCode::Success || result.GetResult(0)->VID != i)
+                        {
+                            ret = ErrorCode::Fail;
+                            return;
+                        }
+                    }
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
+    }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
+    return ret;
+}
+
 template <typename T> ErrorCode Index<T>::SetParameter(const char *p_param, const char *p_value, const char *p_section)
 {
     if (nullptr == p_param || nullptr == p_value)

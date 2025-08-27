@@ -198,7 +198,12 @@ public:
 
     void BuildMetaMapping(bool p_checkDeleted = true);
 
-private:
+    virtual ErrorCode Check()
+    {
+        return ErrorCode::Undefined;
+    }
+
+  private:
     ErrorCode LoadIndexConfig(Helper::IniReader& p_reader);
 
     ErrorCode SaveIndexConfig(std::shared_ptr<Helper::DiskIO> p_configOut);

@@ -175,6 +175,8 @@ namespace SPTAG
                                   IAbortOperation *p_abort, std::vector<SizeType> *p_mapping);
             ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_newIndex) { return ErrorCode::Undefined; }
 
+            ErrorCode Check() override;
+
             ErrorCode SetWorkSpaceFactory(std::unique_ptr<SPTAG::COMMON::IWorkSpaceFactory<SPTAG::COMMON::IWorkSpace>> up_workSpaceFactory)
             {
                 SPTAG::COMMON::IWorkSpaceFactory<SPTAG::COMMON::IWorkSpace>* raw_generic_ptr = up_workSpaceFactory.release();
@@ -251,7 +253,7 @@ namespace SPTAG
                 m_extraSearcher->ForceGC(workSpace.get(), m_index.get()); 
             }
             
-            void Checkpoint() {
+            ErrorCode Checkpoint() {
                 /** Lock & wait until all jobs done **/
                 while (!AllFinished())
                 {
@@ -259,19 +261,23 @@ namespace SPTAG
                 }
 
                 /** Lock **/
-                if (m_options.m_persistentBufferPath == "") return;
+                if (m_options.m_persistentBufferPath == "") return ErrorCode::FailedCreateFile;
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Locking Index\n");
                 std::unique_lock<std::shared_timed_mutex> lock(m_checkPointLock);
 
                 // Flush block pool states & block mapping states
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving storage states\n");
-                m_extraSearcher->Checkpoint(m_options.m_persistentBufferPath);
+                ErrorCode ret;
+                if ((ret = m_extraSearcher->Checkpoint(m_options.m_persistentBufferPath)) != ErrorCode::Success)
+                    return ret;
 
                 /** Flush the checkpoint file: SPTAG states, block pool states, block mapping states **/
                 std::string filename = m_options.m_persistentBufferPath + FolderSep + m_options.m_headIndexFolder;
                 // Flush SPTAG
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving in-memory index to %s\n", filename.c_str());
-                m_index->SaveIndex(filename);
+                if ((ret = m_index->SaveIndex(filename)) != ErrorCode::Success)
+                    return ret;
+                return ErrorCode::Success;
             }
 
             ErrorCode AddIndexSPFresh(const void *p_data, SizeType p_vectorNum, DimensionType p_dimension, SizeType* VID) {

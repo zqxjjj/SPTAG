@@ -1045,6 +1045,22 @@ namespace SPTAG
                 return m_listInfos[postingID].listEleCount != 0;
             }
 
+            virtual ErrorCode CheckPosting(SizeType postingID) override
+            {
+                if (postingID < 0 || postingID >= m_totalListCount)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting]: Error postingID %d (should be 0 ~ %d)\n",
+                                 postingID, m_totalListCount);
+                    return ErrorCode::Key_OverFlow;
+                }
+                if (m_listInfos[postingID].listEleCount < 0)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting]: postingID %d has wrong size:%d\n",
+                                 postingID, m_listInfos[postingID].listEleCount);
+                    return ErrorCode::Posting_SizeError;
+                }
+                return ErrorCode::Success;
+            }
 
             virtual ErrorCode GetPostingDebug(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorIndex> p_index, SizeType vid, std::vector<SizeType>& VIDs, std::shared_ptr<VectorSet>& vecs)
             {

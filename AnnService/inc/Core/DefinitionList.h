@@ -85,7 +85,9 @@ DefineErrorCode(Socket_FailedConnectToEndPoint, 0x4001)
 // 0x5000 ~ -0x5FFF Block File Status
 DefineErrorCode(Key_OverFlow, 0x5000) 
 DefineErrorCode(Key_NotFound, 0x5001) 
-DefineErrorCode(Posting_OverFlow, 0x5002)
+DefineErrorCode(Posting_OverFlow, 0x5002) 
+DefineErrorCode(Posting_SizeError, 0x5003)
+DefineErrorCode(Block_IDError, 0x5004)
 
 #endif // DefineErrorCode
 

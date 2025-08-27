@@ -44,6 +44,11 @@ namespace SPTAG
 
             virtual bool Available() { return false; }
 
+            virtual ErrorCode Check(const SizeType key, int size)
+            {
+                return ErrorCode::Undefined;
+            }
+
             virtual ErrorCode Checkpoint(std::string prefix) {return ErrorCode::Undefined;}
 
             virtual ErrorCode StartToScan(SizeType& key, std::string* value) {return ErrorCode::Undefined;}

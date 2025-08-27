@@ -56,7 +56,9 @@ namespace SPTAG::SPANN {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot support job.exec(abort)!\n");
             }
             inline void exec(void* p_workSpace, IAbortOperation* p_abort) override {
-                m_extraIndex->MergePostings((ExtraWorkSpace*)p_workSpace, m_index, headID, !disableReassign);
+                ErrorCode ret = m_extraIndex->MergePostings((ExtraWorkSpace*)p_workSpace, m_index, headID, !disableReassign);
+                if (ret != ErrorCode::Success)
+                    m_extraIndex->m_asyncStatus = ret;
                 if (m_callback != nullptr) {
                     m_callback();
                 }
@@ -80,7 +82,9 @@ namespace SPTAG::SPANN {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot support job.exec(abort)!\n");
             }
             inline void exec(void* p_workSpace, IAbortOperation* p_abort) override {
-                m_extraIndex->Split((ExtraWorkSpace*)p_workSpace, m_index, headID, !disableReassign);
+                ErrorCode ret = m_extraIndex->Split((ExtraWorkSpace*)p_workSpace, m_index, headID, !disableReassign);
+                if (ret != ErrorCode::Success)
+                    m_extraIndex->m_asyncStatus = ret;
                 if (m_callback != nullptr) {
                     m_callback();
                 }
@@ -107,7 +111,9 @@ namespace SPTAG::SPANN {
             }
 
             void exec(void* p_workSpace, IAbortOperation* p_abort) override {
-                m_extraIndex->Reassign((ExtraWorkSpace*)p_workSpace, m_index, vectorInfo, HeadPrev);
+                ErrorCode ret = m_extraIndex->Reassign((ExtraWorkSpace*)p_workSpace, m_index, vectorInfo, HeadPrev);
+                if (ret != ErrorCode::Success)
+                    m_extraIndex->m_asyncStatus = ret;
                 if (m_callback != nullptr) {
                     m_callback();
                 }
@@ -1222,14 +1228,14 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
         
-        void Reassign(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, std::shared_ptr<std::string> vectorInfo, SizeType HeadPrev)
+        ErrorCode Reassign(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, std::shared_ptr<std::string> vectorInfo, SizeType HeadPrev)
         {
             SizeType VID = *((SizeType*)vectorInfo->c_str());
             uint8_t version = *((uint8_t*)(vectorInfo->c_str() + sizeof(VID)));
             // return;
             // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "ReassignID: %d, version: %d, current version: %d, HeadPrev: %d\n", VID, version, m_versionMap->GetVersion(VID), HeadPrev);
             if (m_versionMap->Deleted(VID) || m_versionMap->GetVersion(VID) != version) {
-                return;
+                return ErrorCode::Success;
             }
             auto reassignBegin = std::chrono::high_resolution_clock::now();
 
@@ -1253,9 +1259,10 @@ namespace SPTAG::SPANN {
                 //LOG(Helper::LogLevel::LL_Info, "Reassign: oldVID:%d, replicaCount:%d, candidateNum:%d, dist0:%f\n", oldVID, replicaCount, i, selections[0].distance);
                 for (int i = 0; i < replicaCount && m_versionMap->GetVersion(VID) == version; i++) {
                     //LOG(Helper::LogLevel::LL_Info, "Reassign: headID :%d, oldVID:%d, newVID:%d, posting length: %d, dist: %f, string size: %d\n", headID, oldVID, VID, m_postingSizes[headID].load(), selections[i].distance, newPart.size());
-                    if (ErrorCode::Undefined == Append(p_exWorkSpace, p_index, selections[i].node, 1, *vectorInfo, 3)) {
-                        // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Head Miss: VID: %d, current version: %d, another re-assign\n", VID, version);
-                        break;
+                    ErrorCode tmp = Append(p_exWorkSpace, p_index, selections[i].node, 1, *vectorInfo, 3);
+                    if (ErrorCode::Success != tmp) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Head Miss: VID: %d, current version: %d, another re-assign\n", VID, version);
+                        return tmp;
                     }
                 }
             }
@@ -1266,6 +1273,7 @@ namespace SPTAG::SPANN {
             auto reassignEnd = std::chrono::high_resolution_clock::now();
             elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(reassignEnd - reassignBegin).count();
             m_stat.m_reAssignCost += elapsedMSeconds;
+            return ErrorCode::Success;
         }
 
         bool LoadIndex(Options& p_opt, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& p_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) override {
@@ -2061,6 +2069,30 @@ namespace SPTAG::SPANN {
             return (postingID < m_postingSizes.GetPostingNum()) && (m_postingSizes.GetSize(postingID) > 0);
         }
 
+        virtual ErrorCode CheckPosting(SizeType postingID) override
+        {
+            if (postingID < 0 || postingID >= m_postingSizes.GetPostingNum())
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting]: Error postingID %d (should be 0 ~ %d)\n",
+                             postingID, m_postingSizes.GetPostingNum());
+                return ErrorCode::Key_OverFlow;
+            }
+            if (m_postingSizes.GetSize(postingID) < 0)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting]: postingID %d has wrong size:%d\n", postingID,
+                             m_postingSizes.GetSize(postingID));
+                return ErrorCode::Posting_SizeError;
+            }
+            ErrorCode ret = db ->Check(postingID, m_postingSizes.GetSize(postingID));
+            if (ret != ErrorCode::Success)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting]: postingID %d has wrong meta data\n",
+                             postingID);
+                return ret;
+            }
+            return ErrorCode::Success;
+        }
+
         ErrorCode GetWritePosting(ExtraWorkSpace* p_exWorkSpace, SizeType pid, std::string& posting, bool write = false) override {
             ErrorCode ret;
             if (write) {
@@ -2082,7 +2114,7 @@ namespace SPTAG::SPANN {
             return ErrorCode::Success;
         }
 
-        void Checkpoint(std::string prefix) override {
+        ErrorCode Checkpoint(std::string prefix) override {
             /**flush SPTAG, versionMap, block mapping, block pool**/
             /** Wait **/
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Waiting for index update complete\n");
@@ -2090,18 +2122,29 @@ namespace SPTAG::SPANN {
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
+            if (m_asyncStatus != ErrorCode::Success)
+                return m_asyncStatus;
+
             std::string p_persistenMap = prefix + FolderSep + m_opt->m_deleteIDFile;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving version map\n");
-            m_versionMap->Save(p_persistenMap);
+            
+            ErrorCode ret;
+            if ((ret = m_versionMap->Save(p_persistenMap)) != ErrorCode::Success)
+                return ret;
+
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Saving posting size\n");
             std::string p_persistenRecord = prefix + FolderSep + m_opt->m_ssdInfoFile;
-            m_postingSizes.Save(p_persistenRecord);
-            db->Checkpoint(prefix);
+            if ((ret = m_postingSizes.Save(p_persistenRecord)) != ErrorCode::Success)
+                return ret;
+
+            if ((ret = db->Checkpoint(prefix)) != ErrorCode::Success)
+                return ret;
             if (m_opt->m_enableWAL && m_wal) {
                 /** delete all the previous record **/
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Checkpoint done, delete previous record\n");
                 m_wal->ClearPreviousRecord();
             }
+            return ErrorCode::Success;
         }
 
         ErrorCode GetPostingDebug(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorIndex> p_index, SizeType vid, std::vector<SizeType>& VIDs, std::shared_ptr<VectorSet>& vecs) {
@@ -2150,6 +2193,7 @@ namespace SPTAG::SPANN {
         std::chrono::microseconds m_hardLatencyLimit = std::chrono::microseconds(2000);
 
         int m_mergeThreshold = 10;
+        ErrorCode m_asyncStatus = ErrorCode::Success;
 
 	    COMMON::Dataset<std::uint64_t>* m_vectorTranslateMap;
 

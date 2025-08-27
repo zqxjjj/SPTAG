@@ -223,6 +223,7 @@ namespace SPTAG
                 }
             }
 
+            virtual ErrorCode Check() override;
 
         private:
 

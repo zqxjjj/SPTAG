@@ -280,9 +280,11 @@ ErrorCode Index<T>::SaveIndexData(const std::vector<std::shared_ptr<Helper::Disk
     if ((ret = m_index->SaveIndexData(p_indexStreams)) != ErrorCode::Success)
         return ret;
 
-    m_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()]);
+    if ((ret = m_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()])) != ErrorCode::Success)
+        return ret;
 
-    m_extraSearcher->Checkpoint(m_options.m_indexDirectory);
+    if ((ret = m_extraSearcher->Checkpoint(m_options.m_indexDirectory)) != ErrorCode::Success)
+        return ret;
     return ErrorCode::Success;
 }
 
@@ -1520,6 +1522,49 @@ ErrorCode Index<T>::AddIndex(const void *p_data, SizeType p_vectorNum, Dimension
     workSpace->m_deduper.clear();
     workSpace->m_postingIDs.clear();
     return m_extraSearcher->AddIndex(workSpace.get(), vectorSet, m_index, begin);
+}
+
+template <typename T>
+ErrorCode Index<T>::Check()
+{
+    ErrorCode ret;
+    if ((ret = m_index->Check()) != ErrorCode::Success)
+        return ret;
+
+    std::vector<std::thread> mythreads;
+    mythreads.reserve(m_options.m_iSSDNumberOfThreads);
+    std::atomic_size_t sent(0);
+    for (int tid = 0; tid < m_options.m_iSSDNumberOfThreads; tid++)
+    {
+        mythreads.emplace_back([&, tid]() {
+            size_t i = 0;
+            while (true)
+            {
+                i = sent.fetch_add(1);
+                if (i < m_index->GetNumSamples())
+                {
+                    if (m_index->ContainSample(i))
+                    {
+                        if (m_extraSearcher->CheckPosting(i) != ErrorCode::Success)
+                        {
+                            ret = ErrorCode::Fail;
+                            return;
+                        }
+                    }
+                }
+                else
+                {
+                    return;
+                }
+            }
+        });
+    }
+    for (auto &t : mythreads)
+    {
+        t.join();
+    }
+    mythreads.clear();
+    return ret;
 }
 
 template <typename T> ErrorCode Index<T>::DeleteIndex(const SizeType &p_id)

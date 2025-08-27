@@ -1006,12 +1006,13 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_config, const std::vector<
 
 std::shared_ptr<VectorIndex> VectorIndex::Clone(std::string p_clone)
 {
+    ErrorCode ret;
     if (GetIndexAlgoType() != IndexAlgoType::SPANN)
-        SaveIndex(p_clone);
+        ret = SaveIndex(p_clone);
     else
     {
         std::string indexFolder = GetParameter("IndexDirectory", "Base");
-        SaveIndex(indexFolder);
+        ret = SaveIndex(indexFolder);
         if (!copydirectory(indexFolder, p_clone))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to copy index directory contents to %s!\n",
@@ -1019,6 +1020,8 @@ std::shared_ptr<VectorIndex> VectorIndex::Clone(std::string p_clone)
             return nullptr;
         }
     }
+    if (ret != ErrorCode::Success)
+        return nullptr;
 
     std::shared_ptr<VectorIndex> clone;
     auto status = VectorIndex::LoadIndex(p_clone, clone);
