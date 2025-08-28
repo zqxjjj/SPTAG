@@ -859,6 +859,7 @@ namespace SPTAG::SPANN {
             }
 
             int blocks = ((*postingSize + PageSize - 1) >> PageSizeEx);
+            std::vector<bool> checked(m_pBlockController.TotalBlocks(), false);
             for (int i = 1; i <= blocks; i++)
             {
                 if (postingSize[i] < 0 || postingSize[i] >= m_pBlockController.TotalBlocks())
@@ -871,6 +872,15 @@ namespace SPTAG::SPANN {
                         m_rwMutex[hash(key)].unlock();
                     }
                     return ErrorCode::Block_IDError;
+                }
+                if (checked[postingSize[i]])
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Check] Block %lld double used!\n", postingSize[i]);
+                    return ErrorCode::Block_IDError;
+                }
+                else
+                {
+                    checked[postingSize[i]] = true;
                 }
             }
             if (m_fileIoUseLock)

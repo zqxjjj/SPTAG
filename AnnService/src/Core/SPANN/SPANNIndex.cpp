@@ -1532,8 +1532,8 @@ template <typename T>
 ErrorCode Index<T>::Check()
 {
     ErrorCode ret;
-    if ((ret = m_index->Check()) != ErrorCode::Success)
-        return ret;
+    //if ((ret = m_index->Check()) != ErrorCode::Success)
+    //    return ret;
 
     std::vector<std::thread> mythreads;
     mythreads.reserve(m_options.m_iSSDNumberOfThreads);

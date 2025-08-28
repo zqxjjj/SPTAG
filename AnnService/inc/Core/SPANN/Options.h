@@ -183,6 +183,7 @@ namespace SPTAG {
             int m_growthFileSize;
             float m_growThreshold;
             float m_fDeletePercentageForRefine;
+            bool m_oneClusterCutMax;
 
             // Iterative
             int m_headBatch;

@@ -201,6 +201,7 @@ DefineSSDParameter(m_startFileSize, int, 10, "StartFileSizeGB")
 DefineSSDParameter(m_growthFileSize, int, 10, "GrowthFileSizeGB")
 DefineSSDParameter(m_growThreshold, float, 0.05, "GrowthThreshold")
 DefineSSDParameter(m_fDeletePercentageForRefine, float, 0.4F, "DeletePercentageForRefine")
+DefineSSDParameter(m_oneClusterCutMax, bool, false, "OneClusterCutMax")
 
 // Iterative
 DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch")
