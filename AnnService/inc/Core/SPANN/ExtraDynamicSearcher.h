@@ -588,7 +588,7 @@ namespace SPTAG::SPANN {
                 std::string postingList;
                 auto splitGetBegin = std::chrono::high_resolution_clock::now();
                 if ((ret=db->Get(headID, &postingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) !=
-                    ErrorCode::Success || !m_checkSum.ValidateChecksum(postingList.c_str(), (int)(postingList.size()), *m_checkSums[headID]))
+                    ErrorCode::Success) // || !m_checkSum.ValidateChecksum(postingList.c_str(), (int)(postingList.size()), *m_checkSums[headID]))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split fail to get oversized postings\n");
                     return ret;
@@ -1111,6 +1111,7 @@ namespace SPTAG::SPANN {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ReAssign can't get all the near postings\n");
                     return ret;
                 }
+                /*
                 for (int i = 0; i < HeadPrevTopK.size(); i++)
                 {
                     if (!m_checkSum.ValidateChecksum(postingLists[i].c_str(), (int)(postingLists[i].size()), *m_checkSums[HeadPrevTopK[i]]))
@@ -1119,6 +1120,7 @@ namespace SPTAG::SPANN {
                         return ret;
                     }
                 }
+                */
                 auto reassignScanIOEnd = std::chrono::high_resolution_clock::now();
                 auto elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(reassignScanIOEnd - reassignScanIOBegin).count();
                 m_stat.m_reassignScanIOCost += elapsedMSeconds;
