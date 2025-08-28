@@ -284,7 +284,7 @@ namespace SPTAG {
 
             virtual bool LoadIndex(Options& p_options, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& m_vectorTranslateMap,  std::shared_ptr<VectorIndex> m_index) = 0;
 
-            virtual void SearchIndex(ExtraWorkSpace* p_exWorkSpace,
+            virtual ErrorCode SearchIndex(ExtraWorkSpace* p_exWorkSpace,
                 QueryResult& p_queryResults,
                 std::shared_ptr<VectorIndex> p_index,
                 SearchStats* p_stats, std::set<int>* truth = nullptr, std::map<int, std::set<int>>* found = nullptr) = 0;

@@ -302,7 +302,9 @@ template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool
         p_queryResults =
             new COMMON::QueryResultSet<T>((const T *)p_query.GetTarget(), m_options.m_searchInternalResultNum);
 
-    m_index->SearchIndex(*p_queryResults);
+    ErrorCode ret;
+    if ((ret = m_index->SearchIndex(*p_queryResults)) != ErrorCode::Success)
+        return ret;
 
     if (m_extraSearcher != nullptr)
     {
@@ -364,7 +366,9 @@ template <typename T> ErrorCode Index<T>::SearchIndex(QueryResult &p_query, bool
             }
         }
         p_queryResults->Reverse();
-        m_extraSearcher->SearchIndex(workSpace.get(), *p_queryResults, m_index, nullptr);
+        if ((ret = m_extraSearcher->SearchIndex(workSpace.get(), *p_queryResults, m_index, nullptr)) !=
+            ErrorCode::Success)
+            return ret;
         m_workSpaceFactory->ReturnWorkSpace(std::move(workSpace));
         p_queryResults->SortResult();
     }

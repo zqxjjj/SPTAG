@@ -237,7 +237,7 @@ namespace SPTAG
                 return true;
             }
 
-            virtual void SearchIndex(ExtraWorkSpace* p_exWorkSpace,
+            virtual ErrorCode SearchIndex(ExtraWorkSpace* p_exWorkSpace,
                 QueryResult& p_queryResults,
                 std::shared_ptr<VectorIndex> p_index,
                 SearchStats* p_stats,
@@ -387,6 +387,7 @@ namespace SPTAG
                     p_stats->m_diskAccessCount = diskRead;
                 }
                 queryResults.SetScanned(listElements);
+                return ErrorCode::Success;
             }
 
             virtual ErrorCode SearchIndexWithoutParsing(ExtraWorkSpace *p_exWorkSpace) override

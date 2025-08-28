@@ -90,6 +90,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="inc\Core\Common\Checksum.h" />
     <ClInclude Include="inc\Core\Common\FineGrainedLock.h" />
     <ClInclude Include="inc\Core\Common\InstructionUtils.h" />
     <ClInclude Include="inc\Core\Common\KNearestNeighborhoodGraph.h" />
