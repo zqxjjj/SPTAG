@@ -334,7 +334,7 @@ namespace SPTAG {
                 return ErrorCode::Undefined;
             }
 
-            virtual ErrorCode Checkpoint(std::string prefix) { return ErrorCode::Undefined; }
+            virtual ErrorCode Checkpoint(std::string prefix) { return ErrorCode::Success; }
         };
     } // SPANN
 } // SPTAG
