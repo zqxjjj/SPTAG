@@ -981,6 +981,7 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
 
     BOOST_REQUIRE(VectorIndex::LoadIndex("original_index", originalIndex) == ErrorCode::Success);
     BOOST_REQUIRE(originalIndex != nullptr);
+    BOOST_REQUIRE(originalIndex->Check() == ErrorCode::Success);
 
     recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
     std::cout << "After Refine:" << " recall@5=" << recall << std::endl;
