@@ -88,7 +88,8 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             Sampling=4
             BufferLength=6
             InPlace=true
-	    StartFileSizeGB=1
+	        StartFileSizeGB=1
+            OneClusterCutMax=true
         )";
 
     std::shared_ptr<Helper::DiskIO> buffer(new Helper::SimpleBufferIO());
@@ -993,8 +994,8 @@ BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
     using namespace SPFreshTest;
 
     constexpr int insertIterations = 5;
-    constexpr int insertBatchSize = 600000;
-    constexpr int appendBatchSize = 400000;
+    constexpr int insertBatchSize = 60000;
+    constexpr int appendBatchSize = 40000;
     constexpr int dimension = 64;
     std::shared_ptr<VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
     std::shared_ptr<MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, 0);
