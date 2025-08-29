@@ -671,16 +671,19 @@ namespace SPTAG::SPANN {
                 // int numClusters = ClusteringSPFresh(smallSample, localIndices, 0, localIndices.size(), args, 10, false, m_opt->m_virtualHead);
                 if (numClusters <= 1)
                 {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Cluserting Failed (The same vector), Only Keep one\n");
                     int cut = 1;
                     if (m_opt->m_oneClusterCutMax) cut = m_postingSizeLimit;
                     std::string newpostingList(cut * m_vectorInfoSize, '\0');
                     char* ptr = (char*)(newpostingList.c_str());
+                    float totaldist = 0.0f;
                     for (int j = 0; j < cut; j++, ptr += m_vectorInfoSize)
                     {
+                        totaldist += p_index->ComputeDistance(ptr + sizeof(int) + 1, args.centers);
                         memcpy(ptr, postingList.c_str() + localIndices[j] * m_vectorInfoSize, m_vectorInfoSize);
                         //Serialize(ptr, localIndicesInsert[j], localIndicesInsertVersion[j], smallSample[j]);
                     }
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Cluserting Failed (The same vector), Cluster total dist:%f Only Keep %d vectors.\n", totaldist, cut);
+
                     m_postingSizes.UpdateSize(headID, cut);
                     *m_checkSums[headID] = m_checkSum.CalcChecksum(newpostingList.c_str(), (int)(newpostingList.size()));
                     if ((ret=db->Put(headID, newpostingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {

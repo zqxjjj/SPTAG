@@ -1531,7 +1531,7 @@ ErrorCode Index<T>::AddIndex(const void *p_data, SizeType p_vectorNum, Dimension
 template <typename T>
 ErrorCode Index<T>::Check()
 {
-    ErrorCode ret;
+    std::atomic<ErrorCode> ret = ErrorCode::Success;
     //if ((ret = m_index->Check()) != ErrorCode::Success)
     //    return ret;
 
@@ -1568,7 +1568,7 @@ ErrorCode Index<T>::Check()
         t.join();
     }
     mythreads.clear();
-    return ret;
+    return ret.load();
 }
 
 template <typename T> ErrorCode Index<T>::DeleteIndex(const SizeType &p_id)
