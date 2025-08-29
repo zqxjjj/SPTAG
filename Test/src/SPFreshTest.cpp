@@ -998,7 +998,7 @@ BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
     constexpr int insertIterations = 5;
     constexpr int insertBatchSize = 60000;
     constexpr int appendBatchSize = 40000;
-    constexpr int dimension = 64;
+    constexpr int dimension = 100;
     std::shared_ptr<VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
     std::shared_ptr<MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, 0);
 
