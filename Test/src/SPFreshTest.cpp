@@ -10,6 +10,7 @@
 #include "inc/Helper/DiskIO.h"
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Helper/VectorSetReader.h"
+#include "inc/Helper/StringConvert.h"
 #include "inc/Test.h"
 #include "inc/TestDataGenerator.h"
 
@@ -41,7 +42,8 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
         [Base]
             DistCalcMethod=L2
             IndexAlgoType=BKT
-            ValueType=Int8
+            ValueType=)" + Helper::Convert::ConvertToString(GetEnumValueType<T>()) + 
+                                R"(
             Dim=)" + std::to_string(M) +
                                 R"(
             IndexDirectory=)" + outDirectory +
@@ -88,7 +90,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             Sampling=4
             BufferLength=6
             InPlace=true
-	        StartFileSizeGB=1
+            StartFileSizeGB=1
             OneClusterCutMax=true
         )";
 
