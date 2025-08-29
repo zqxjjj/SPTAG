@@ -445,7 +445,7 @@ namespace SPTAG::SPANN {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin RefineIndex\n");
 
             COMMON::PostingSizeRecord new_postingSizes;
-            COMMON::Dataset<uint64_t> new_checkSums;
+            COMMON::Dataset<ChecksumType> new_checkSums;
             if (!p_prereassign)
             {
                 new_postingSizes.Initialize(p_index->GetNumSamples() - p_index->GetNumDeleted(),
@@ -1500,7 +1500,11 @@ namespace SPTAG::SPANN {
             {
                 if (!m_checkSum.ValidateChecksum((const char *)(postings[i].GetBuffer()),
                                                  postings[i].GetAvailableSize(), *m_checkSums[pids[i]]))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ValidatePostings fail: buffer size:%d, checksum:%d\n",
+                                 (int)(postings[i].GetAvailableSize()), (int)(*m_checkSums[pids[i]]));
                     return false;
+                }
             }
             return true;
         }

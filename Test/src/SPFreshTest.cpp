@@ -993,9 +993,9 @@ BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
     using namespace SPFreshTest;
 
     constexpr int insertIterations = 5;
-    constexpr int insertBatchSize = 100000;
-    constexpr int appendBatchSize = 8000;
-    constexpr int dimension = 1024;
+    constexpr int insertBatchSize = 600000;
+    constexpr int appendBatchSize = 400000;
+    constexpr int dimension = 64;
     std::shared_ptr<VectorSet> vecset = get_embeddings<float>(0, insertBatchSize, dimension, -1);
     std::shared_ptr<MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(insertBatchSize, 0);
 
