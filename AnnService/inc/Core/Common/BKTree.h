@@ -368,6 +368,7 @@ namespace SPTAG
             float adjustedLambda = InitCenters<T, R>(data, indices, first, last, args, samples, 3);
             if (abort && abort->ShouldAbort()) return 0;
 
+            std::mt19937 rg;
             SizeType batchEnd = min(first + samples, last);
             float currDiff, currDist, minClusterDist = MaxDist;
             int noImprovement = 0;
@@ -590,6 +591,7 @@ break;
 
                 if (m_fBalanceFactor < 0) m_fBalanceFactor = DynamicFactorSelect(data, localindices, 0, (SizeType)localindices.size(), args, m_iSamples);
 
+                std::mt19937 rg;
                 m_pSampleCenterMap.clear();
                 for (char i = 0; i < m_iTreeNumber; i++)
                 {

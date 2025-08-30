@@ -347,6 +347,7 @@ break;
                     {
                         mythreads.emplace_back([&, tid]() {
                             size_t i = 0;
+                            std::mt19937 rg;
                             while (true)
                             {
                                 i = sent.fetch_add(1);

@@ -359,6 +359,7 @@ template <typename ValueType> void GenerateTrace(ToolOptions &p_opts)
     std::vector<SizeType> insertList;
     deleteList.resize(p_opts.updateSize);
     insertList.resize(p_opts.updateSize);
+    std::mt19937 rg;
     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Generate delete list\n");
     std::shuffle(current_list.begin(), current_list.end(), rg);
     for (int j = 0; j < p_opts.updateSize; j++)
@@ -410,6 +411,7 @@ template <typename ValueType> void GenerateStressTest(ToolOptions &p_opts)
     current_list.resize(p_opts.baseNum);
     for (int i = 0; i < p_opts.baseNum; i++)
         current_list[i] = i;
+    std::mt19937 rg;
     for (int i = 0; i < p_opts.batch; i++)
     {
         std::vector<SizeType> insertList;

@@ -912,6 +912,7 @@ bool Index<T>::SelectHeadInternal(std::shared_ptr<Helper::VectorSetReader> &p_re
     }
     else if (Helper::StrUtils::StrEqualIgnoreCase(m_options.m_selectType.c_str(), "Random"))
     {
+        std::mt19937 rg;
         SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Start generating Random head.\n");
         selected.resize(data.R());
         for (int i = 0; i < data.R(); i++)

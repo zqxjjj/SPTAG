@@ -49,8 +49,6 @@ void SPTAG::SetLogger(std::shared_ptr<Helper::Logger> p_logger)
     GetLoggerHolder().SetLogger(p_logger);
 }
 
-std::mt19937 SPTAG::rg;
-
 std::shared_ptr<Helper::DiskIO> (*SPTAG::f_createIO)() = []() -> std::shared_ptr<Helper::DiskIO> {
     return std::shared_ptr<Helper::DiskIO>(new Helper::SimpleFileIO());
 };
