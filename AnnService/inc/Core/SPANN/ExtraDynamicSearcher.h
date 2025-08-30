@@ -536,6 +536,14 @@ namespace SPTAG::SPANN {
                                     finalcode = ret;
                                     return;
                                 }
+                                if ((ret = db->Check(p_headmapping->at(index), new_postingSizes.GetSize(p_headmapping->at(index)) * m_vectorInfoSize)) != ErrorCode::Success)
+                                {
+                                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                                    "RefineIndex: Check failed after Put %d\n",
+                                                    p_headmapping->at(index));
+                                    finalcode = ret;
+                                    return;
+                                }
                             }
                         }
                         else
@@ -643,6 +651,11 @@ namespace SPTAG::SPANN {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split Fail to write back postings\n");
                         return ret;
                     }
+                    if ((ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize)) != ErrorCode::Success)
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split: Check failed after Put %d\n", headID);
+                        return ret;
+                    }
                     m_stat.m_garbageNum++;
                     auto GCEnd = std::chrono::high_resolution_clock::now();
                     elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(GCEnd - splitBegin).count();
@@ -688,6 +701,11 @@ namespace SPTAG::SPANN {
                     *m_checkSums[headID] = m_checkSum.CalcChecksum(newpostingList.c_str(), (int)(newpostingList.size()));
                     if ((ret=db->Put(headID, newpostingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split fail to override postings cut to limit\n");
+                        return ret;
+                    }
+                    if ((ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize)) != ErrorCode::Success)
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split: Consolidate Check failed after Put %d\n", headID);
                         return ret;
                     }
                     {
@@ -772,6 +790,11 @@ namespace SPTAG::SPANN {
                     m_postingSizes.UpdateSize(newHeadVID, args.counts[k]);
                     *m_checkSums[newHeadVID] =
                         m_checkSum.CalcChecksum(newPostingLists[k].c_str(), (int)(newPostingLists[k].size()));
+                    if ((ret = db->Check(newHeadVID, m_postingSizes.GetSize(newHeadVID) * m_vectorInfoSize)) != ErrorCode::Success)
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split: Cluster Write Check failed after Put %d\n", newHeadVID);
+                        return ret;
+                    }
                 }
                 if (!theSameHead) {
                     p_index->DeleteIndex(headID);
@@ -858,6 +881,11 @@ namespace SPTAG::SPANN {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge Fail to write back postings\n");
                         return ret;
                     }
+                    if ((ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize)) != ErrorCode::Success)
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge: Check failed after Put %d\n", headID);
+                        return ret;
+                    }
                     m_mergeList.unsafe_erase(headID);
                     m_mergeLock.unlock();
                     return ErrorCode::Success;
@@ -903,7 +931,7 @@ namespace SPTAG::SPANN {
                             {
                                 p_index->DeleteIndex(queryResult->VID);
                                 if ((ret=db->Put(headID, mergedPostingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
-                                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split fail to override postings after merge\n");
+                                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "MergePostings fail to override postings after merge\n");
                                     return ret;
                                 }
                                 m_postingSizes.UpdateSize(queryResult->VID, 0);
@@ -911,6 +939,11 @@ namespace SPTAG::SPANN {
                                 m_postingSizes.UpdateSize(headID, totalLength);
                                 *m_checkSums[headID] =
                                     m_checkSum.CalcChecksum(mergedPostingList.c_str(), (int)(mergedPostingList.size()));
+                                if ((ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize)) != ErrorCode::Success)
+                                {
+                                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "MergePostings fail to check old posting %d in Merge\n", headID);
+                                    return ret;
+                                }
                                 if ((ret=db->Delete(queryResult->VID)) != ErrorCode::Success)
                                 {
                                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to delete old posting in Merge\n");
@@ -928,6 +961,11 @@ namespace SPTAG::SPANN {
                                     m_checkSum.CalcChecksum(mergedPostingList.c_str(), (int)(mergedPostingList.size()));
                                 m_postingSizes.UpdateSize(headID, 0);
                                 *m_checkSums[headID] = 0;
+                                if ((ret = db->Check(queryResult->VID, m_postingSizes.GetSize(queryResult->VID) * m_vectorInfoSize)) != ErrorCode::Success)
+                                {
+                                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "MergePostings fail to check nearby posting %d in Merge\n", queryResult->VID);
+                                    return ret;
+                                }
                                 if ((ret = db->Delete(headID)) != ErrorCode::Success)
                                 {
                                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to delete old posting in Merge\n");
@@ -995,11 +1033,17 @@ namespace SPTAG::SPANN {
                         return ErrorCode::Success;
                     }
                 }
+                mergedPostingList.resize(currentLength * m_vectorInfoSize);
                 m_postingSizes.UpdateSize(headID, currentLength);
                 *m_checkSums[headID] =
                     m_checkSum.CalcChecksum(mergedPostingList.c_str(), (int)(mergedPostingList.size()));
                 if ((ret=db->Put(headID, mergedPostingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge Fail to write back postings\n");
+                    return ret;
+                }
+                if ((ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize)) != ErrorCode::Success)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge: Check failed after put original posting %d\n", headID);
                     return ret;
                 }
                 m_mergeList.unsafe_erase(headID);
@@ -1253,6 +1297,11 @@ namespace SPTAG::SPANN {
                 auto appendIOEnd = std::chrono::high_resolution_clock::now();
                 appendIOSeconds = std::chrono::duration_cast<std::chrono::microseconds>(appendIOEnd - appendIOBegin).count();
                 m_postingSizes.IncSize(headID, appendNum);
+                if ((ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize)) != ErrorCode::Success)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Append: Check failed after Merge %d, append %d vectors with size %d\n", headID, appendNum, (int)(appendPosting.size()));
+                    return ret;
+                }
             }
             if (m_postingSizes.GetSize(headID) > (m_postingSizeLimit + reassignThreshold)) {
                 // SizeType VID = *(int*)(&appendPosting[0]);
@@ -2064,6 +2113,13 @@ namespace SPTAG::SPANN {
                             ret = tmp;
                             return;
                         }
+                        if ((tmp = db->Check(index, m_postingSizes.GetSize(index) * m_vectorInfoSize)) !=
+                            ErrorCode::Success)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "WriteDB: Check failed after Put %d\n", index);
+                            ret = tmp;
+                            return;
+                        }
                     }
                     else
                     {
@@ -2202,6 +2258,11 @@ namespace SPTAG::SPANN {
                     
                 m_postingSizes.UpdateSize(pid, posting.size() / m_vectorInfoSize);
                 *m_checkSums[pid] = m_checkSum.CalcChecksum(posting.c_str(), (int)(posting.size()));
+                if ((ret = db->Check(pid, m_postingSizes.GetSize(pid) * m_vectorInfoSize)) != ErrorCode::Success)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[GetWritePosting] Check fail!\n");
+                    return ret;
+                }
                 // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "PostingSize: %d\n", m_postingSizes.GetSize(pid));
             } else {
                 if ((ret = db->Get(pid, &posting, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success ||
