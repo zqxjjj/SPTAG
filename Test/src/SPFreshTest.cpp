@@ -1044,4 +1044,109 @@ BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
     }
     // std::filesystem::remove_all("original_index");
 }
+
+std::shared_ptr<float[]> get_embeddings(uint32_t row_id, uint32_t embedding_dim, uint32_t array_index)
+{
+    std::shared_ptr<float[]> retval(new float[embedding_dim], std::default_delete<float[]>());
+    for (int idx = 0; idx < embedding_dim; ++idx)
+    {
+        retval[idx] = row_id * 17 + idx * 19 + (array_index + 1) * 23;
+    }
+
+    NormalizeVector(retval.get(), embedding_dim);
+    return retval;
+}
+
+std::shared_ptr<VectorSet> get_embeddings_float32(int start_id, int end_id, int embedding_dim)
+{
+    std::vector<float> array_embeddings;
+    for (auto i = start_id; i < end_id; ++i)
+    {
+        uint32_t array_size = i % 4;
+        if (array_size == 0)
+        {
+            continue; // some null embeddings
+        }
+
+        if (array_size == 3)
+            array_size = 5;
+        for (int j = 0; j < array_size; ++j)
+        {
+            // TODO add empty sub-array
+            std::shared_ptr<float[]> embeddings = get_embeddings(i, 1024, j);
+            for (int j = 0; j < 1024; ++j)
+            {
+                array_embeddings.emplace_back(embeddings[j]);
+            }
+        }
+    }
+    ByteArray vec = ByteArray::Alloc(sizeof(float) * array_embeddings.size());
+    std::memcpy(vec.Data(), array_embeddings.data(), sizeof(float) * array_embeddings.size());
+    return std::make_shared<BasicVectorSet>(vec, GetEnumValueType<float>(), embedding_dim, 2 * (end_id - start_id));
+}
+
+BOOST_AUTO_TEST_CASE(RefineTestIdx)
+{
+    using namespace SPFreshTest;
+
+    constexpr int dimension = 1024;
+
+    std::shared_ptr<VectorSet> vecset = get_embeddings_float32(0, 500, dimension);
+    std::shared_ptr<MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(1000, 0);
+
+    for (auto i = 0; i < 2; ++i) {
+        void* p = vecset->GetVector(i);
+        for (auto i = 0; i < dimension; ++i) {
+            std::cout << ((float*)p)[i] << " ";
+        }
+        std::cout << std::endl;
+    }
+
+    auto originalIndex = BuildIndex<float>("original_index", vecset, metaset, "COSINE");
+    BOOST_REQUIRE(originalIndex != nullptr);
+    BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
+    originalIndex = nullptr;
+
+    std::string prevPath = "original_index";
+    for (int iter = 0; iter < 1; iter++)
+    {
+        std::string clone_path = "clone_index_" + std::to_string(iter);
+        std::shared_ptr<VectorIndex> prevIndex;
+        BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
+        BOOST_REQUIRE(prevIndex != nullptr);
+        auto t0 = std::chrono::high_resolution_clock::now();
+        BOOST_REQUIRE(prevIndex->Check() == ErrorCode::Success);
+        std::cout << "Check time for iteration " << iter << ": "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() -
+                                                                           t0)
+                         .count()
+                  << " ms" << std::endl;
+
+        auto cloneIndex = prevIndex->Clone(clone_path);
+        auto *cloneIndexPtr = static_cast<SPANN::Index<float> *>(cloneIndex.get());
+        std::shared_ptr<VectorSet> tmpvecs = get_embeddings_float32(500, 1100, dimension);
+        std::shared_ptr<MetadataSet> tmpmetas = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(1200, 1000);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        InsertVectors<float>(cloneIndexPtr, 1, 1200, tmpvecs, tmpmetas);
+        std::cout << "Insert time for iteration " << iter << ": "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() -
+                                                                           t1)
+                         .count()
+                  << " ms" << std::endl;
+
+        for (auto i = 1000; i < 1900; ++i)
+        {
+            cloneIndexPtr->DeleteIndex(i);
+        }
+
+        BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
+        cloneIndex = nullptr;
+    }
+
+    for (int iter = 0; iter < 1; iter++)
+    {
+        std::filesystem::remove_all("clone_index_" + std::to_string(iter));
+    }
+    // std::filesystem::remove_all("original_index");
+} 
 BOOST_AUTO_TEST_SUITE_END()

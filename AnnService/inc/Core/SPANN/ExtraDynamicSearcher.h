@@ -574,6 +574,7 @@ namespace SPTAG::SPANN {
                     new_postingSizes.Save(p_persistenRecord);
                     std::string p_checksumPath = m_opt->m_indexDirectory + FolderSep + m_opt->m_checksumFile;
                     new_checkSums.Save(p_checksumPath);
+                    db->Checkpoint(m_opt->m_indexDirectory);
                 }
                 
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: ReWriting SSD Info\n");
