@@ -733,9 +733,17 @@ namespace SPTAG::SPANN {
                         newHeadsID.push_back(headID);
                         newHeadVID = headID;
                         theSameHead = true;
+                        m_postingSizes.UpdateSize(newHeadVID, args.counts[k]);
+                        *m_checkSums[newHeadVID] =
+                            m_checkSum.CalcChecksum(newPostingLists[k].c_str(), (int)(newPostingLists[k].size()));
                         auto splitPutBegin = std::chrono::high_resolution_clock::now();
                         if (!preReassign && (ret=db->Put(newHeadVID, newPostingLists[k], MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to override postings\n");
+                            return ret;
+                        }
+                        if ((ret = db->Check(newHeadVID, m_postingSizes.GetSize(newHeadVID) * m_vectorInfoSize)) != ErrorCode::Success)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split: Cluster Write Check failed after Put %d\n", newHeadVID);
                             return ret;
                         }
                         auto splitPutEnd = std::chrono::high_resolution_clock::now();
@@ -763,11 +771,11 @@ namespace SPTAG::SPANN {
                         }
                         newHeadVID = begin;
                         newHeadsID.push_back(begin);
-                        auto splitPutBegin = std::chrono::high_resolution_clock::now();
+                                                auto splitPutBegin = std::chrono::high_resolution_clock::now();
                         if (!preReassign && (ret=db->Put(newHeadVID, newPostingLists[k], MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to add new postings\n");
                             return ret;
-                        }
+                        }                        
                         auto splitPutEnd = std::chrono::high_resolution_clock::now();
                         elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(splitPutEnd - splitPutBegin).count();
                         m_stat.m_putCost += elapsedMSeconds;
@@ -779,7 +787,15 @@ namespace SPTAG::SPANN {
                                          newHeadVID, m_postingSizes.BufferSize());
                             return ErrorCode::MemoryOverFlow;
                         }
-
+                        m_postingSizes.UpdateSize(newHeadVID, args.counts[k]);
+                        *m_checkSums[newHeadVID] =
+                            m_checkSum.CalcChecksum(newPostingLists[k].c_str(), (int)(newPostingLists[k].size()));
+                        if ((ret = db->Check(newHeadVID, m_postingSizes.GetSize(newHeadVID) * m_vectorInfoSize)) != ErrorCode::Success)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split: Cluster Write Check failed after Put %d\n", newHeadVID);
+                            return ret;
+                        }
+                            
                         auto updateHeadBegin = std::chrono::high_resolution_clock::now();
                         p_index->AddIndexIdx(begin, end);
                         auto updateHeadEnd = std::chrono::high_resolution_clock::now();
@@ -788,14 +804,6 @@ namespace SPTAG::SPANN {
                     }
                     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Head id: %d split into : %d, length: %d\n", headID, newHeadVID, args.counts[k]);
                     first += args.counts[k];
-                    m_postingSizes.UpdateSize(newHeadVID, args.counts[k]);
-                    *m_checkSums[newHeadVID] =
-                        m_checkSum.CalcChecksum(newPostingLists[k].c_str(), (int)(newPostingLists[k].size()));
-                    if ((ret = db->Check(newHeadVID, m_postingSizes.GetSize(newHeadVID) * m_vectorInfoSize)) != ErrorCode::Success)
-                    {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split: Cluster Write Check failed after Put %d\n", newHeadVID);
-                        return ret;
-                    }
                 }
                 if (!theSameHead) {
                     p_index->DeleteIndex(headID);
