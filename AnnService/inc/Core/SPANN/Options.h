@@ -184,6 +184,8 @@ namespace SPTAG {
             float m_growThreshold;
             float m_fDeletePercentageForRefine;
             bool m_oneClusterCutMax;
+            bool m_consistencyCheck;
+            bool m_checksumCheck;
 
             // Iterative
             int m_headBatch;

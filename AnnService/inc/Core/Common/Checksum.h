@@ -16,19 +16,20 @@ namespace COMMON
 class Checksum
 {
   public:
-    Checksum() : m_type(0), m_seed(0)
+    Checksum() : m_type(0), m_seed(0), m_skip(false)
     {
     }
 
-    void Initialize(uint8_t p_type, int p_seed = 0)
+    void Initialize(bool p_skip, uint8_t p_type, int p_seed = 0)
     {
         m_type = p_type;
         m_seed = p_seed;
+        m_skip = p_skip;
     }
 
     ChecksumType CalcChecksum(const char *p_data, int p_length)
     {
-        uint8_t cs = 0;
+        uint8_t cs = m_seed;
         for (int i = 0; i < p_length; i++)
             cs ^= p_data[i];
         return cs;
@@ -43,12 +44,14 @@ class Checksum
 
     bool ValidateChecksum(const char *p_data, int p_length, ChecksumType p_checksum)
     {
+        if (m_skip) return true;
         return (CalcChecksum(p_data, p_length) == p_checksum);
     }
 
   private:
     uint8_t m_type;
     int m_seed;
+    bool m_skip;
 };
 } // namespace COMMON
 } // namespace SPTAG
