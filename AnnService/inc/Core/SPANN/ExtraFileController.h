@@ -793,11 +793,14 @@ namespace SPTAG::SPANN {
                 if (!m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Not enough blocks in the pool can be allocated!\n");
+                    m_buffer.push(tmpblocks);
                     return ErrorCode::DiskIOFail;
                 }
                 if (!m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value, timeout, reqs))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
+                    m_pBlockController.ReleaseBlocks((AddressType*)tmpblocks + 1, blocks);
+                    m_buffer.push(tmpblocks);
                     return ErrorCode::DiskIOFail;
                 }
                 *((int64_t*)tmpblocks) = value.size();
@@ -986,6 +989,7 @@ namespace SPTAG::SPANN {
                 if (!m_pBlockController.GetBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Not enough blocks in the pool can be allocated!\n");
+                    m_buffer.push(tmpblocks);
                     return ErrorCode::DiskIOFail;
                 }
                 if (!m_pBlockController.WriteBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks, newValue,
@@ -993,6 +997,8 @@ namespace SPTAG::SPANN {
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
                                  "[Merge] Write new block failed!\n");
+                    m_pBlockController.ReleaseBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks);
+                    m_buffer.push(tmpblocks);
                     return ErrorCode::DiskIOFail;
                 }
                 *((int64_t*)tmpblocks) = newSize;
@@ -1014,6 +1020,7 @@ namespace SPTAG::SPANN {
                 if (!m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Write new block failed!\n");
+                    m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, allocblocks);
                     return ErrorCode::DiskIOFail;
                 }
                 *postingSize = newSize;
