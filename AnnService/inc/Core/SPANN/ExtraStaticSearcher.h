@@ -175,6 +175,19 @@ namespace SPTAG
                 }
                 else {
                     p_exWorkSpace->Initialize(m_opt->m_maxCheck, m_opt->m_hashExp, m_opt->m_searchInternalResultNum, max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit + 1) << PageSizeEx, false, m_opt->m_enableDataCompression);
+                    int wid = 0;
+                    if (!m_freeWorkSpaceIds.try_pop(wid))
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "The workspace number is not enough! Please increase iothread number.\n");
+                        wid = m_workspaceCount.fetch_add(1);
+                    }
+                    for (auto & req : p_exWorkSpace->m_diskRequests)
+                    {
+                        req.m_status = wid;
+                    }
+                    p_exWorkSpace->m_callback = [this, wid] () {
+                        this->m_freeWorkSpaceIds.push(wid);
+                    };
                 }
             }
 
@@ -233,6 +246,13 @@ namespace SPTAG
 #ifndef _MSC_VER
                 Helper::AIOTimeout.tv_nsec = p_opt.m_iotimeout * 1000;
 #endif
+
+                m_freeWorkSpaceIds.clear();
+                int maxIOThreads = max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads);
+                for (int i = 0; i < maxIOThreads; i++) {
+                    m_freeWorkSpaceIds.push(i);
+                }
+                m_workspaceCount = maxIOThreads;
                 m_available = true;
                 return true;
             }
@@ -275,7 +295,7 @@ namespace SPTAG
                     auto& request = p_exWorkSpace->m_diskRequests[pi];
                     request.m_offset = listInfo->listOffset;
                     request.m_readSize = totalBytes;
-                    request.m_status = fileid;
+                    request.m_status = (fileid << 16) | (request.m_status & 0xffff);
                     request.m_payload = (void*)listInfo; 
                     request.m_success = false;
 
@@ -422,7 +442,7 @@ namespace SPTAG
                     auto& request = p_exWorkSpace->m_diskRequests[pi];
                     request.m_offset = listInfo->listOffset;
                     request.m_readSize = totalBytes;
-                    request.m_status = fileid;
+                    request.m_status = (fileid << 16) | (request.m_status & 0xffff);
                     request.m_payload = (void*)listInfo;
                     request.m_success = false;
 
@@ -1085,7 +1105,7 @@ namespace SPTAG
                 auto& request = p_exWorkSpace->m_diskRequests[0];
                 request.m_offset = listInfo->listOffset;
                 request.m_readSize = totalBytes;
-                request.m_status = fileid;
+                request.m_status = (fileid << 16) | (request.m_status & 0xffff);
                 request.m_payload = (void*)listInfo;
                 request.m_success = false;
 
@@ -1742,6 +1762,9 @@ namespace SPTAG
             int m_totalListCount = 0;
 
             int m_listPerFile = 0;
+
+            Helper::Concurrent::ConcurrentQueue<int> m_freeWorkSpaceIds;
+            std::atomic<int> m_workspaceCount = 0;
         };
     } // namespace SPANN
 } // namespace SPTAG

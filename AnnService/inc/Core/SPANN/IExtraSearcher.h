@@ -161,7 +161,11 @@ namespace SPTAG {
         {
             ExtraWorkSpace() {}
 
-            ~ExtraWorkSpace() {}
+            ~ExtraWorkSpace() {
+                if (m_callback) {
+                    m_callback();
+                }
+            }
 
             ExtraWorkSpace(ExtraWorkSpace& other) {
                 Initialize(other.m_deduper.MaxCheck(), other.m_deduper.HashTableExponent(), (int)other.m_pageBuffers.size(), (int)(other.m_pageBuffers[0].GetPageSize()), other.m_blockIO, other.m_enableDataCompression);
@@ -268,6 +272,8 @@ namespace SPTAG {
             int m_loadedPostingNum = 0;
 
             std::function<bool(const ByteArray&)> m_filterFunc;
+
+            std::function<void()> m_callback;
         };
 
         class IExtraSearcher

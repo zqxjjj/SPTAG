@@ -70,15 +70,15 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
     std::vector<std::vector<struct iocb *>> iocbs(handlers.size());
     std::vector<int> submitted(handlers.size(), 0);
     std::vector<int> done(handlers.size(), 0);
-    std::vector<int> channels(handlers.size(), 0);
-    int totalToSubmit = 0;
+    int totalToSubmit = 0, iocp = 0;
 
     memset(myiocbs.data(), 0, num * sizeof(struct iocb));
     for (int i = 0; i < num; i++)
     {
         AsyncReadRequest *readRequest = &(readRequests[i]);
 
-        int fileid = readRequest->m_status;
+        iocp = readRequest->m_status & 0xffff;
+        int fileid = (readRequest->m_status >> 16);
 
         struct iocb *myiocb = &(myiocbs[totalToSubmit++]);
         myiocb->aio_data = reinterpret_cast<uintptr_t>(readRequest);
@@ -90,10 +90,7 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
 
         iocbs[fileid].emplace_back(myiocb);
     }
-    for (int fileid = 0; fileid < handlers.size(); fileid++)
-    {
-        channels[fileid] = ((AsyncFileIO *)(handlers[fileid].get()))->GetFreeIOCP();
-    }
+
     std::vector<struct io_event> events(totalToSubmit);
     int totalDone = 0, totalSubmitted = 0, totalQueued = 0;
     while (totalDone < totalToSubmit)
@@ -105,7 +102,7 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
                 if (submitted[i] < iocbs[i].size())
                 {
                     AsyncFileIO *handler = (AsyncFileIO *)(handlers[i].get());
-                    int s = syscall(__NR_io_submit, handler->GetIOCP(channels[i]), iocbs[i].size() - submitted[i],
+                    int s = syscall(__NR_io_submit, handler->GetIOCP(iocp), iocbs[i].size() - submitted[i],
                                     iocbs[i].data() + submitted[i]);
                     if (s > 0)
                     {
@@ -115,11 +112,7 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
                     else
                     {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "fid:%d channel %d, to submit:%d, submitted:%s\n", i,
-                                     channels[i], iocbs[i].size() - submitted[i], strerror(-s));
-                        for (int fileid = 0; fileid < handlers.size(); fileid++)
-                        {
-                            ((AsyncFileIO *)(handlers[fileid].get()))->ReturnFreeIOCP(channels[fileid]);
-                        }
+                                     iocp, iocbs[i].size() - submitted[i], strerror(-s));
                         return false;
                     }
                 }
@@ -142,7 +135,7 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
             {
                 int wait = submitted[i] - done[i];
                 AsyncFileIO *handler = (AsyncFileIO *)(handlers[i].get());
-                auto d = syscall(__NR_io_getevents, handler->GetIOCP(channels[i]), wait, wait, events.data() + totalDone,
+                auto d = syscall(__NR_io_getevents, handler->GetIOCP(iocp), wait, wait, events.data() + totalDone,
                                  &AIOTimeout);
                 if (d > 0)
                 {
@@ -160,11 +153,6 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
         {
             req->m_callback(true);
         }
-    }
-
-    for (int fileid = 0; fileid < handlers.size(); fileid++)
-    {
-        ((AsyncFileIO *)(handlers[fileid].get()))->ReturnFreeIOCP(channels[fileid]);
     }
     return true;
 }
@@ -240,7 +228,7 @@ bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>> &handlers, 
         {
             AsyncReadRequest *readRequest = &(readRequests[i]);
 
-            int fileid = readRequest->m_status;
+            int fileid = (readRequest->m_status >> 16);
             if (fileid != currFileId)
             {
                 if (handlers[currFileId]->BatchReadFile(readRequests + currReqStart, i - currReqStart, MaxTimeout) <

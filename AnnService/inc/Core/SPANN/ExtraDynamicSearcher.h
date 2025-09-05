@@ -218,6 +218,13 @@ namespace SPTAG::SPANN {
             m_hardLatencyLimit = std::chrono::microseconds((int)(p_opt.m_latencyLimit) * 1000);
             m_mergeThreshold = p_opt.m_mergeThreshold;
             m_checkSum.Initialize(!p_opt.m_checksumCheck, 0, 0);
+
+            int maxIOThreads =  max(p_opt.m_ioThreads, (2 * max(p_opt.m_searchThreadNum, p_opt.m_iSSDNumberOfThreads) +
+                                    p_opt.m_insertThreadNum + p_opt.m_reassignThreadNum + p_opt.m_appendThreadNum));
+            for (int i = 0; i < maxIOThreads; i++) {
+                m_freeWorkSpaceIds.push(i);
+            }
+            m_workspaceCount = maxIOThreads;
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Posting size limit: %d, search limit: %f, merge threshold: %d\n", m_postingSizeLimit, p_opt.m_latencyLimit, m_mergeThreshold);
         }
 
@@ -1248,6 +1255,17 @@ namespace SPTAG::SPANN {
             }
             else {
                 p_exWorkSpace->Initialize(m_opt->m_maxCheck, m_opt->m_hashExp, m_opt->m_searchInternalResultNum, (max(m_opt->m_postingPageLimit, m_opt->m_searchPostingPageLimit) + m_opt->m_bufferLength) << PageSizeEx, true, m_opt->m_enableDataCompression);
+                int wid = 0;
+                if (!m_freeWorkSpaceIds.try_pop(wid))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "The workspace number is not enough! Please increase iothread number.\n");
+                    p_exWorkSpace->m_diskRequests[0].m_status = -1;
+                    return;
+                }
+                p_exWorkSpace->m_diskRequests[0].m_status = wid;
+                p_exWorkSpace->m_callback = [this, wid] () {
+                    this->m_freeWorkSpaceIds.push(wid);
+                };
             }
         }
 
@@ -2374,6 +2392,9 @@ namespace SPTAG::SPANN {
 
         std::shared_ptr<SPDKThreadPool> m_splitThreadPool;
         std::shared_ptr<SPDKThreadPool> m_reassignThreadPool;
+
+        Helper::Concurrent::ConcurrentQueue<int> m_freeWorkSpaceIds;
+        std::atomic<int> m_workspaceCount = 0;
     };
 } // namespace SPTAG
 #endif // _SPTAG_SPANN_EXTRADYNAMICSEARCHER_H_
