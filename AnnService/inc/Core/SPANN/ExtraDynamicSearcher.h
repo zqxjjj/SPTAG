@@ -153,6 +153,9 @@ namespace SPTAG::SPANN {
         };
 
     private:
+        Helper::Concurrent::ConcurrentQueue<int> m_freeWorkSpaceIds;
+        std::atomic<int> m_workspaceCount = 0;
+
         std::shared_ptr<Helper::KeyValueIO> db;
 
         COMMON::VersionLabel* m_versionMap;
@@ -2392,9 +2395,6 @@ namespace SPTAG::SPANN {
 
         std::shared_ptr<SPDKThreadPool> m_splitThreadPool;
         std::shared_ptr<SPDKThreadPool> m_reassignThreadPool;
-
-        Helper::Concurrent::ConcurrentQueue<int> m_freeWorkSpaceIds;
-        std::atomic<int> m_workspaceCount = 0;
     };
 } // namespace SPTAG
 #endif // _SPTAG_SPANN_EXTRADYNAMICSEARCHER_H_

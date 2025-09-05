@@ -1740,6 +1740,9 @@ namespace SPTAG
         private:
             bool m_available = false;
 
+            Helper::Concurrent::ConcurrentQueue<int> m_freeWorkSpaceIds;
+            std::atomic<int> m_workspaceCount = 0;
+
             std::string m_extraFullGraphFile;
 
             std::vector<ListInfo> m_listInfos;
@@ -1762,9 +1765,6 @@ namespace SPTAG
             int m_totalListCount = 0;
 
             int m_listPerFile = 0;
-
-            Helper::Concurrent::ConcurrentQueue<int> m_freeWorkSpaceIds;
-            std::atomic<int> m_workspaceCount = 0;
         };
     } // namespace SPANN
 } // namespace SPTAG
