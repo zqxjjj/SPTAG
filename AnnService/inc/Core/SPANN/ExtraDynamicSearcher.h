@@ -1570,7 +1570,7 @@ namespace SPTAG::SPANN {
             std::vector<SizeType> &pids, std::vector<Helper::PageBuffer<std::uint8_t>> &postings)
         {
             if (!m_opt->m_checksumInRead) return true;
-            
+
             for (int i = 0; i < pids.size(); i++)
             {
                 if (!m_checkSum.ValidateChecksum((const char *)(postings[i].GetBuffer()),
@@ -1592,6 +1592,41 @@ namespace SPTAG::SPANN {
             if (p_stats) p_stats->m_exSetUpLatency = 0;
 
             COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
+            if (queryResults.GetResult(0)->VID != -1) {
+                int i = 0, j = 1;
+                while (i < queryResults.GetResultNum()) {
+                    SPTAG::BasicResult* ri = queryResults.GetResult(i);
+                    if (ri->VID == -1 || m_versionMap->Delete(ri->VID)) {
+                        bool found = false;
+                        SPTAG::BasicResult* rj = nullptr;
+                        while (j < queryResults.GetResultNum())
+                        {
+                            rj = queryResults.GetResult(j++);
+                            if (rj->VID == -1) continue;
+                            if (!m_versionMap->Delete(rj->VID)) {
+                                found = true;
+                                break;
+                            } else {
+                                rj->VID = -1;
+                                rj->Dist = MaxDist;
+                            }
+                        }
+                        if (found) {
+                            *ri = *rj;
+                            rj->VID = -1;
+                            rj->Dist = MaxDist;
+                            i++;
+                        } else {
+                            ri->VID = -1;
+                            ri->Dist = MaxDist;
+                            break;
+                        }
+                    } else {
+                        i++;
+                        if (j <= i) j = i + 1;
+                    }
+                }
+            }
 
             int diskRead = 0;
             int diskIO = 0;
@@ -1698,11 +1733,13 @@ namespace SPTAG::SPANN {
             bool foundResult = false;
             BasicResult* head = headResults.GetResult(p_exWorkSpace->m_ri);
             while (!foundResult && p_exWorkSpace->m_pi < p_exWorkSpace->m_postingIDs.size()) {
-                if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi && 
+                if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi) {
+                    if (!m_versionMap->Deleted(head->VID) &&
                     (p_exWorkSpace->m_filterFunc == nullptr || p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(head->VID)))) {
-                    queryResults.AddPoint(head->VID, head->Dist);
+                        queryResults.AddPoint(head->VID, head->Dist);
+                        foundResult = true;
+                    }
                     head = headResults.GetResult(++p_exWorkSpace->m_ri);
-                    foundResult = true;
                     continue;
                 }
                 auto& buffer = (p_exWorkSpace->m_pageBuffers[p_exWorkSpace->m_pi]);
@@ -1728,11 +1765,13 @@ namespace SPTAG::SPANN {
                     p_exWorkSpace->m_offset = 0;
                 }
             }
-            if (!foundResult && head && head->VID != -1 &&
-               (p_exWorkSpace->m_filterFunc == nullptr || p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(head->VID)))) {
+            while (!foundResult && head && head->VID != -1) {
+                if (!m_versionMap->Deleted(head->VID) &&
+                (p_exWorkSpace->m_filterFunc == nullptr || p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(head->VID)))) {
                     queryResults.AddPoint(head->VID, head->Dist);
-                    head = headResults.GetResult(++p_exWorkSpace->m_ri);
                     foundResult = true;
+                }
+                head = headResults.GetResult(++p_exWorkSpace->m_ri);
             }
             if (foundResult) p_queryResults.SetScanned(p_queryResults.GetScanned() + 1);
             return (foundResult) ? ErrorCode::Success : ErrorCode::VectorNotFound;
