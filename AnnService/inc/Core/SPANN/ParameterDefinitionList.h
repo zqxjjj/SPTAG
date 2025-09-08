@@ -22,7 +22,7 @@ DefineBasicParameter(m_warmupSize, SPTAG::SizeType, -1, "WarmupSize")
 DefineBasicParameter(m_warmupDelimiter, std::string, std::string("|"), "WarmupDelimiter")
 DefineBasicParameter(m_truthPath, std::string, std::string(""), "TruthPath")
 DefineBasicParameter(m_truthType, SPTAG::TruthFileType, SPTAG::TruthFileType::Undefined, "TruthType")
-DefineBasicParameter(m_generateTruth, bool, false, "GenerateTruth")
+DefineBasicParameter(m_generateTruth, bool, false, "GenerateTruth") // Mutable
 DefineBasicParameter(m_indexDirectory, std::string, std::string("SPANN"), "IndexDirectory")
 DefineBasicParameter(m_headIDFile, std::string, std::string("SPTAGHeadVectorIDs.bin"), "HeadVectorIDs")
 DefineBasicParameter(m_deleteIDFile, std::string, std::string("DeletedIDs.bin"), "DeletedIDs")
@@ -45,7 +45,7 @@ DefineSelectHeadParameter(m_iBKTLeafSize, int, 8, "BKTLeafSize")
 DefineSelectHeadParameter(m_iSamples, int, 1000, "SamplesNumber")
 DefineSelectHeadParameter(m_fBalanceFactor, float, -1.0F, "BKTLambdaFactor")
 
-DefineSelectHeadParameter(m_iSelectHeadNumberOfThreads, int, 4, "NumberOfThreads")
+DefineSelectHeadParameter(m_iSelectHeadNumberOfThreads, int, 4, "NumberOfThreads") // Mutable
 DefineSelectHeadParameter(m_saveBKT, bool, false, "SaveBKT")
 
 DefineSelectHeadParameter(m_analyzeOnly, bool, false, "AnalyzeOnly")
@@ -73,7 +73,7 @@ DefineBuildHeadParameter(m_buildHead, bool, false, "isExecute")
 #ifdef DefineSSDParameter
 DefineSSDParameter(m_enableSSD, bool, false, "isExecute")
 DefineSSDParameter(m_buildSsdIndex, bool, false, "BuildSsdIndex")
-DefineSSDParameter(m_iSSDNumberOfThreads, int, 16, "NumberOfThreads")
+DefineSSDParameter(m_iSSDNumberOfThreads, int, 16, "NumberOfThreads") // Mutable
 DefineSSDParameter(m_enableDeltaEncoding, bool, false, "EnableDeltaEncoding")
 DefineSSDParameter(m_enablePostingListRearrange, bool, false, "EnablePostingListRearrange")
 DefineSSDParameter(m_enableDataCompression, bool, false, "EnableDataCompression")
@@ -116,31 +116,31 @@ DefineSSDParameter(m_numGPUs, int, 1, "NumGPUs")
 DefineSSDParameter(m_searchResult, std::string, std::string(""), "SearchResult")
 DefineSSDParameter(m_logFile, std::string, std::string(""), "LogFile")
 DefineSSDParameter(m_qpsLimit, int, 0, "QpsLimit")
-DefineSSDParameter(m_resultNum, int, 5, "ResultNum")
-DefineSSDParameter(m_truthResultNum, int, -1, "TruthResultNum")
-DefineSSDParameter(m_maxCheck, int, 4096, "MaxCheck")
+DefineSSDParameter(m_resultNum, int, 5, "ResultNum") // Mutable
+DefineSSDParameter(m_truthResultNum, int, -1, "TruthResultNum") // Mutable
+DefineSSDParameter(m_maxCheck, int, 4096, "MaxCheck") // Mutable
 DefineSSDParameter(m_hashExp, int, 4, "HashTableExponent")
 DefineSSDParameter(m_queryCountLimit, int, (std::numeric_limits<int>::max)(), "QueryCountLimit")
 DefineSSDParameter(m_maxDistRatio, float, 10000, "MaxDistRatio")
-DefineSSDParameter(m_ioThreads, int, 4, "IOThreadsPerHandler")
-DefineSSDParameter(m_searchInternalResultNum, int, 64, "SearchInternalResultNum")
-DefineSSDParameter(m_searchPostingPageLimit, int, 3, "SearchPostingPageLimit")
+DefineSSDParameter(m_ioThreads, int, 4, "IOThreadsPerHandler") // Mutable
+DefineSSDParameter(m_searchInternalResultNum, int, 64, "SearchInternalResultNum") // Mutable
+DefineSSDParameter(m_searchPostingPageLimit, int, 3, "SearchPostingPageLimit") // Mutable
 DefineSSDParameter(m_rerank, int, 0, "Rerank")
 DefineSSDParameter(m_enableADC, bool, false, "EnableADC")
 DefineSSDParameter(m_recall_analysis, bool, false, "RecallAnalysis")
 DefineSSDParameter(m_debugBuildInternalResultNum, int, 64, "DebugBuildInternalResultNum")
-DefineSSDParameter(m_iotimeout, int, 30, "IOTimeout")
+DefineSSDParameter(m_iotimeout, int, 30, "IOTimeout") // Mutable
 
 // Calculating
 // TruthFilePrefix
 DefineSSDParameter(m_truthFilePrefix, std::string, std::string(""), "TruthFilePrefix")
 // CalTruth
-DefineSSDParameter(m_calTruth, bool, true, "CalTruth")
+DefineSSDParameter(m_calTruth, bool, true, "CalTruth") // Mutable
 DefineSSDParameter(m_onlySearchFinalBatch, bool, false, "OnlySearchFinalBatch")
 // Search multiple times for stable result
 DefineSSDParameter(m_searchTimes, int, 1, "SearchTimes")
 // Frontend search threadnum
-DefineSSDParameter(m_searchThreadNum, int, 2, "SearchThreadNum")
+DefineSSDParameter(m_searchThreadNum, int, 2, "SearchThreadNum") // Mutable
 // Show tradeoff of latency and acurracy
 DefineSSDParameter(m_minInternalResultNum, int, -1, "MinInternalResultNum")
 DefineSSDParameter(m_stepInternalResultNum, int, -1, "StepInternalResultNum")
@@ -153,19 +153,19 @@ DefineSSDParameter(m_update, bool, false, "Update")
 DefineSSDParameter(m_inPlace, bool, true, "InPlace")
 DefineSSDParameter(m_outOfPlace, bool, false, "OutOfPlace")
 // latency limit
-DefineSSDParameter(m_latencyLimit, float, 10.0, "LatencyLimit")
+DefineSSDParameter(m_latencyLimit, float, 10.0, "LatencyLimit") // Mutable
 // Update batch size
 DefineSSDParameter(m_step, int, 0, "Step")
 // Frontend update threadnum
-DefineSSDParameter(m_insertThreadNum, int, 1, "InsertThreadNum")
+DefineSSDParameter(m_insertThreadNum, int, 1, "InsertThreadNum") // Mutable
 // Update limit
 DefineSSDParameter(m_endVectorNum, int, -1, "EndVectorNum")
 // Persistent buffer path
 DefineSSDParameter(m_persistentBufferPath, std::string, std::string(""), "PersistentBufferPath")
 // Background append threadnum
-DefineSSDParameter(m_appendThreadNum, int, 1, "AppendThreadNum")
+DefineSSDParameter(m_appendThreadNum, int, 1, "AppendThreadNum") // Mutable
 // Background reassign threadnum
-DefineSSDParameter(m_reassignThreadNum, int, 0, "ReassignThreadNum")
+DefineSSDParameter(m_reassignThreadNum, int, 0, "ReassignThreadNum") // Mutable
 // Background process batch size
 DefineSSDParameter(m_batch, int, 1000, "Batch")
 // Total Vector Path
@@ -200,13 +200,13 @@ DefineSSDParameter(m_maxFileSize, int, 300, "MaxFileSizeGB")
 DefineSSDParameter(m_startFileSize, int, 10, "StartFileSizeGB")
 DefineSSDParameter(m_growthFileSize, int, 10, "GrowthFileSizeGB")
 DefineSSDParameter(m_growThreshold, float, 0.05, "GrowthThreshold")
-DefineSSDParameter(m_fDeletePercentageForRefine, float, 0.4F, "DeletePercentageForRefine")
-DefineSSDParameter(m_oneClusterCutMax, bool, false, "OneClusterCutMax")
-DefineSSDParameter(m_consistencyCheck, bool, false, "ConsistencyCheck")
-DefineSSDParameter(m_checksumCheck, bool, false, "ChecksumCheck")
-DefineSSDParameter(m_checksumInRead, bool, false, "ChecksumInRead")
+DefineSSDParameter(m_fDeletePercentageForRefine, float, 0.4F, "DeletePercentageForRefine") // Mutable
+DefineSSDParameter(m_oneClusterCutMax, bool, false, "OneClusterCutMax") // Mutable
+DefineSSDParameter(m_consistencyCheck, bool, false, "ConsistencyCheck") // Mutable
+DefineSSDParameter(m_checksumCheck, bool, false, "ChecksumCheck") // Mutable
+DefineSSDParameter(m_checksumInRead, bool, false, "ChecksumInRead") // Mutable
 
 // Iterative
-DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch")
+DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch") // Mutable
 
 #endif
