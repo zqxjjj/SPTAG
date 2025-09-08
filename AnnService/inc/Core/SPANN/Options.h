@@ -186,6 +186,7 @@ namespace SPTAG {
             bool m_oneClusterCutMax;
             bool m_consistencyCheck;
             bool m_checksumCheck;
+            bool m_checksumInRead;
 
             // Iterative
             int m_headBatch;

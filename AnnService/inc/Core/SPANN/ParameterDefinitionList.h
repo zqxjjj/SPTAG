@@ -203,7 +203,8 @@ DefineSSDParameter(m_growThreshold, float, 0.05, "GrowthThreshold")
 DefineSSDParameter(m_fDeletePercentageForRefine, float, 0.4F, "DeletePercentageForRefine")
 DefineSSDParameter(m_oneClusterCutMax, bool, false, "OneClusterCutMax")
 DefineSSDParameter(m_consistencyCheck, bool, false, "ConsistencyCheck")
-DefineSSDParameter(m_checksumCheck, bool, true, "ChecksumCheck")
+DefineSSDParameter(m_checksumCheck, bool, false, "ChecksumCheck")
+DefineSSDParameter(m_checksumInRead, bool, false, "ChecksumInRead")
 
 // Iterative
 DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch")

@@ -1177,16 +1177,7 @@ namespace SPTAG::SPANN {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ReAssign can't get all the near postings\n");
                     return ret;
                 }
-                /*
-                for (int i = 0; i < HeadPrevTopK.size(); i++)
-                {
-                    if (!m_checkSum.ValidateChecksum(postingLists[i].c_str(), (int)(postingLists[i].size()), *m_checkSums[HeadPrevTopK[i]]))
-                    {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ReAssign get postings checksum error\n");
-                        return ret;
-                    }
-                }
-                */
+
                 auto reassignScanIOEnd = std::chrono::high_resolution_clock::now();
                 auto elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(reassignScanIOEnd - reassignScanIOBegin).count();
                 m_stat.m_reassignScanIOCost += elapsedMSeconds;
@@ -1578,6 +1569,8 @@ namespace SPTAG::SPANN {
         bool ValidatePostings(
             std::vector<SizeType> &pids, std::vector<Helper::PageBuffer<std::uint8_t>> &postings)
         {
+            if (!m_opt->m_checksumInRead) return true;
+            
             for (int i = 0; i < pids.size(); i++)
             {
                 if (!m_checkSum.ValidateChecksum((const char *)(postings[i].GetBuffer()),
