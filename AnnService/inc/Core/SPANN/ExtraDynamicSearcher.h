@@ -1592,38 +1592,28 @@ namespace SPTAG::SPANN {
             if (p_stats) p_stats->m_exSetUpLatency = 0;
 
             COMMON::QueryResultSet<ValueType>& queryResults = *((COMMON::QueryResultSet<ValueType>*) & p_queryResults);
-            if (queryResults.GetResult(0)->VID != -1) {
-                int i = 0, j = 1;
-                while (i < queryResults.GetResultNum()) {
+            if (queryResults.GetResult(0)->VID != -1)
+            {
+                int head = 0;
+                for (int i = 0; i < queryResults.GetResultNum(); ++i)
+                {
                     SPTAG::BasicResult* ri = queryResults.GetResult(i);
-                    if (ri->VID == -1 || m_versionMap->Delete(ri->VID)) {
-                        bool found = false;
-                        SPTAG::BasicResult* rj = nullptr;
-                        while (j < queryResults.GetResultNum())
+                    if (ri->VID != -1 && !m_versionMap->Deleted(ri->VID) && !p_exWorkSpace->m_deduper.CheckAndSet(ri->VID))
+                    {
+                        if (head != i)
                         {
-                            rj = queryResults.GetResult(j++);
-                            if (rj->VID == -1) continue;
-                            if (!m_versionMap->Delete(rj->VID)) {
-                                found = true;
-                                break;
-                            } else {
-                                rj->VID = -1;
-                                rj->Dist = MaxDist;
-                            }
-                        }
-                        if (found) {
-                            *ri = *rj;
-                            rj->VID = -1;
-                            rj->Dist = MaxDist;
-                            i++;
-                        } else {
+                            SPTAG::BasicResult* rhead = queryResults.GetResult(head);
+                            *rhead = *ri;
                             ri->VID = -1;
                             ri->Dist = MaxDist;
-                            break;
                         }
-                    } else {
-                        i++;
-                        if (j <= i) j = i + 1;
+ 
+                        ++head;
+                    }
+                    else
+                    {
+                        ri->VID = -1;
+                        ri->Dist = MaxDist;
                     }
                 }
             }
@@ -1734,7 +1724,7 @@ namespace SPTAG::SPANN {
             BasicResult* head = headResults.GetResult(p_exWorkSpace->m_ri);
             while (!foundResult && p_exWorkSpace->m_pi < p_exWorkSpace->m_postingIDs.size()) {
                 if (head && head->VID != -1 && p_exWorkSpace->m_ri <= p_exWorkSpace->m_pi) {
-                    if (!m_versionMap->Deleted(head->VID) &&
+                    if (!m_versionMap->Deleted(head->VID) && !p_exWorkSpace->m_deduper.CheckAndSet(head->VID) &&
                     (p_exWorkSpace->m_filterFunc == nullptr || p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(head->VID)))) {
                         queryResults.AddPoint(head->VID, head->Dist);
                         foundResult = true;
@@ -1766,7 +1756,7 @@ namespace SPTAG::SPANN {
                 }
             }
             while (!foundResult && head && head->VID != -1) {
-                if (!m_versionMap->Deleted(head->VID) &&
+                if (!m_versionMap->Deleted(head->VID) && !p_exWorkSpace->m_deduper.CheckAndSet(head->VID) &&
                 (p_exWorkSpace->m_filterFunc == nullptr || p_exWorkSpace->m_filterFunc(p_spann->GetMetadata(head->VID)))) {
                     queryResults.AddPoint(head->VID, head->Dist);
                     foundResult = true;
