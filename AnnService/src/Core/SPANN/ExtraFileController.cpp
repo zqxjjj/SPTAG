@@ -226,6 +226,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType *> &p_dat
 
         if (p_data_i == nullptr || (uintptr_t)p_data_i == 0xffffffffffffffff)
         {
+            if (p_data_i != nullptr) p_values[i].resize(0);
             continue;
         }
 
@@ -302,7 +303,7 @@ bool FileIO::BlockController::ReadBlocks(const std::vector<AddressType *> &p_dat
 
         if (p_data_i == nullptr || (uintptr_t)p_data_i == 0xffffffffffffffff)
         {
-            p_values[i].SetAvailableSize(0);
+            if (p_data_i != nullptr) p_values[i].SetAvailableSize(0);
             for (std::uint32_t r = 0; r < numPages; r++)
             {
                 Helper::AsyncReadRequest &curr = reqs->at(reqcount);

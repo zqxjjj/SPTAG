@@ -205,6 +205,8 @@ DefineSSDParameter(m_oneClusterCutMax, bool, false, "OneClusterCutMax") // Mutab
 DefineSSDParameter(m_consistencyCheck, bool, false, "ConsistencyCheck") // Mutable
 DefineSSDParameter(m_checksumCheck, bool, false, "ChecksumCheck") // Mutable
 DefineSSDParameter(m_checksumInRead, bool, false, "ChecksumInRead") // Mutable
+DefineSSDParameter(m_cacheSize, int, 0, "CacheSizeGB") // Mutable
+DefineSSDParameter(m_cacheShards, int, 1, "CacheShards") // Mutable
 
 // Iterative
 DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch") // Mutable

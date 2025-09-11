@@ -187,7 +187,9 @@ namespace SPTAG {
             bool m_consistencyCheck;
             bool m_checksumCheck;
             bool m_checksumInRead;
-
+            int m_cacheSize;
+            int m_cacheShards;
+            
             // Iterative
             int m_headBatch;
 
