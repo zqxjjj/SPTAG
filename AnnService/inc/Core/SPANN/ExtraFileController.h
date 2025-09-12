@@ -565,8 +565,8 @@ namespace SPTAG::SPANN {
             }
             if (key >= r) return ErrorCode::Key_OverFlow;
 
-            AddressType* addr = At(key);
-            if (((uintptr_t)addr) == 0xffffffffffffffff) return ErrorCode::Key_Not_Exist;
+            AddressType* addr = (AddressType*)(At(key));
+            if (((uintptr_t)addr) == 0xffffffffffffffff) return ErrorCode::Key_NotFound;
 
             auto size = addr[0];
             if (size < 0) return ErrorCode::Posting_SizeError;
@@ -623,7 +623,7 @@ namespace SPTAG::SPANN {
                     r = m_pBlockMapping.R();
                 }
                 if (key < r) {
-                    AddressType* addr = At(key);
+                    AddressType* addr = (AddressType*)(At(key));
                     if (m_pShardedLRUCache  && ((uintptr_t)addr) != 0xffffffffffffffff && addr[0] >= 0) {
                         values[i].SetAvailableSize(addr[0]);
                         if (m_pShardedLRUCache->get(key, values[i].GetBuffer())) {
@@ -678,7 +678,7 @@ namespace SPTAG::SPANN {
                     r = m_pBlockMapping.R();
                 }
                 if (key < r) {
-                    AddressType* addr = At(key);
+                    AddressType* addr = (AddressType*)(At(key));
                     if (m_pShardedLRUCache && ((uintptr_t)addr) != 0xffffffffffffffff && addr[0] >= 0) {   
                         (*values)[i].resize(addr[0]);
                         if (m_pShardedLRUCache->get(key, (*values)[i].data())) {
