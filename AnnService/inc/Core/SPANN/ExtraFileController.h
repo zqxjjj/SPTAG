@@ -563,10 +563,15 @@ namespace SPTAG::SPANN {
             else {
                 r = m_pBlockMapping.R();
             }
-            if (key >= r) return ErrorCode::Key_OverFlow;
-
+            if (key >= r) {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key OverFlow! Key:%d R:%d\n", key, r);
+                return ErrorCode::Key_OverFlow;
+            }
             AddressType* addr = (AddressType*)(At(key));
-            if (((uintptr_t)addr) == 0xffffffffffffffff) return ErrorCode::Key_NotFound;
+            if (((uintptr_t)addr) == 0xffffffffffffffff) {
+                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key NotFound! Key:%d\n", key);
+                return ErrorCode::Key_NotFound;
+            }
 
             auto size = addr[0];
             if (size < 0) return ErrorCode::Posting_SizeError;

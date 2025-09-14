@@ -1010,7 +1010,7 @@ std::shared_ptr<VectorIndex> VectorIndex::Clone(std::string p_clone)
     else
     {
         std::string indexFolder = GetParameter("IndexDirectory", "Base");
-        ret = SaveIndex(indexFolder);
+        //ret = SaveIndex(indexFolder);
         if (!copydirectory(indexFolder, p_clone))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to copy index directory contents to %s!\n",

@@ -1015,6 +1015,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
 
     std::cout << "=================No Cache===================" << std::endl;
     std::string prevPath = "original_index";
+    float recall = 0.0;
     for (int iter = 0; iter < iterations; iter++)
     {
         std::string clone_path = "clone_index_" + std::to_string(iter);
@@ -1032,7 +1033,9 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         static_cast<SPANN::Index<int8_t> *>(prevIndex.get())->GetDBStat();
 
         auto cloneIndex = prevIndex->Clone(clone_path);
-
+        prevIndex = nullptr;
+        BOOST_REQUIRE(cloneIndex->Check() == ErrorCode::Success);
+        
         auto t1 = std::chrono::high_resolution_clock::now();
         InsertVectors<int8_t>(static_cast<SPANN::Index<int8_t> *>(cloneIndex.get()), 1, insertBatchSize, addvecset,
                               metaset, iter * insertBatchSize);
@@ -1051,26 +1054,26 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         prevPath = clone_path;
     }
 
-    std::shared_ptr<VectorIndex> prevIndex;
-    BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
-    BOOST_REQUIRE(prevIndex != nullptr);
-    auto t0 = std::chrono::high_resolution_clock::now();
-    BOOST_REQUIRE(prevIndex->Check() == ErrorCode::Success);
+    std::shared_ptr<VectorIndex> finalIndex;
+    BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, finalIndex) == ErrorCode::Success);
+    BOOST_REQUIRE(finalIndex != nullptr);
+    auto t = std::chrono::high_resolution_clock::now();
+    BOOST_REQUIRE(finalIndex->Check() == ErrorCode::Success);
     std::cout << "[INFO] Check time for iteration " << iterations << ": "
-                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t0).count()
+                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t).count()
                 << " ms" << std::endl;
     
-    recall = Search<int8_t>(prevIndex, queryset, vecset, addvecset, K, truth, N, iterations);
+    recall = Search<int8_t>(finalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
     std::cout << "[INFO] After Save and Load:" << " recall@5=" << recall << std::endl;
-    static_cast<SPANN::Index<int8_t> *>(prevIndex.get())->GetDBStat();
-    prevIndex = nullptr;
-    for (int iter = 0; iter < insertIterations; iter++)
+    static_cast<SPANN::Index<int8_t> *>(finalIndex.get())->GetDBStat();
+    finalIndex = nullptr;
+    for (int iter = 0; iter < iterations; iter++)
     {
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
 
     std::cout << "=================Enable Cache===================" << std::endl;
-    std::string prevPath = "original_index";
+    prevPath = "original_index";
     for (int iter = 0; iter < iterations; iter++)
     {
         std::string clone_path = "clone_index_" + std::to_string(iter);
@@ -1110,21 +1113,20 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         cloneIndex = nullptr;
         prevPath = clone_path;
     }
-    std::shared_ptr<VectorIndex> prevIndex;
-    BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
-    BOOST_REQUIRE(prevIndex != nullptr);
-    auto t0 = std::chrono::high_resolution_clock::now();
-    BOOST_REQUIRE(prevIndex->Check() == ErrorCode::Success);
+    BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, finalIndex) == ErrorCode::Success);
+    BOOST_REQUIRE(finalIndex != nullptr);
+    t = std::chrono::high_resolution_clock::now();
+    BOOST_REQUIRE(finalIndex->Check() == ErrorCode::Success);
     std::cout << "[INFO] Check time for iteration " << iterations << ": "
-                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t0).count()
+                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t).count()
                 << " ms" << std::endl;
     
-    recall = Search<int8_t>(prevIndex, queryset, vecset, addvecset, K, truth, N, iterations);
+    recall = Search<int8_t>(finalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
     std::cout << "[INFO] After Save and Load:" << " recall@5=" << recall << std::endl;
-    static_cast<SPANN::Index<int8_t> *>(prevIndex.get())->GetDBStat();
-    prevIndex = nullptr;
+    static_cast<SPANN::Index<int8_t> *>(finalIndex.get())->GetDBStat();
+    finalIndex = nullptr;
 
-    for (int iter = 0; iter < insertIterations; iter++)
+    for (int iter = 0; iter < iterations; iter++)
     {
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
