@@ -604,12 +604,14 @@ namespace SPTAG::SPANN {
                 std::unique_lock<std::shared_timed_mutex> lock(m_rwLocks[headID], std::defer_lock);
                 if (requirelock) lock.lock();
 
+                if (!p_index->ContainSample(headID)) return ErrorCode::Success;
+
                 std::string postingList;
                 auto splitGetBegin = std::chrono::high_resolution_clock::now();
                 if ((ret=db->Get(headID, &postingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) !=
                     ErrorCode::Success)// || !m_checkSum.ValidateChecksum(postingList.c_str(), (int)(postingList.size()), *m_checkSums[headID]))
                 {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split fail to get oversized postings\n");
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split fail to get oversized postings: key=%d size=%d\n", headID, m_postingSizes.GetSize(headID));
                     return ret;
                 }
                 auto splitGetEnd = std::chrono::high_resolution_clock::now();

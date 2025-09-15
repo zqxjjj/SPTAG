@@ -352,6 +352,7 @@ namespace SPTAG::SPANN {
                 for (auto it = cache.begin(); it != cache.end(); it++) {
                     if (fileIO->Put(it->first, it->second.first, MaxTimeout, &reqs, false) != ErrorCode::Success) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "LRUCache: evict key:%d value size:%d to file failed\n", it->first, (int)(it->second.first.size()));
+                        mu.unlock();
                         return false;
                     }
                 }
@@ -450,6 +451,7 @@ namespace SPTAG::SPANN {
             if (p_opt.m_cacheSize > 0) {
                 int capacity = p_opt.m_cacheSize << 30;
                 m_pShardedLRUCache = new ShardedLRUCache(p_opt.m_cacheShards, capacity, m_blockLimit, this);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "FileIO: Using LRU Cache with capacity %d GB, limit %d pages, shards %d\n", p_opt.m_cacheSize, m_blockLimit, p_opt.m_cacheShards);
             }
 
             if (p_opt.m_recovery) {
