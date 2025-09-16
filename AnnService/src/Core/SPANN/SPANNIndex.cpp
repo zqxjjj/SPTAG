@@ -1327,23 +1327,15 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
 
     std::vector<SizeType> headOldtoNew;
     ErrorCode ret;
-    if ((ret = m_index->RefineIndex(p_indexStreams, nullptr, &headOldtoNew)) != ErrorCode::Success)
-        return ret;
 
-    COMMON::Dataset<std::uint64_t> new_vectorTranslateMap(m_index->GetNumSamples() - m_index->GetNumDeleted(), 1,
-                                                          m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
-    for (int i = 0; i < m_vectorTranslateMap.R(); i++)
-    {
-        if (m_index->ContainSample(i))
-            *(new_vectorTranslateMap[headOldtoNew[i]]) = *(m_vectorTranslateMap[i]);
-    }
-    new_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()]);
+    SPTAG_RETURN_IF_ERROR(m_index->RefineIndex(p_indexStreams, nullptr, &headOldtoNew));
 
     std::vector<SizeType> OldtoNew;
     std::vector<SizeType> NewtoOld;
     SizeType newR = m_versionMap.Count();
     if (p_mapping == nullptr) p_mapping = &OldtoNew;
     p_mapping->resize(newR);
+    
     for (SizeType i = 0; i < newR; i++)
     {
         if (!m_versionMap.Deleted(i))
@@ -1362,6 +1354,30 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
             newR--;
         }
     }
+
+    COMMON::Dataset<std::uint64_t> new_vectorTranslateMap(m_index->GetNumSamples() - m_index->GetNumDeleted(), 1,
+                                                          m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
+    for (int i = 0; i < m_vectorTranslateMap.R(); i++)
+    {
+        if (m_index->ContainSample(i))
+        {
+            auto oldID = *(m_vectorTranslateMap[i]);
+            if (oldID >= m_versionMap.Count())
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPANNIndex::RefineIndex: Vector %d has old ID out of range: %llu.\n", i, oldID);
+                *(new_vectorTranslateMap[headOldtoNew[i]]) = oldID;
+            }
+            else {
+                if (m_versionMap.Deleted(oldID))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPANNIndex::RefineIndex: Vector %d with old ID %llu is deleted in disk index, but still in head index!\n", i, oldID);
+                }
+                *(new_vectorTranslateMap[headOldtoNew[i]]) = (*p_mapping)[oldID];
+            }
+        }
+    }
+    new_vectorTranslateMap.Save(p_indexStreams[m_index->GetIndexFiles()->size()]);
+
     COMMON::VersionLabel new_versionMap;
     new_versionMap.Initialize(newR, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
     for (SizeType i = 0; i < newR; i++)
@@ -1554,6 +1570,14 @@ ErrorCode Index<T>::Check()
                         {
                             ret = ErrorCode::Fail;
                             return;
+                        }
+
+                        auto translatedID = *(m_vectorTranslateMap[i]);
+                        if (translatedID >= m_versionMap.Count())
+                        {
+                            // TODOTODO: cannot include this check since some values are set to 2^31 -1
+                            //ret = ErrorCode::Fail;
+                            //return;
                         }
                     }
                 }

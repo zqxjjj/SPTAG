@@ -37,7 +37,7 @@ namespace SPTAG
             {
                 if (key < 0 || key >= m_data.R())
                 {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error vid in VersionLabel Deleted check:%d\n", key);
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error vid in VersionLabel Delete check: %d. Max Allowed: %d\n", key, m_data.R());
                     return true;
                 }
                 return *m_data[key] == 0xfe;
@@ -45,6 +45,11 @@ namespace SPTAG
 
             inline bool Delete(const SizeType& key)
             {
+                if (key < 0 || key >= m_data.R()) 
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error vid in VersionLabel Delete operation: %d. Max Allowed: %d\n", key, m_data.R());
+                    return true;
+                }
                 uint8_t oldvalue = (uint8_t)InterlockedExchange8((char*)(m_data[key]), (char)0xfe);
                 if (oldvalue == 0xfe) return false;
                 m_deleted++;
@@ -53,16 +58,32 @@ namespace SPTAG
 
             inline uint8_t GetVersion(const SizeType& key)
             {
+                if (key < 0 || key >= m_data.R()) 
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error vid in VersionLabel GetVersion operation: %d. Max Allowed: %d\n", key, m_data.R());
+                    return 0xfe;
+                }
                 return *m_data[key];
             }
 
             inline void SetVersion(const SizeType& key, const uint8_t& version)
             {
+                if (key < 0 || key >= m_data.R()) 
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error vid in VersionLabel SetVersion operation: %d. Max Allowed: %d\n", key, m_data.R());
+                    return;
+                }
                 (*m_data[key]) = version;
             }
 
             inline bool IncVersion(const SizeType& key, uint8_t* newVersion)
             {
+                if (key < 0 || key >= m_data.R()) 
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error vid in VersionLabel IncVersion operation: %d. Max Allowed: %d\n", key, m_data.R());
+                    return false;
+                }
+
                 while (true) {
                     if (Deleted(key)) return false;
                     uint8_t oldVersion = GetVersion(key);

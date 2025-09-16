@@ -44,6 +44,7 @@ namespace SPTAG
             {
                 if (key >= R())
                 {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "LabelSet::Contains: key %lld out of range %lld\n", (long long)key, (long long)R());
                     switch (m_invalidIDBehaviorSetting)
                     {
                         case InvalidIDBehavior::AlwaysContains:
@@ -61,6 +62,7 @@ namespace SPTAG
             {
                 if (key >= R())
                 {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "LabelSet::Insert: key %lld out of range %lld\n", (long long)key, (long long)R());
                     switch (m_invalidIDBehaviorSetting)
                     {
                         case InvalidIDBehavior::AlwaysContains:
