@@ -1328,7 +1328,8 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
     std::vector<SizeType> headOldtoNew;
     ErrorCode ret;
 
-    SPTAG_RETURN_IF_ERROR(m_index->RefineIndex(p_indexStreams, nullptr, &headOldtoNew));
+    if ((ret = m_index->RefineIndex(p_indexStreams, nullptr, &headOldtoNew)) != ErrorCode::Success)
+        return ret;
 
     std::vector<SizeType> OldtoNew;
     std::vector<SizeType> NewtoOld;
