@@ -1362,10 +1362,14 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
         if (m_index->ContainSample(i))
         {
             auto oldID = *(m_vectorTranslateMap[i]);
-            if (oldID >= m_versionMap.Count())
+            if (oldID == MaxSize)
             {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPANNIndex::RefineIndex: Vector %d has old ID out of range: %llu.\n", i, oldID);
+                // Special case: including head vectors in postings means map all IDs to MaxSize
                 *(new_vectorTranslateMap[headOldtoNew[i]]) = oldID;
+            }
+            else if (oldID >= p_mapping->size())
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "SPANNIndex::RefineIndex: Vector %d with old ID %llu cannot be mapped! p_mapping size: %llu.\n", i, oldID, p_mapping->size());
             }
             else {
                 if (m_versionMap.Deleted(oldID))
@@ -1573,11 +1577,10 @@ ErrorCode Index<T>::Check()
                         }
 
                         auto translatedID = *(m_vectorTranslateMap[i]);
-                        if (translatedID >= m_versionMap.Count())
+                        if (translatedID >= m_versionMap.Count() && translatedID != MaxSize)
                         {
-                            // TODOTODO: cannot include this check since some values are set to 2^31 -1
-                            //ret = ErrorCode::Fail;
-                            //return;
+                            ret = ErrorCode::Fail;
+                            return;
                         }
                     }
                 }
