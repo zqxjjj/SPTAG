@@ -197,12 +197,13 @@ namespace SPTAG::SPANN {
             int limit;
             std::uint64_t size;
             std::list<SizeType> keys;  // Page Address
-            Helper::Concurrent::ConcurrentMap<SizeType, std::pair<std::string, std::list<SizeType>::iterator>> cache;    // Page Address -> Page Address in Cache
+            std::unordered_map<SizeType, std::pair<std::string, std::list<SizeType>::iterator>> cache;    // Page Address -> Page Address in Cache
             std::shared_timed_mutex mu;
             int64_t queries;
             std::atomic<int64_t> hits;
             FileIO* fileIO;
             std::vector<Helper::AsyncReadRequest> reqs;
+            std::vector<Helper::PageBuffer<std::uint8_t>> pageBuffers;
 
         public:
             LRUCache(int capacity, int limit, FileIO* fileIO) {
@@ -213,7 +214,23 @@ namespace SPTAG::SPANN {
                 this->hits = 0;
                 this->fileIO = fileIO;
                 this->reqs.resize(limit);
+                this->pageBuffers.resize(limit);
+                for (int i = 0; i < limit; i++) {
+                    this->pageBuffers[i].ReservePageBuffer(PageSize);
+                    auto& req = this->reqs[i];
+                    req.m_buffer = (char*)(this->pageBuffers[i].GetBuffer());
+#ifdef _MSC_VER
+                    memset(&(req.myres.m_col), 0, sizeof(OVERLAPPED));
+                    req.myres.m_col.m_data = (void*)(&req);
+#else
+                    memset(&(req.myiocb), 0, sizeof(struct iocb));
+                    req.myiocb.aio_buf = reinterpret_cast<uint64_t>(req.m_buffer);
+                    req.myiocb.aio_data = reinterpret_cast<uintptr_t>(&req);
+#endif
+                }
             }
+
+            ~LRUCache() {}
 
             bool evict(SizeType key, void* value, int vsize, std::unordered_map<SizeType, std::pair<std::string, std::list<SizeType>::iterator>>::iterator& it) {
                 if (value != nullptr) {
@@ -231,14 +248,14 @@ namespace SPTAG::SPANN {
             }
 
             bool get(SizeType key, void* value) {
-                std::shared_lock<std::shared_timed_mutex> lock(mu);
+                std::unique_lock<std::shared_timed_mutex> lock(mu);
                 queries++;
                 auto it = cache.find(key);
                 if (it == cache.end()) {
                     return false;  // If the key does not exist, return -1
                 }
                 // Update access order, move the key to the head of the linked list
-                memcpy(value, it->second.first.data(), it->second.first.size());
+                memcpy((char*)value, it->second.first.data(), it->second.first.size());
                 hits++;
                 return true;
             }
@@ -263,7 +280,7 @@ namespace SPTAG::SPANN {
                         }
                     }
                     it->second.first.resize(put_size);
-                    memcpy(it->second.first.data(), value, put_size);
+                    memcpy(it->second.first.data(), (char*)value, put_size);
                     size += delta_size;
                     return true;
                 }
@@ -770,12 +787,6 @@ namespace SPTAG::SPANN {
                 m_updateMutex.unlock();
             }
 
-            if (useCache && m_pShardedLRUCache) {
-                if (m_pShardedLRUCache->put(key, (void*)(value.data()), (SPTAG::SizeType)(value.size()))) {
-                    return ErrorCode::Success;
-                }
-            }
-
             // If this key has not been assigned mapping blocks yet, allocate a batch.
             if (At(key) == 0xffffffffffffffff) {
                 // If there are spare blocks in m_buffer, use them directly; otherwise, allocate a new batch.
@@ -799,14 +810,16 @@ namespace SPTAG::SPANN {
                                  "[Put] Not enough blocks in the pool can be allocated!\n");
                     return ErrorCode::DiskIOFail;
                 }
-                if (!m_pBlockController.WriteBlocks(postingSize + 1, blocks, value, timeout, reqs))
-                {
-                    m_pBlockController.ReleaseBlocks(postingSize + 1, blocks);
-                    memset(postingSize + 1, -1, sizeof(AddressType) * blocks);
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
-                    return ErrorCode::DiskIOFail;
-                }
                 *postingSize = value.size();
+                if (!useCache || m_pShardedLRUCache == nullptr || !m_pShardedLRUCache->put(key, (void*)(value.data()), (SPTAG::SizeType)(value.size()))) {
+                    if (!m_pBlockController.WriteBlocks(postingSize + 1, blocks, value, timeout, reqs))
+                    {
+                        m_pBlockController.ReleaseBlocks(postingSize + 1, blocks);
+                        memset(postingSize + 1, -1, sizeof(AddressType) * blocks);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
+                        return ErrorCode::DiskIOFail;
+                    }
+                }
             }
             else {
                 uintptr_t tmpblocks = 0xffffffffffffffff;
@@ -820,14 +833,16 @@ namespace SPTAG::SPANN {
                     m_buffer.push(tmpblocks);
                     return ErrorCode::DiskIOFail;
                 }
-                if (!m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value, timeout, reqs))
-                {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
-                    m_pBlockController.ReleaseBlocks((AddressType*)tmpblocks + 1, blocks);
-                    m_buffer.push(tmpblocks);
-                    return ErrorCode::DiskIOFail;
-                }
                 *((int64_t*)tmpblocks) = value.size();
+                if (!useCache || m_pShardedLRUCache == nullptr || !m_pShardedLRUCache->put(key, (void*)(value.data()), (SPTAG::SizeType)(value.size()))) {             
+                    if (!m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value, timeout, reqs))
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
+                        m_pBlockController.ReleaseBlocks((AddressType*)tmpblocks + 1, blocks);
+                        m_buffer.push(tmpblocks);
+                        return ErrorCode::DiskIOFail;
+                    }
+                }
 
                 // Release the original blocks
                 m_pBlockController.ReleaseBlocks(postingSize + 1, (*postingSize + PageSize - 1) >> PageSizeEx);
@@ -958,12 +973,6 @@ namespace SPTAG::SPANN {
                 }
                 return ErrorCode::Key_OverFlow;
             }
-            
-            if (m_pShardedLRUCache) {
-                if (m_pShardedLRUCache->merge(key, (void *)(value.data()), value.size())) {
-                    return ErrorCode::Success;
-                }
-            }
 
             int64_t* postingSize = (int64_t*)At(key);
             if (((uintptr_t)postingSize) == 0xffffffffffffffff || *postingSize < 0)
@@ -1022,16 +1031,18 @@ namespace SPTAG::SPANN {
                     m_buffer.push(tmpblocks);
                     return ErrorCode::DiskIOFail;
                 }
-                if (!m_pBlockController.WriteBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks, newValue,
-                                                    timeout, reqs))
-                {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
-                                 "[Merge] Write new block failed!\n");
-                    m_pBlockController.ReleaseBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks);
-                    m_buffer.push(tmpblocks);
-                    return ErrorCode::DiskIOFail;
-                }
                 *((int64_t*)tmpblocks) = newSize;
+                if (m_pShardedLRUCache == nullptr || !m_pShardedLRUCache->merge(key, (void *)(value.data()), value.size())) {
+                    if (!m_pBlockController.WriteBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks, newValue,
+                                                        timeout, reqs))
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                    "[Merge] Write new block failed!\n");
+                        m_pBlockController.ReleaseBlocks((AddressType *)tmpblocks + 1 + oldblocks, allocblocks);
+                        m_buffer.push(tmpblocks);
+                        return ErrorCode::DiskIOFail;
+                    }
+                }
 
                 // This is also to ensure checkpoint correctness, so we release the partially used block and allocate a new one.
                 m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, 1);
@@ -1047,15 +1058,17 @@ namespace SPTAG::SPANN {
                                  "[Merge] Not enough blocks in the pool can be allocated!\n");
                     return ErrorCode::DiskIOFail;
                 }
-                if (!m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs))
-                {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Write new block failed!\n");
-                    m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, allocblocks);
-                    return ErrorCode::DiskIOFail;
-                }
                 *postingSize = newSize;
+                if (m_pShardedLRUCache == nullptr || !m_pShardedLRUCache->merge(key, (void *)(value.data()), value.size())) {
+                    if (!m_pBlockController.WriteBlocks(postingSize + 1 + oldblocks, allocblocks, value, timeout, reqs))
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Merge] Write new block failed!\n");
+                        m_pBlockController.ReleaseBlocks(postingSize + 1 + oldblocks, allocblocks);
+                        return ErrorCode::DiskIOFail;
+                    }
+                }
             }
-	    /*
+	        /*
             std::string after;
             Get(key, &after, timeout, reqs);
             before += value;

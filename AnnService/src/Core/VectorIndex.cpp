@@ -1004,7 +1004,7 @@ ErrorCode VectorIndex::LoadIndex(const std::string &p_config, const std::vector<
 
 std::shared_ptr<VectorIndex> VectorIndex::Clone(std::string p_clone)
 {
-    ErrorCode ret;
+    ErrorCode ret = ErrorCode::Success;
     if (GetIndexAlgoType() != IndexAlgoType::SPANN)
         ret = SaveIndex(p_clone);
     else

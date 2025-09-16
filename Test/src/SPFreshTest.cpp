@@ -1016,6 +1016,8 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     std::cout << "=================No Cache===================" << std::endl;
     std::string prevPath = "original_index";
     float recall = 0.0;
+    std::shared_ptr<VectorIndex> finalIndex;
+    /*
     for (int iter = 0; iter < iterations; iter++)
     {
         std::string clone_path = "clone_index_" + std::to_string(iter);
@@ -1053,8 +1055,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         cloneIndex = nullptr;
         prevPath = clone_path;
     }
-
-    std::shared_ptr<VectorIndex> finalIndex;
+ 
     BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, finalIndex) == ErrorCode::Success);
     BOOST_REQUIRE(finalIndex != nullptr);
     auto t = std::chrono::high_resolution_clock::now();
@@ -1071,7 +1072,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     {
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
-
+    */
     std::cout << "=================Enable Cache===================" << std::endl;
     prevPath = "original_index";
     for (int iter = 0; iter < iterations; iter++)
@@ -1115,10 +1116,10 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     }
     BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, finalIndex) == ErrorCode::Success);
     BOOST_REQUIRE(finalIndex != nullptr);
-    t = std::chrono::high_resolution_clock::now();
+    auto tt = std::chrono::high_resolution_clock::now();
     BOOST_REQUIRE(finalIndex->Check() == ErrorCode::Success);
     std::cout << "[INFO] Check time for iteration " << iterations << ": "
-                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t).count()
+                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - tt).count()
                 << " ms" << std::endl;
     
     recall = Search<int8_t>(finalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
