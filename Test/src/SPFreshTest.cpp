@@ -92,6 +92,9 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             InPlace=true
             StartFileSizeGB=1
             OneClusterCutMax=true
+            ConsistencyCheck=true
+            ChecksumCheck=true
+            ChecksumInRead=true
         )";
 
     std::shared_ptr<Helper::DiskIO> buffer(new Helper::SimpleBufferIO());
@@ -1017,7 +1020,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     std::string prevPath = "original_index";
     float recall = 0.0;
     std::shared_ptr<VectorIndex> finalIndex;
-    /*
+    
     for (int iter = 0; iter < iterations; iter++)
     {
         std::string clone_path = "clone_index_" + std::to_string(iter);
@@ -1072,7 +1075,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     {
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
-    */
+    
     std::cout << "=================Enable Cache===================" << std::endl;
     prevPath = "original_index";
     for (int iter = 0; iter < iterations; iter++)

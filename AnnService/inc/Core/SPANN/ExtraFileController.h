@@ -247,15 +247,16 @@ namespace SPTAG::SPANN {
                 return true;
             }
 
-            bool get(SizeType key, void* value, int size) {
+            bool get(SizeType key, void* value, int& get_size) {
                 std::unique_lock<std::shared_timed_mutex> lock(mu);
                 queries++;
                 auto it = cache.find(key);
                 if (it == cache.end()) {
                     return false;  // If the key does not exist, return -1
                 }
-                if (size > it->second.first.size()) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cache get error: key %d required size %d, real size = %d\n", key, size, (int)(it->second.first.size()));
+                if (get_size > it->second.first.size()) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cache get error: key %d required size %d, real size = %d\n", key, get_size, (int)(it->second.first.size()));
+                    get_size = (int)(it->second.first.size());
                 }
                 // Update access order, move the key to the head of the linked list
                 memcpy((char*)value, it->second.first.data(), size);
@@ -285,6 +286,7 @@ namespace SPTAG::SPANN {
                     it->second.first.resize(put_size);
                     memcpy(it->second.first.data(), (char*)value, put_size);
                     size += delta_size;
+                    hits++;
                     return true;
                 }
                 if (put_size > limit) {
@@ -327,6 +329,8 @@ namespace SPTAG::SPANN {
                     cache.insert({key, {valstr, keys.insert(keys.begin(), key)}});
                     size += valstr.size();
                     it = cache.find(key);
+                } else {
+                    hits++;
                 }
 
                 if (merge_size + it->second.first.size() > limit) {
@@ -391,8 +395,8 @@ namespace SPTAG::SPANN {
                 }
             }
 
-            bool get(SizeType key, void* value, int size) {
-                return caches[hash(key)]->get(key, value, size);
+            bool get(SizeType key, void* value, int& get_size) {
+                return caches[hash(key)]->get(key, value, get_size);
             }
 
             bool put(SizeType key, void* value, SizeType put_size) {
@@ -579,12 +583,13 @@ namespace SPTAG::SPANN {
                 return ErrorCode::Key_NotFound;
             }
 
-            auto size = addr[0];
+            int size = (int)(addr[0]);
             if (size < 0) return ErrorCode::Posting_SizeError;
 
             if (useCache && m_pShardedLRUCache) {
                 value->resize(size);
                 if (m_pShardedLRUCache->get(key, value->data(), size)) {
+                    value->resize(size);
                     return ErrorCode::Success;
                 }
             }
@@ -640,8 +645,10 @@ namespace SPTAG::SPANN {
                 if (key < r) {
                     AddressType* addr = (AddressType*)(At(key));
                     if (m_pShardedLRUCache  && ((uintptr_t)addr) != 0xffffffffffffffff && addr[0] >= 0) {
-                        values[i].SetAvailableSize(addr[0]);
-                        if (m_pShardedLRUCache->get(key, values[i].GetBuffer(), (int)(addr[0]))) {
+                        int size = (int)(addr[0]);
+                        values[i].ReservePageBuffer(size);
+                        if (m_pShardedLRUCache->get(key, values[i].GetBuffer(), size)) {
+                            values[i].ReservePageBuffer(size);
                             blocks.push_back(nullptr);
                         }
                         else {
@@ -695,8 +702,10 @@ namespace SPTAG::SPANN {
                 if (key < r) {
                     AddressType* addr = (AddressType*)(At(key));
                     if (m_pShardedLRUCache && ((uintptr_t)addr) != 0xffffffffffffffff && addr[0] >= 0) {   
-                        (*values)[i].resize(addr[0]);
-                        if (m_pShardedLRUCache->get(key, (*values)[i].data(), (int)(addr[0]))) {
+                        int size = (int)(addr[0]);
+                        (*values)[i].resize(size);
+                        if (m_pShardedLRUCache->get(key, (*values)[i].data(), size)) {
+                            (*values)[i].resize(size);
                             blocks.push_back(nullptr);
                         }
                         else {
