@@ -192,6 +192,7 @@ namespace SPTAG {
             
             // Iterative
             int m_headBatch;
+            int m_asyncAppendQueueSize;
 
             Options() {
 #define DefineBasicParameter(VarName, VarType, DefaultValue, RepresentStr) \

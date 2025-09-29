@@ -203,6 +203,8 @@ public:
         return ErrorCode::Undefined;
     }
 
+    virtual std::string GetPriorityID(int queryID) const { return ""; }
+    
   private:
     ErrorCode LoadIndexConfig(Helper::IniReader& p_reader);
 

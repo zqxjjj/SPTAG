@@ -826,6 +826,32 @@ break;
                 }
             }
 
+            template <typename T>
+            std::string GetPriorityID(const Dataset<T>& data, int p_queryID, std::function<float(const T*, const T*, DimensionType)> fComputeDistance) const {
+                std::string ret = "";
+                for (char i = 0; i < m_iTreeNumber; i++) {
+                    BKTNode* node = &(m_pTreeRoots[m_pTreeStart[i]]);
+                    while (node->childStart > 0) {
+                        float minDist = MaxDist;
+                        SizeType minIdx = -1;
+                        for (SizeType begin = node->childStart; begin < node->childEnd; begin++) {
+                            _mm_prefetch((const char*)(data[m_pTreeRoots[begin].centerid]), _MM_HINT_T0);
+                        }
+                        for (SizeType begin = node->childStart; begin < node->childEnd; begin++) {
+                            SizeType index = m_pTreeRoots[begin].centerid;
+                            float dist = fComputeDistance(data[p_queryID], data[index], data.C());
+                            if (dist < minDist) {
+                                minDist = dist;
+                                minIdx = begin;
+                            }
+                        }
+                        ret += static_cast<char>(minIdx - begin);
+                        node = &(m_pTreeRoots[minIdx]);
+                    }
+                }
+                return ret;
+            }
+
         private:
             std::vector<SizeType> m_pTreeStart;
             std::vector<BKTNode> m_pTreeRoots;

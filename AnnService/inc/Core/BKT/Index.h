@@ -225,6 +225,7 @@ namespace SPTAG
 
             virtual ErrorCode Check() override;
 
+            virtual std::string GetPriorityID(int queryID) const override { return m_pTrees.GetPriorityID(m_pSamples, queryID, m_fComputeDistance); }
         private:
 
             int SearchIndexIterative(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space, bool p_isFirst, int batch, bool p_searchDeleted, bool p_searchDuplicated) const;

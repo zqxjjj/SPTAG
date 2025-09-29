@@ -9,6 +9,7 @@
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/concurrent_queue.h>
 #include <tbb/concurrent_unordered_set.h>
+#include <tbb/concurrent_priority_queue.h>
 #else
 #include <mutex>
 #include <shared_mutex>
@@ -38,6 +39,9 @@ namespace SPTAG
 
             template <typename T>
             using ConcurrentQueue = tbb::concurrent_queue<T>;
+
+            template <typename T>
+            using ConcurrentPriorityQueue = tbb::concurrent_priority_queue<T>;
 #else
             template <typename T>
             class ConcurrentSet
@@ -147,6 +151,38 @@ namespace SPTAG
             protected:
                 std::mutex m_lock;
                 std::queue<T> m_queue;
+            };
+
+            template <typename T>
+            class ConcurrentPriorityQueue 
+            {
+            public:
+                ConcurrentPriorityQueue() {}
+                ~ConcurrentPriorityQueue() {}
+
+            size_type size() const {
+                std::lock_guard<std::mutex> lock(m_lock);
+                return m_queue.size();
+            }
+
+            void push(const T& value) {
+                std::lock_guard<std::mutex> lock(m_lock);
+                m_queue.push(value);
+            }
+
+            bool try_pop(T& value) {
+                std::lock_guard<std::mutex> lock(m_lock);
+                if (m_queue.empty()) {
+                    return false;
+                }
+                value = m_queue.top();
+                m_queue.pop();
+                return true; 
+            }
+
+            private:
+                std::mutex m_lock;
+                std::priority_queue<T> m_queue;
             };
 #endif // TBB
 #else

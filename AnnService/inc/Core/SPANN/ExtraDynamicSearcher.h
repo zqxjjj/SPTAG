@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <map>
 #include <cmath>
+#include <cstring>
 #include <climits>
 #include <future>
 #include <numeric>
@@ -40,6 +41,24 @@ namespace SPTAG::SPANN {
     template <typename ValueType>
     class ExtraDynamicSearcher : public IExtraSearcher
     {
+        struct AppendPair
+        {
+            std::string BKTID;
+            int headID;
+            std::string posting;
+
+            NodeDistPair(std::string& p_BKTID, int p_headID, std::string& p_posting) : BKTID(p_BKTID), headID(p_headID), posting(p_posting) {}
+            inline bool operator < (const AppendPair& rhs) const
+            {
+                return std::strcmp(BKTID.c_str(), rhs.BKTID.c_str()) < 0;
+            }
+
+            inline bool operator > (const AppendPair& rhs) const
+            {
+                return std::strcmp(BKTID.c_str(), rhs.BKTID.c_str()) > 0;
+            }
+        };
+
         class MergeAsyncJob : public Helper::ThreadPool::Job
         {
         private:
@@ -155,6 +174,9 @@ namespace SPTAG::SPANN {
     private:
         Helper::Concurrent::ConcurrentQueue<int> m_freeWorkSpaceIds;
         std::atomic<int> m_workspaceCount = 0;
+
+        Helper::Concurrent::ConcurrentPriorityQueue<AppendPair> m_asyncAppendQueue;
+        std::mutex m_asyncAppendLock;
 
         std::shared_ptr<Helper::KeyValueIO> db;
 
@@ -1265,6 +1287,29 @@ namespace SPTAG::SPANN {
             }
         }
 
+        ErrorCode AsyncAppend(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, SizeType headID, int appendNum, std::string& appendPosting, int reassignThreshold = 0)
+        {
+            if (m_asyncAppendQueue.unsafe_size() >= m_opt->m_asyncAppendQueueSize) {
+                std::lock_guard<std::mutex> lock(m_asyncAppendLock);
+                if (m_asyncAppendQueue.unsafe_size() < m_opt->m_asyncAppendQueueSize) {
+                    m_asyncAppendQueue.push(AppendPair(p_index->GetPriorityID(headID), headID, apppendPosting));
+                    return ErrorCode::Success;
+                }
+
+                AppendPair workPair;
+                ErrorCode ret;
+                while (m_asyncAppendQueue.try_pop(workPair)) {
+                    if ((ret = Append(p_exWorkSpace, p_index, workPair.headID, 1, workPair.posting, reassignThreshold)) != ErrorCode::Success) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncAppend: Append failed in async queue processing, headID: %d\n", workPair.first);
+                        return ret;
+                    }
+                }
+            } else {
+                m_asyncAppendQueue.push(AppendPair(p_index->GetPriorityID(headID), headID, apppendPosting));
+            }
+            return ErrorCode::Success;
+        }
+
         ErrorCode Append(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, SizeType headID, int appendNum, std::string& appendPosting, int reassignThreshold = 0)
         {
             auto appendBegin = std::chrono::high_resolution_clock::now();
@@ -2206,9 +2251,14 @@ namespace SPTAG::SPANN {
                 {
                     // AppendAsync(selections[i].node, 1, appendPosting_ptr);
                     ErrorCode ret;
-                    if ((ret = Append(p_exWorkSpace, p_index.get(), selections[i].node, 1, appendPosting)) !=
-                        ErrorCode::Success)
-                        return ret;
+                    if (m_opt->m_asyncAppendQueueSize > 0) {
+                        if ((ret = AsyncAppend(p_exWorkSpace, p_index.get(), selections[i].node, 1, appendPosting)) != ErrorCode::Success)
+                            return ret;
+                    } else {
+                        if ((ret = Append(p_exWorkSpace, p_index.get(), selections[i].node, 1, appendPosting)) !=
+                            ErrorCode::Success)
+                            return ret;
+                    }
                 }
             }
             return ErrorCode::Success;
