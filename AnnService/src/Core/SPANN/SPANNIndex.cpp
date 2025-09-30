@@ -1183,7 +1183,7 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
             {
                 std::uint64_t vid = (std::uint64_t)MaxSize;
                 for (int i = 0; i < m_vectorTranslateMap.R(); i++) {
-                    m_vectorTranslateMap[i] = vid;
+                    *(m_vectorTranslateMap[i]) = vid;
                 }
                 m_vectorTranslateMap.Save(m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile);
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Include all vectors into SSD index...\n");

@@ -385,15 +385,21 @@ namespace SPTAG
 
             ErrorCode Load(std::shared_ptr<Helper::DiskIO> pInput, SizeType blockSize, SizeType capacity)
             {
-                IOBINARY(pInput, ReadBinary, sizeof(SizeType), (char*)&(rows));
-                IOBINARY(pInput, ReadBinary, sizeof(DimensionType), (char*)&mycols);
+                SizeType r;
+                DimensionType c;
+                IOBINARY(pInput, ReadBinary, sizeof(SizeType), (char*)&(r));
+                IOBINARY(pInput, ReadBinary, sizeof(DimensionType), (char*)(&c));
 
-                if (data == nullptr) Initialize(rows, mycols, blockSize, capacity);
-
-                for (SizeType i = 0; i < rows; i++) {
+                if (data == nullptr) Initialize(r, c, blockSize, capacity);
+                else if (r > rows + incRows) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "Read more data (%d, %d) than before (%d, %d)!\n", r, c, rows + incRows, mycols);
+                    if(AddBatch(r - rows - incRows) != ErrorCode::Success) return ErrorCode::MemoryOverFlow;
+                }
+                
+                for (SizeType i = 0; i < r; i++) {
                     IOBINARY(pInput, ReadBinary, sizeof(T) * mycols, (char*)At(i));
                 }
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load %s (%d,%d) Finish!\n", name.c_str(), rows, mycols);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load %s (%d,%d) Finish!\n", name.c_str(), r, c);
                 return ErrorCode::Success;
             }
 
