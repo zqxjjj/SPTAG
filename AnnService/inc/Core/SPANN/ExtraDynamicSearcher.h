@@ -1554,13 +1554,16 @@ namespace SPTAG::SPANN {
 		    } 
 	    }
             if (m_opt->m_update) {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: initialize thread pools, append: %d, reassign %d\n", m_opt->m_appendThreadNum, m_opt->m_reassignThreadNum);
-                m_splitThreadPool = std::make_shared<SPDKThreadPool>();
-                m_splitThreadPool->initSPDK(m_opt->m_appendThreadNum, this);
-                //m_reassignThreadPool = std::make_shared<SPDKThreadPool>();
-                //m_reassignThreadPool->initSPDK(m_opt->m_reassignThreadNum, this);
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: finish initialization\n");
+                if (m_splitThreadPool == nullptr) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: initialize thread pools, append: %d, reassign %d\n", m_opt->m_appendThreadNum, m_opt->m_reassignThreadNum);
 
+                    m_splitThreadPool = std::make_shared<SPDKThreadPool>();
+                    m_splitThreadPool->initSPDK(m_opt->m_appendThreadNum, this);
+                    //m_reassignThreadPool = std::make_shared<SPDKThreadPool>();
+                    //m_reassignThreadPool->initSPDK(m_opt->m_reassignThreadNum, this);
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: finish initialization\n");
+                }
+                
                 if (m_opt->m_enableWAL && !m_opt->m_persistentBufferPath.empty()) {
                     std::string p_persistenWAL = m_opt->m_persistentBufferPath + FolderSep + "WAL";
                     std::shared_ptr<Helper::KeyValueIO> pdb;
@@ -2049,6 +2052,7 @@ namespace SPTAG::SPANN {
                 }
             }
 
+            Helper::Concurrent::ConcurrentSet<SizeType> zeroReplicaSet;
             {
                 std::vector<std::thread> mythreads;
                 mythreads.reserve(m_opt->m_iSSDNumberOfThreads);
@@ -2074,6 +2078,10 @@ namespace SPTAG::SPANN {
                                 {
                                     int tonode = selections.m_selections[selectIdx + dropID].tonode;
                                     --replicaCount[tonode];
+                                    if (replicaCount[tonode] == 0)
+                                    {
+                                        zeroReplicaSet.insert(tonode);
+                                    }
                                 }
                                 postingListSize[i] = m_postingSizeLimit;
                             }
@@ -2158,6 +2166,26 @@ namespace SPTAG::SPANN {
                                    p_headIndex->m_iDataCapacity);
 
             if (ErrorCode::Success != WriteDownAllPostingToDB(selections, fullVectors)) return false;
+
+            if (m_opt->m_update && !m_opt->m_allowZeroReplica && zeroReplicaSet.Size() > 0)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: initialize thread pools, append: %d, reassign %d\n", m_opt->m_appendThreadNum, m_opt->m_reassignThreadNum);
+                m_splitThreadPool = std::make_shared<SPDKThreadPool>();
+                m_splitThreadPool->initSPDK(m_opt->m_appendThreadNum, this);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: finish initialization\n");
+
+                ExtraWorkSpace workSpace;
+                InitWorkSpace(&workSpace);
+                for (SizeType& it : zeroReplicaSet)
+                {
+                    std::shared_ptr<VectorSet> vectorSet(new BasicVectorSet(ByteArray((std::uint8_t*)fullVectors->GetVector(it), sizeof(ValueType) * m_opt->m_dim, false),
+                        GetEnumValueType<ValueType>(), m_opt->m_dim, 1));
+                    if (AddIndex(&workSpace, vectorSet, p_headIndex, it) != ErrorCode::Success) {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to add index for zero replica ID: %d\n", it);
+                        return false;
+                    }
+                }
+            }
 
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: Writing SSD Info and checkSum\n");
             m_postingSizes.Save(m_opt->m_indexDirectory + FolderSep + m_opt->m_ssdInfoFile);
