@@ -95,6 +95,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             ConsistencyCheck=true
             ChecksumCheck=true
             ChecksumInRead=true
+            AsyncAppendQueueSize=0
         )";
 
     std::shared_ptr<Helper::DiskIO> buffer(new Helper::SimpleBufferIO());
@@ -1011,15 +1012,20 @@ BOOST_AUTO_TEST_CASE(CacheTest)
                          iterations, truth);
 
     // Build and save index
-    auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
+    std::shared_ptr<VectorIndex> originalIndex, finalIndex;
+    
+    std::filesystem::remove_all("original_index");
+    
+    originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
     BOOST_REQUIRE(originalIndex != nullptr);
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
     originalIndex = nullptr;
-
-    std::cout << "=================No Cache===================" << std::endl;
+    
+   
     std::string prevPath = "original_index";
     float recall = 0.0;
-    std::shared_ptr<VectorIndex> finalIndex;
+
+    std::cout << "=================No Cache===================" << std::endl;
     
     for (int iter = 0; iter < iterations; iter++)
     {

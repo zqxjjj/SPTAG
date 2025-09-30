@@ -830,7 +830,7 @@ break;
             std::string GetPriorityID(const Dataset<T>& data, int p_queryID, std::function<float(const T*, const T*, DimensionType)> fComputeDistance) const {
                 std::string ret = "";
                 for (char i = 0; i < m_iTreeNumber; i++) {
-                    BKTNode* node = &(m_pTreeRoots[m_pTreeStart[i]]);
+                    const BKTNode* node = &(m_pTreeRoots[m_pTreeStart[i]]);
                     while (node->childStart > 0) {
                         float minDist = MaxDist;
                         SizeType minIdx = -1;
@@ -845,7 +845,7 @@ break;
                                 minIdx = begin;
                             }
                         }
-                        ret += static_cast<char>(minIdx - begin);
+                        ret += static_cast<char>(minIdx - node->childStart);
                         node = &(m_pTreeRoots[minIdx]);
                     }
                 }

@@ -259,7 +259,7 @@ namespace SPTAG::SPANN {
                     get_size = (int)(it->second.first.size());
                 }
                 // Update access order, move the key to the head of the linked list
-                memcpy((char*)value, it->second.first.data(), size);
+                memcpy((char*)value, it->second.first.data(), get_size);
                 hits++;
                 return true;
             }
@@ -799,21 +799,22 @@ namespace SPTAG::SPANN {
                 m_updateMutex.unlock();
             }
 
+            uintptr_t tmpblocks = 0xffffffffffffffff;
             // If this key has not been assigned mapping blocks yet, allocate a batch.
             if (At(key) == 0xffffffffffffffff) {
                 // If there are spare blocks in m_buffer, use them directly; otherwise, allocate a new batch.
                 if (m_buffer.unsafe_size() > m_bufferLimit) {
-                    uintptr_t tmpblocks = 0xffffffffffffffff;
                     while (!m_buffer.try_pop(tmpblocks));
-                    At(key) = tmpblocks;
                 }
                 else {
-                    At(key) = (uintptr_t)(new AddressType[m_blockLimit]);
+                    tmpblocks = (uintptr_t)(new AddressType[m_blockLimit]);
                 }
                 // The 0th element of the block address list represents the data size; set it to -1.
-                memset((AddressType*)At(key), -1, sizeof(AddressType) * m_blockLimit);
+                memset((AddressType*)tmpblocks, -1, sizeof(AddressType) * m_blockLimit);
+            } else {
+                tmpblocks = At(key);
             }
-            int64_t* postingSize = (int64_t*)At(key);
+            int64_t* postingSize = (int64_t*)tmpblocks;
             // If postingSize is less than 0, it means the mapping block is newly allocated—directly
             if (*postingSize < 0) {
                 if (!m_pBlockController.GetBlocks(postingSize + 1, blocks))
@@ -832,33 +833,34 @@ namespace SPTAG::SPANN {
                         return ErrorCode::DiskIOFail;
                     }
                 }
+                At(key) = tmpblocks;
             }
             else {
-                uintptr_t tmpblocks = 0xffffffffffffffff;
+                uintptr_t partialtmpblocks = 0xffffffffffffffff;
                 // Take a batch of mapping blocks from the buffer, and return a batch back later.
-                while (!m_buffer.try_pop(tmpblocks));
+                while (!m_buffer.try_pop(partialtmpblocks));
                 // Acquire a new batch of disk blocks and write data directly.
                 // To ensure the effectiveness of the checkpoint, new blocks must be allocated for writing here.
-                if (!m_pBlockController.GetBlocks((AddressType*)tmpblocks + 1, blocks))
+                if (!m_pBlockController.GetBlocks((AddressType*)partialtmpblocks + 1, blocks))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Not enough blocks in the pool can be allocated!\n");
-                    m_buffer.push(tmpblocks);
+                    m_buffer.push(partialtmpblocks);
                     return ErrorCode::DiskIOFail;
                 }
-                *((int64_t*)tmpblocks) = value.size();
+                *((int64_t*)partialtmpblocks) = value.size();
                 if (!useCache || m_pShardedLRUCache == nullptr || !m_pShardedLRUCache->put(key, (void*)(value.data()), (SPTAG::SizeType)(value.size()))) {             
-                    if (!m_pBlockController.WriteBlocks((AddressType*)tmpblocks + 1, blocks, value, timeout, reqs))
+                    if (!m_pBlockController.WriteBlocks((AddressType*)partialtmpblocks + 1, blocks, value, timeout, reqs))
                     {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[Put] Write new block failed!\n");
-                        m_pBlockController.ReleaseBlocks((AddressType*)tmpblocks + 1, blocks);
-                        m_buffer.push(tmpblocks);
+                        m_pBlockController.ReleaseBlocks((AddressType*)partialtmpblocks + 1, blocks);
+                        m_buffer.push(partialtmpblocks);
                         return ErrorCode::DiskIOFail;
                     }
                 }
 
                 // Release the original blocks
                 m_pBlockController.ReleaseBlocks(postingSize + 1, (*postingSize + PageSize - 1) >> PageSizeEx);
-                while (InterlockedCompareExchange(&At(key), tmpblocks, (uintptr_t)postingSize) != (uintptr_t)postingSize) {
+                while (InterlockedCompareExchange(&At(key), partialtmpblocks, (uintptr_t)postingSize) != (uintptr_t)postingSize) {
                     postingSize = (int64_t*)At(key);
                 }
                 m_buffer.push((uintptr_t)postingSize);

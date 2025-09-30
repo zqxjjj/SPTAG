@@ -47,7 +47,7 @@ namespace SPTAG::SPANN {
             int headID;
             std::string posting;
 
-            NodeDistPair(std::string& p_BKTID, int p_headID, std::string& p_posting) : BKTID(p_BKTID), headID(p_headID), posting(p_posting) {}
+            AppendPair(std::string p_BKTID = "", int p_headID = -1, std::string p_posting = "") : BKTID(p_BKTID), headID(p_headID), posting(p_posting) {}
             inline bool operator < (const AppendPair& rhs) const
             {
                 return std::strcmp(BKTID.c_str(), rhs.BKTID.c_str()) < 0;
@@ -1289,10 +1289,10 @@ namespace SPTAG::SPANN {
 
         ErrorCode AsyncAppend(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index, SizeType headID, int appendNum, std::string& appendPosting, int reassignThreshold = 0)
         {
-            if (m_asyncAppendQueue.unsafe_size() >= m_opt->m_asyncAppendQueueSize) {
+            if (m_asyncAppendQueue.size() >= m_opt->m_asyncAppendQueueSize) {
                 std::lock_guard<std::mutex> lock(m_asyncAppendLock);
-                if (m_asyncAppendQueue.unsafe_size() < m_opt->m_asyncAppendQueueSize) {
-                    m_asyncAppendQueue.push(AppendPair(p_index->GetPriorityID(headID), headID, apppendPosting));
+                if (m_asyncAppendQueue.size() < m_opt->m_asyncAppendQueueSize) {
+                    m_asyncAppendQueue.push(AppendPair(p_index->GetPriorityID(headID), headID, appendPosting));
                     return ErrorCode::Success;
                 }
 
@@ -1300,12 +1300,12 @@ namespace SPTAG::SPANN {
                 ErrorCode ret;
                 while (m_asyncAppendQueue.try_pop(workPair)) {
                     if ((ret = Append(p_exWorkSpace, p_index, workPair.headID, 1, workPair.posting, reassignThreshold)) != ErrorCode::Success) {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncAppend: Append failed in async queue processing, headID: %d\n", workPair.first);
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncAppend: Append failed in async queue processing, headID: %d\n", workPair.headID);
                         return ret;
                     }
                 }
             } else {
-                m_asyncAppendQueue.push(AppendPair(p_index->GetPriorityID(headID), headID, apppendPosting));
+                m_asyncAppendQueue.push(AppendPair(p_index->GetPriorityID(headID), headID, appendPosting));
             }
             return ErrorCode::Success;
         }
