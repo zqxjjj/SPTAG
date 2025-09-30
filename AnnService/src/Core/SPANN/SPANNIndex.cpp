@@ -1153,6 +1153,19 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
                 m_extraSearcher.reset(new ExtraDynamicSearcher<T>(m_options));
         }
 
+       {
+            std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+            if (ptr == nullptr ||
+                !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(),
+                                 std::ios::binary | std::ios::in))
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n",
+                             (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
+                return ErrorCode::Fail;
+            }
+            m_vectorTranslateMap.Load(ptr, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
+        }
+
         if (m_options.m_buildSsdIndex)
         {
             if (m_options.m_storage != Storage::STATIC && !m_extraSearcher->Available())
@@ -1160,7 +1173,7 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Extrasearcher is not available and failed to initialize.\n");
                 return ErrorCode::Fail;
             }
-            if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap))
+            if (!m_extraSearcher->BuildIndex(p_reader, m_index, m_options, m_versionMap, m_vectorTranslateMap))
             {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "BuildSSDIndex Failed!\n");
                 return ErrorCode::Fail;
@@ -1168,25 +1181,12 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
 
             if (!m_options.m_excludehead)
             {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Include all vectors into SSD index...\n");
-                std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
-                if (ptr == nullptr ||
-                    !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(),
-                                     std::ios::binary | std::ios::out))
-                {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s for overwrite\n",
-                                 (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
-                    return ErrorCode::Fail;
-                }
-                SizeType rows = m_index->GetNumSamples();
-                DimensionType cols = 1;
-                IOBINARY(ptr, WriteBinary, sizeof(SizeType), (char *)(&rows));
-                IOBINARY(ptr, WriteBinary, sizeof(DimensionType), (char *)(&cols));
                 std::uint64_t vid = (std::uint64_t)MaxSize;
-                for (int i = 0; i < rows; i++)
-                {
-                    IOBINARY(ptr, WriteBinary, sizeof(std::uint64_t), (char *)(&vid));
+                for (int i = 0; i < m_vectorTranslateMap.R(); i++) {
+                    m_vectorTranslateMap[i] = vid;
                 }
+                m_vectorTranslateMap.Save(m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Include all vectors into SSD index...\n");
             }
         }
 
@@ -1205,16 +1205,6 @@ template <typename T> ErrorCode Index<T>::BuildIndexInternal(std::shared_ptr<Hel
 
         if (m_extraSearcher != nullptr)
         {
-            std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
-            if (ptr == nullptr ||
-                !ptr->Initialize((m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str(),
-                                 std::ios::binary | std::ios::in))
-            {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to open headIDFile file:%s\n",
-                             (m_options.m_indexDirectory + FolderSep + m_options.m_headIDFile).c_str());
-                return ErrorCode::Fail;
-            }
-            m_vectorTranslateMap.Load(ptr, m_index->m_iDataBlockSize, m_index->m_iDataCapacity);
             if ((m_options.m_storage != Storage::STATIC) && m_options.m_preReassign)
             {
                 if (m_extraSearcher->RefineIndex(m_index) != ErrorCode::Success)

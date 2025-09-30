@@ -307,7 +307,7 @@ namespace SPTAG {
 
             virtual bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, 
                 std::shared_ptr<VectorIndex> p_index, 
-                Options& p_opt, COMMON::VersionLabel& p_versionMap, SizeType upperBound = -1) = 0;
+                Options& p_opt, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& p_vectorTranslateMap, SizeType upperBound = -1) = 0;
 
             virtual void InitWorkSpace(ExtraWorkSpace* p_exWorkSpace, bool clear = false) = 0;
 

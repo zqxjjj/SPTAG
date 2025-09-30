@@ -1893,8 +1893,9 @@ namespace SPTAG::SPANN {
             return postingListFullData;
         }
 
-        bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, std::shared_ptr<VectorIndex> p_headIndex, Options& p_opt, COMMON::VersionLabel& p_versionMap, SizeType upperBound = -1) override {
+        bool BuildIndex(std::shared_ptr<Helper::VectorSetReader>& p_reader, std::shared_ptr<VectorIndex> p_headIndex, Options& p_opt, COMMON::VersionLabel& p_versionMap, COMMON::Dataset<std::uint64_t>& p_vectorTranslateMap, SizeType upperBound = -1) override {
             m_versionMap = &p_versionMap;
+            m_vectorTranslateMap = &p_vectorTranslateMap;
             m_opt = &p_opt;
 
             int numThreads = m_opt->m_iSSDNumberOfThreads;
@@ -1905,22 +1906,11 @@ namespace SPTAG::SPANN {
                 return false;
             }
 
-            if (fileexists((m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile).c_str()))
+            for (int i = 0; i < p_vectorTranslateMap.R(); i++)
             {
-                auto ptr = SPTAG::f_createIO();
-                if (ptr == nullptr || !ptr->Initialize((m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile).c_str(), std::ios::binary | std::ios::in)) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "failed open VectorIDTranslate: %s\n", m_opt->m_headIDFile.c_str());
-                    return false;
-                }
-
-                COMMON::Dataset<std::uint64_t> vectorTranslateMap;
-                vectorTranslateMap.Load(ptr, p_headIndex->m_iDataBlockSize, p_headIndex->m_iDataCapacity);
-                for (int i = 0; i < vectorTranslateMap.R(); i++)
-                {
-                    headVectorIDS[static_cast<SizeType>(*(vectorTranslateMap[i]))] = i;
-                }
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
+                headVectorIDS[static_cast<SizeType>(*(p_vectorTranslateMap[i]))] = i;
             }
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Loaded %u Vector IDs\n", static_cast<uint32_t>(headVectorIDS.size()));
 
             SizeType fullCount = 0;
             {
@@ -2167,7 +2157,7 @@ namespace SPTAG::SPANN {
 
             if (ErrorCode::Success != WriteDownAllPostingToDB(selections, fullVectors)) return false;
 
-            if (m_opt->m_update && !m_opt->m_allowZeroReplica && zeroReplicaSet.Size() > 0)
+            if (m_opt->m_update && !m_opt->m_allowZeroReplica && zeroReplicaSet.size() > 0)
             {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: initialize thread pools, append: %d, reassign %d\n", m_opt->m_appendThreadNum, m_opt->m_reassignThreadNum);
                 m_splitThreadPool = std::make_shared<SPDKThreadPool>();
@@ -2184,6 +2174,20 @@ namespace SPTAG::SPANN {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to add index for zero replica ID: %d\n", it);
                         return false;
                     }
+                }
+                while (!AllFinished())
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+
+                if (p_headIndex->SaveIndex(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIndexFolder) != ErrorCode::Success) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to save head index!\n");
+                    return false;
+                }
+
+                if (m_vectorTranslateMap->Save(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile) != ErrorCode::Success) {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to save vector ID translate map!\n");
+                    return false;
                 }
             }
 

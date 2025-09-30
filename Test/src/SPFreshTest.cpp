@@ -96,6 +96,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             ChecksumCheck=true
             ChecksumInRead=true
             AsyncAppendQueueSize=0
+            AllowZeroReplica=false
         )";
 
     std::shared_ptr<Helper::DiskIO> buffer(new Helper::SimpleBufferIO());
