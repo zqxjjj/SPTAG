@@ -22,6 +22,9 @@
 #include <fcntl.h>
 #include <sys/syscall.h>
 #include <linux/aio_abi.h>
+#ifdef URING
+#include <liburing.h>
+#endif
 #ifdef NUMA
 #include <numa.h>
 #endif
@@ -641,6 +644,9 @@ namespace SPTAG
                 }
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s opened, fd=%d threads=%d maxNumBlocks=%d\n", filePath, m_fileHandle, threadPoolSize, maxNumBlocks);
                 m_iocps.resize(threadPoolSize);
+#ifdef URING
+                m_uring.resize(threadPoolSize);
+#endif
                 memset(m_iocps.data(), 0, sizeof(aio_context_t) * threadPoolSize);
                 for (int i = 0; i < threadPoolSize; i++) {
                     auto ret = syscall(__NR_io_setup, (int)maxNumBlocks, &(m_iocps[i]));
@@ -648,6 +654,14 @@ namespace SPTAG
                         SPTAGLIB_LOG(LogLevel::LL_Error, "Cannot setup aio: %s\n", strerror(errno));
                         return false;
                     }
+#ifdef URING
+                    ret = io_uring_queue_init((int)maxNumBlocks, &m_uring[i], 0);
+                    if (ret < 0)
+                    {
+                        SPTAGLIB_LOG(LogLevel::LL_Error, "Cannot setup io_uring: %s\n", strerror(-ret));
+                        return false;
+                    }
+#endif
                 }
                 m_shutdown = false;
 
@@ -700,6 +714,7 @@ namespace SPTAG
                 uint32_t realCount = 0;
                 for (int i = 0; i < requestCount; i++) {
                     AsyncReadRequest* readRequest = readRequests + i;
+#ifndef URING
                     struct iocb* myiocb = &(readRequest->myiocb);
  		            memset(myiocb, 0, sizeof(struct iocb));
                     myiocb->aio_data = reinterpret_cast<uintptr_t>(&readRequest);
@@ -708,6 +723,7 @@ namespace SPTAG
                     myiocb->aio_buf = (std::uint64_t)(readRequest->m_buffer);
                     myiocb->aio_nbytes = PageSize;
                     myiocb->aio_offset = static_cast<std::int64_t>(readRequest->m_offset);
+#endif
                     if (readRequest->m_readSize > 0) realCount++;
                 }
                 uint32_t batchTotalDone = 0;
@@ -719,13 +735,52 @@ namespace SPTAG
                     for (int i = 0; i < totalToSubmit; i++) {
                         while (reqidx < requestCount && readRequests[reqidx].m_readSize == 0) reqidx++;
 			            if (reqidx >= requestCount) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: error reqidx(%d) >= requestCount(%d)\n", reqidx, requestCount);
-			            else {
-                            iocbs[i] = &(readRequests[reqidx].myiocb);
+			            else {                                                     
+#ifdef URING
+                            auto sqe = io_uring_get_sqe(&m_uring[iocp]);
+                            if (!sqe)
+                            {
+                                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_uring_get_sqe failed\n");
+                                return 0;
+                            }
+                            io_uring_prep_read(sqe, m_fileHandle, readRequests[reqidx].m_buffer, PageSize,
+                                               readRequests[reqidx].m_offset);
+                            io_uring_sqe_set_data(sqe, &(readRequests[reqidx]));
+#else
+                            iocbs[i] = &(readRequests[reqidx].myiocb);   
+#endif
                             reqidx++;
 			            }
                     }
 
                     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader::ReadBlocks: iocp:%d totalToSubmit:%d\n", iocp, totalToSubmit);
+#ifdef URING
+                    if (io_uring_submit(&m_uring[iocp]) < 0)
+                    {
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_uring_submit failed!\n");
+                        return 0;
+                    }
+                    struct io_uring_cqe *cqe;
+                    for (auto i = 0; i < totalToSubmit; i++)
+                    {
+                        int ret = io_uring_wait_cqe(&m_uring[iocp], &cqe);
+                        if (ret < 0)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_uring_wait_cqe failed: %s\n", strerror(-ret));
+                            break;
+                        }
+                        ret = cqe->res;
+                        io_uring_cqe_seen(&m_uring[iocp], cqe);
+                        if (ret < 0)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "AsyncFileReader::ReadBlocks: io_uring_wait_cqe failed with res=%d: %s\n", ret, strerror(-ret));
+                            continue;
+                        }
+                        // AsyncReadRequest* readRequest =
+                        // reinterpret_cast<AsyncReadRequest*>(io_uring_cqe_get_data(cqe));
+                        totalDone++;
+                    }
+#else
                     while (totalDone < totalToSubmit) {
                         // Submit all I/Os
                         if (totalSubmitted < totalToSubmit) {
@@ -748,6 +803,7 @@ namespace SPTAG
                             return batchTotalDone;
                         }
                     }
+#endif
                     batchTotalDone += totalDone;
                     auto t2 = std::chrono::high_resolution_clock::now();
                     if (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1) > timeout) {
@@ -867,6 +923,9 @@ namespace SPTAG
 
                 m_shutdown = true;
                 for (int i = 0; i < m_iocps.size(); i++) syscall(__NR_io_destroy, m_iocps[i]);
+#ifdef URING
+                for (int i = 0; i < m_uring.size(); i++) io_uring_queue_exit(&m_uring[i]);
+#endif
                 close(m_fileHandle);
 		SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileReader: ShutDown!\n");
 #ifndef BATCH_READ
@@ -912,6 +971,10 @@ namespace SPTAG
             uint64_t m_currSize;
 
 	        std::vector<aio_context_t> m_iocps;
+
+#ifdef URING
+            std::vector<struct io_uring> m_uring;
+#endif
         };
 #endif
         bool BatchReadFileAsync(std::vector<std::shared_ptr<Helper::DiskIO>>& handlers, AsyncReadRequest* readRequests, int num);

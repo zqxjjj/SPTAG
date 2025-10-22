@@ -1,4 +1,4 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
+﻿# Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
 cmake_minimum_required (VERSION 3.12)
@@ -128,17 +128,27 @@ option(LIBRARYONLY "LIBRARYONLY" OFF)
 option(ROCKSDB "ROCKSDB" OFF)
 option(SPDK "SPDK" OFF)
 option(TBB "TBB" ON)
+option(URING "URING" OFF)
+
+set(uring_LIBRARIES "")
+if (URING)
+    find_package(uring)
+    if (uring_FOUND)
+        list（APPEND uring_LIBRARIES uring)
+        add_definitions(-DURING)
+        message (STATUS "Found uring ${uring_LIBRARIES}"}
+    else()
+        message (FATAL_ERROR "Could not find uring!")
+    endif()
+endif()
 
 set(RocksDB_LIBRARIES "")
-set(uring_LIBRARIES "")
 if (ROCKSDB)
     find_package(RocksDB CONFIG)
     if((DEFINED RocksDB_DIR) AND RocksDB_DIR)
         list(APPEND RocksDB_LIBRARIES RocksDB::rocksdb)
-        find_package(uring)
-        set(uring_LIBRARIES "")
         add_definitions(-DROCKSDB)
-	message (STATUS "Found RocksDB ${RocksDB_VERSION} ${RocksDB_LIBRARIES}")
+	    message (STATUS "Found RocksDB ${RocksDB_VERSION} ${RocksDB_LIBRARIES}")
         message (STATUS "RocksDB: ${RocksDB_DIR}")
     else()
         set(RocksDB_LIBRARIES "")

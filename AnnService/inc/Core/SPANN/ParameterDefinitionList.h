@@ -208,7 +208,7 @@ DefineSSDParameter(m_checksumInRead, bool, false, "ChecksumInRead") // Mutable
 DefineSSDParameter(m_cacheSize, int, 0, "CacheSizeGB") // Mutable
 DefineSSDParameter(m_cacheShards, int, 1, "CacheShards") // Mutable
 DefineSSDParameter(m_asyncAppendQueueSize, int, 0, "AsyncAppendQueueSize") // Mutable
-DefineSSDParameter(m_allowZeroReplica, bool, true, "AllowZeroReplica")
+DefineSSDParameter(m_allowZeroReplica, bool, false, "AllowZeroReplica")
 
 // Iterative
 DefineSSDParameter(m_headBatch, int, 32, "IterativeSearchHeadBatch") // Mutable
