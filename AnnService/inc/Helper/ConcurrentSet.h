@@ -21,6 +21,7 @@
 #include <concurrent_unordered_map.h>
 #include <concurrent_queue.h>
 #include <concurrent_unordered_set.h>
+#include <concurrent_priority_queue.h>
 #endif // _MSC_VER
 
 namespace SPTAG
@@ -194,6 +195,9 @@ namespace SPTAG
             
             template <typename T>
             using ConcurrentQueue = Concurrency::concurrent_queue<T>;
+
+            template <typename T>
+            using ConcurrentPriorityQueue = Concurrency::concurrent_priority_queue<T>;
 #endif
         }
     }

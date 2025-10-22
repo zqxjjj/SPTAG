@@ -202,6 +202,7 @@ namespace SPTAG::SPANN {
             int64_t queries;
             std::atomic<int64_t> hits;
             FileIO* fileIO;
+            Helper::RequestQueue processIocp;
             std::vector<Helper::AsyncReadRequest> reqs;
             std::vector<Helper::PageBuffer<std::uint8_t>> pageBuffers;
 
@@ -219,6 +220,8 @@ namespace SPTAG::SPANN {
                     this->pageBuffers[i].ReservePageBuffer(PageSize);
                     auto& req = this->reqs[i];
                     req.m_buffer = (char*)(this->pageBuffers[i].GetBuffer());
+                    req.m_extension = &processIocp;
+
 #ifdef _MSC_VER
                     memset(&(req.myres.m_col), 0, sizeof(OVERLAPPED));
                     req.myres.m_col.m_data = (void*)(&req);
