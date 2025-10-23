@@ -1282,7 +1282,7 @@ namespace SPTAG::SPANN {
                     return;
                 }
                 p_exWorkSpace->m_diskRequests[0].m_status = wid;
-                p_exWorkSpace->m_callback = [&m_freeWorkSpaceIds = m_freeWorkSpaceIds, wid] () {
+                p_exWorkSpace->m_callback = [m_freeWorkSpaceIds = m_freeWorkSpaceIds, wid] () {
                     if (m_freeWorkSpaceIds) m_freeWorkSpaceIds->push(wid);
                 };
             }

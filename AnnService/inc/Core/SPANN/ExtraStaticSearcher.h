@@ -185,7 +185,7 @@ namespace SPTAG
                     {
                         req.m_status = wid;
                     }
-                    p_exWorkSpace->m_callback = [&m_freeWorkSpaceIds = m_freeWorkSpaceIds, wid] () {
+                    p_exWorkSpace->m_callback = [m_freeWorkSpaceIds = m_freeWorkSpaceIds, wid] () {
                         if (m_freeWorkSpaceIds) m_freeWorkSpaceIds->push(wid);
                     };
                 }
