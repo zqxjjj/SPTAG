@@ -645,6 +645,7 @@ namespace SPTAG
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: file %s opened, fd=%d threads=%d maxNumBlocks=%d\n", filePath, m_fileHandle, threadPoolSize, maxNumBlocks);
                 m_iocps.resize(threadPoolSize);
 #ifdef URING
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "AsyncFileIO::InitializeFileIo: using io uring for read!\n");
                 m_uring.resize(threadPoolSize);
 #endif
                 memset(m_iocps.data(), 0, sizeof(aio_context_t) * threadPoolSize);

@@ -130,17 +130,26 @@ option(SPDK "SPDK" OFF)
 option(TBB "TBB" ON)
 option(URING "URING" OFF)
 
-set(uring_LIBRARIES "")
 if (URING)
-    find_package(uring)
-    if (uring_FOUND)
-        list(APPEND uring_LIBRARIES uring)
+    find_path(uring_INCLUDE_DIR NAMES liburing.h)
+    find_library(uring_LIBRARIES NAMES liburing.a liburing)
+
+    if (uring_INCLUDE_DIR AND uring_LIBRARIES)
+        add_library(uring::uring INTERFACE IMPORTED)
+        set_target_properties(uring::uring PROPERTIES
+            INTERFACE_LINK_LIBRARIES "${uring_LIBRARIES}"
+            INTERFACE_INCLUDE_DIRECTORIES "${uring_INCLUDE_DIR}"
+        )
         add_definitions(-DURING)
+        set(uring_LIBRARIES uring::uring)
         message (STATUS "Found uring ${uring_LIBRARIES}")
     else()
         message (FATAL_ERROR "Could not find uring!")
     endif()
+else()
+    set(uring_LIBRARIES "")
 endif()
+
 
 set(RocksDB_LIBRARIES "")
 if (ROCKSDB)
