@@ -1056,7 +1056,7 @@ namespace SPTAG
                 return m_listInfos[postingID].listEleCount != 0;
             }
 
-            virtual ErrorCode CheckPosting(SizeType postingID) override
+            virtual ErrorCode CheckPosting(SizeType postingID, std::vector<bool> *visited = nullptr) override
             {
                 if (postingID < 0 || postingID >= m_totalListCount)
                 {

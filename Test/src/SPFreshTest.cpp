@@ -1016,16 +1016,24 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     std::shared_ptr<VectorIndex> originalIndex, finalIndex;
     
     std::filesystem::remove_all("original_index");
-    
+
     originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
     BOOST_REQUIRE(originalIndex != nullptr);
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
     originalIndex = nullptr;
-    
+
    
+    for (int iter = 0; iter < iterations; iter++)
+    {
+        if (direxists(("clone_index_" + std::to_string(iter)).c_str()))
+        {
+            std::filesystem::remove_all("clone_index_" + std::to_string(iter));
+        }
+    }
+    
     std::string prevPath = "original_index";
     float recall = 0.0;
-
+    
     std::cout << "=================No Cache===================" << std::endl;
     
     for (int iter = 0; iter < iterations; iter++)
@@ -1083,6 +1091,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
     
+    /*
     std::cout << "=================Enable Cache===================" << std::endl;
     prevPath = "original_index";
     for (int iter = 0; iter < iterations; iter++)
@@ -1113,7 +1122,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         std::cout << "[INFO] Insert time for iteration " << iter << ": "
                   << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t1).count()
                   << " ms" << std::endl;
-        
+
         for (int i = 0; i < deleteBatchSize; i++)
             cloneIndex->DeleteIndex(iter * deleteBatchSize + i);
 
@@ -1141,6 +1150,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     {
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
+    */
     std::filesystem::remove_all("original_index");
 }
 

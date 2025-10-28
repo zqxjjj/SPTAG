@@ -42,9 +42,11 @@ namespace SPTAG
 
             virtual void GetStat() {}
 
+            virtual int64_t GetNumBlocks() { return 0; }
+            
             virtual bool Available() { return false; }
 
-            virtual ErrorCode Check(const SizeType key, int size)
+            virtual ErrorCode Check(const SizeType key, int size, std::vector<bool> *visited)
             {
                 return ErrorCode::Undefined;
             }

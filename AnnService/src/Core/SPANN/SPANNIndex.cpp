@@ -1550,6 +1550,7 @@ ErrorCode Index<T>::Check()
     std::vector<std::thread> mythreads;
     mythreads.reserve(m_options.m_iSSDNumberOfThreads);
     std::atomic_size_t sent(0);
+    std::vector<bool> checked(m_extraSearcher->GetNumBlocks(), false);
     for (int tid = 0; tid < m_options.m_iSSDNumberOfThreads; tid++)
     {
         mythreads.emplace_back([&, tid]() {
@@ -1561,7 +1562,7 @@ ErrorCode Index<T>::Check()
                 {
                     if (m_index->ContainSample(i))
                     {
-                        if (m_extraSearcher->CheckPosting(i) != ErrorCode::Success)
+                        if (m_extraSearcher->CheckPosting(i, &checked) != ErrorCode::Success)
                         {
                             ret = ErrorCode::Fail;
                             return;
