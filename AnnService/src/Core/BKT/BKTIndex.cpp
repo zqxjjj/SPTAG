@@ -638,6 +638,13 @@ bool Index<T>::SearchIndexIterativeFromNeareast(QueryResult &p_query, COMMON::Wo
             if (result < 0)
                 continue;
             p_space->nodeCheckStatus.CheckAndSet(result);
+        }
+        
+        for (int i = 0; i < p_query.GetResultNum(); ++i)
+        {
+            SizeType result = p_query.GetResult(i)->VID;
+            if (result < 0)
+                continue;
             const DimensionType checkPos = m_pGraph.m_iNeighborhoodSize - 1;
             const SizeType *node = m_pGraph[result];
             _mm_prefetch((const char *)node, _MM_HINT_T0);
