@@ -2047,10 +2047,12 @@ namespace SPTAG::SPANN {
             }
 
             Helper::Concurrent::ConcurrentSet<SizeType> zeroReplicaSet;
+            std::atomic_int64_t originalSize(0), relaxSize(0);
             {
                 std::vector<std::thread> mythreads;
                 mythreads.reserve(m_opt->m_iSSDNumberOfThreads);
                 std::atomic_size_t sent(0);
+                int relaxLimit = m_postingSizeLimit + m_bufferSizeLimit;
                 for (int tid = 0; tid < m_opt->m_iSSDNumberOfThreads; tid++)
                 {
                     mythreads.emplace_back([&, tid]() {
@@ -2061,14 +2063,24 @@ namespace SPTAG::SPANN {
                             if (i < postingListSize.size())
                             {
                                 if (postingListSize[i] <= m_postingSizeLimit)
+                                    originalSize += postingListSize[i];
+                                else
+                                    originalSize += m_postingSizeLimit;
+
+                                if (postingListSize[i] <= relaxLimit)
+                                {
+                                    relaxSize += postingListSize[i];
                                     continue;
+                                }
+                                relaxSize += relaxLimit;
 
                                 std::size_t selectIdx =
                                     std::lower_bound(selections.m_selections.begin(), selections.m_selections.end(), i,
                                                      Selection::g_edgeComparer) -
                                     selections.m_selections.begin();
 
-                                for (size_t dropID = m_postingSizeLimit; dropID < postingListSize[i]; ++dropID)
+                                for (size_t dropID = relaxLimit;
+                                     dropID < postingListSize[i]; ++dropID)
                                 {
                                     int tonode = selections.m_selections[selectIdx + dropID].tonode;
                                     --replicaCount[tonode];
@@ -2077,7 +2089,7 @@ namespace SPTAG::SPANN {
                                         zeroReplicaSet.insert(tonode);
                                     }
                                 }
-                                postingListSize[i] = m_postingSizeLimit;
+                                postingListSize[i] = relaxLimit;
                             }
                             else
                             {
@@ -2096,6 +2108,7 @@ namespace SPTAG::SPANN {
                 std::vector<int> replicaCountDist(m_opt->m_replicaCount + 1, 0);
                 for (int i = 0; i < replicaCount.size(); ++i)
                 {
+                    if (headVectorIDS.count(i) > 0) continue;
                     ++replicaCountDist[replicaCount[i]];
                 }
 
@@ -2105,6 +2118,8 @@ namespace SPTAG::SPANN {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Replica Count Dist: %d, %d\n", i, replicaCountDist[i]);
                 }
             }
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Posting cut original:%lld relax:%lld\n", originalSize.load(),
+                         relaxSize.load());
 
     //         if (m_opt->m_outputEmptyReplicaID)
     //         {
@@ -2166,7 +2181,7 @@ namespace SPTAG::SPANN {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: initialize thread pools, append: %d, reassign %d\n", m_opt->m_appendThreadNum, m_opt->m_reassignThreadNum);
                 m_splitThreadPool = std::make_shared<SPDKThreadPool>();
                 m_splitThreadPool->initSPDK(m_opt->m_appendThreadNum, this);
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: finish initialization\n");
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: finish initialization, zeroReplicaCount:%d\n", (int)(zeroReplicaSet.size()));
 
                 ExtraWorkSpace workSpace;
                 InitWorkSpace(&workSpace);

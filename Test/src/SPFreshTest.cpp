@@ -969,7 +969,7 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
 
     float recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N);
-    std::cout << "original: recall@5=" << recall << std::endl;
+    std::cout << "original: recall@" << K << "= " << recall << std::endl;
 
     for (int iter = 0; iter < iterations; iter++)
     {
@@ -980,9 +980,9 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
             originalIndex->DeleteIndex(iter * deleteBatchSize + i);
 
         recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N, iter + 1);
-        std::cout << "iter " << iter << ": recall@5=" << recall << std::endl;
+        std::cout << "iter " << iter << ": recall@" << K << "=" << recall << std::endl;
     }
-    std::cout << "Before Refine:" << " recall@5=" << recall << std::endl;
+    std::cout << "Before Refine:" << " recall@" << K << "=" << recall << std::endl;
     static_cast<SPANN::Index<int8_t> *>(originalIndex.get())->GetDBStat();
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
     originalIndex = nullptr;
@@ -992,7 +992,7 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
     BOOST_REQUIRE(originalIndex->Check() == ErrorCode::Success);
 
     recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
-    std::cout << "After Refine:" << " recall@5=" << recall << std::endl;
+    std::cout << "After Refine:" << " recall@" << K << "=" << recall << std::endl;
     static_cast<SPANN::Index<int8_t> *>(originalIndex.get())->GetDBStat();
 }
 
@@ -1049,7 +1049,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
                   << " ms" << std::endl;
         
         recall = Search<int8_t>(prevIndex, queryset, vecset, addvecset, K, truth, N, iter);
-        std::cout << "[INFO] After Save and Load:" << " recall@5=" << recall << std::endl;
+        std::cout << "[INFO] After Save and Load:" << " recall@" << K << "=" << recall << std::endl;
         static_cast<SPANN::Index<int8_t> *>(prevIndex.get())->GetDBStat();
 
         auto cloneIndex = prevIndex->Clone(clone_path);
@@ -1067,7 +1067,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
             cloneIndex->DeleteIndex(iter * deleteBatchSize + i);
 
         recall = Search<int8_t>(cloneIndex, queryset, vecset, addvecset, K, truth, N, iter + 1);
-        std::cout << "[INFO] After iter " << iter << ": recall@5=" << recall << std::endl;
+        std::cout << "[INFO] After iter " << iter << ": recall@" << K << "=" << recall << std::endl;
         static_cast<SPANN::Index<int8_t> *>(cloneIndex.get())->GetDBStat();
         BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
         cloneIndex = nullptr;
@@ -1083,7 +1083,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
                 << " ms" << std::endl;
     
     recall = Search<int8_t>(finalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
-    std::cout << "[INFO] After Save and Load:" << " recall@5=" << recall << std::endl;
+    std::cout << "[INFO] After Save and Load:" << " recall@" << K << "=" << recall << std::endl;
     static_cast<SPANN::Index<int8_t> *>(finalIndex.get())->GetDBStat();
     finalIndex = nullptr;
     for (int iter = 0; iter < iterations; iter++)
@@ -1107,7 +1107,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
                   << " ms" << std::endl;
         
         recall = Search<int8_t>(prevIndex, queryset, vecset, addvecset, K, truth, N, iter);
-        std::cout << "[INFO] After Save and Load:" << " recall@5=" << recall << std::endl;
+        std::cout << "[INFO] After Save and Load:" << " recall@" << K << "=" << recall << std::endl;
         static_cast<SPANN::Index<int8_t> *>(prevIndex.get())->GetDBStat();
 
         prevIndex->SetParameter("CacheSizeGB", "10", "BuildSSDIndex");
@@ -1127,7 +1127,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
             cloneIndex->DeleteIndex(iter * deleteBatchSize + i);
 
         recall = Search<int8_t>(cloneIndex, queryset, vecset, addvecset, K, truth, N, iter + 1);
-        std::cout << "[INFO] After iter " << iter << ": recall@5=" << recall << std::endl;
+        std::cout << "[INFO] After iter " << iter << ": recall@" << K << "=" << recall << std::endl;
         static_cast<SPANN::Index<int8_t> *>(cloneIndex.get())->GetDBStat();
         BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
         cloneIndex = nullptr;
@@ -1142,7 +1142,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
                 << " ms" << std::endl;
     
     recall = Search<int8_t>(finalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
-    std::cout << "[INFO] After Save and Load:" << " recall@5=" << recall << std::endl;
+    std::cout << "[INFO] After Save and Load:" << " recall@" << K << "=" << recall << std::endl;
     static_cast<SPANN::Index<int8_t> *>(finalIndex.get())->GetDBStat();
     finalIndex = nullptr;
 
@@ -1208,53 +1208,13 @@ BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
     std::filesystem::remove_all("original_index");
 }
 
-std::shared_ptr<float[]> get_embeddings(uint32_t row_id, uint32_t embedding_dim, uint32_t array_index)
-{
-    std::shared_ptr<float[]> retval(new float[embedding_dim], std::default_delete<float[]>());
-    for (int idx = 0; idx < embedding_dim; ++idx)
-    {
-        retval[idx] = row_id * 17 + idx * 19 + (array_index + 1) * 23;
-    }
-
-    NormalizeVector(retval.get(), embedding_dim);
-    return retval;
-}
-
-std::shared_ptr<VectorSet> get_embeddings_float32(int start_id, int end_id, int embedding_dim)
-{
-    std::vector<float> array_embeddings;
-    for (auto i = start_id; i < end_id; ++i)
-    {
-        uint32_t array_size = i % 4;
-        if (array_size == 0)
-        {
-            continue; // some null embeddings
-        }
-
-        if (array_size == 3)
-            array_size = 5;
-        for (int j = 0; j < array_size; ++j)
-        {
-            // TODO add empty sub-array
-            std::shared_ptr<float[]> embeddings = get_embeddings(i, 1024, j);
-            for (int j = 0; j < 1024; ++j)
-            {
-                array_embeddings.emplace_back(embeddings[j]);
-            }
-        }
-    }
-    ByteArray vec = ByteArray::Alloc(sizeof(float) * array_embeddings.size());
-    std::memcpy(vec.Data(), array_embeddings.data(), sizeof(float) * array_embeddings.size());
-    return std::make_shared<BasicVectorSet>(vec, GetEnumValueType<float>(), embedding_dim, 2 * (end_id - start_id));
-}
-
 BOOST_AUTO_TEST_CASE(RefineTestIdx)
 {
     using namespace SPFreshTest;
 
     constexpr int dimension = 1024;
 
-    std::shared_ptr<VectorSet> vecset = get_embeddings_float32(0, 500, dimension);
+    std::shared_ptr<VectorSet> vecset = get_embeddings<float>(0, 500, dimension, -1);
     std::shared_ptr<MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(1000, 0);
 
     for (auto i = 0; i < 2; ++i) {
@@ -1287,7 +1247,7 @@ BOOST_AUTO_TEST_CASE(RefineTestIdx)
 
         auto cloneIndex = prevIndex->Clone(clone_path);
         auto *cloneIndexPtr = static_cast<SPANN::Index<float> *>(cloneIndex.get());
-        std::shared_ptr<VectorSet> tmpvecs = get_embeddings_float32(500, 1100, dimension);
+        std::shared_ptr<VectorSet> tmpvecs = get_embeddings<float>(500, 1100, dimension, -1);
         std::shared_ptr<MetadataSet> tmpmetas = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(1200, 1000);
         auto t1 = std::chrono::high_resolution_clock::now();
         InsertVectors<float>(cloneIndexPtr, 1, 1200, tmpvecs, tmpmetas);
