@@ -156,15 +156,13 @@ namespace SPTAG::SPANN {
                         {
                             try 
                             {
-                                currentJobs++;
                                 j->exec(&workSpace, &m_abort);
-                                currentJobs--;
                             }
                             catch (std::exception& e) {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
                             }
-                            
                             delete j;
+                            currentJobs--;
                         }
                     });
                 }
@@ -918,13 +916,15 @@ namespace SPTAG::SPANN {
 
                 if (currentLength > m_mergeThreshold)
                 {
-                    m_postingSizes.UpdateSize(headID, currentLength);
-                    *m_checkSums[headID] =
-                        m_checkSum.CalcChecksum(mergedPostingList.c_str(), (int)(mergedPostingList.size()));
                     if ((ret=db->Put(headID, mergedPostingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge Fail to write back postings\n");
                         return ret;
                     }
+
+                    m_postingSizes.UpdateSize(headID, currentLength);
+                    *m_checkSums[headID] =
+                        m_checkSum.CalcChecksum(mergedPostingList.c_str(), (int)(mergedPostingList.size()));
+
                     if (m_opt->m_consistencyCheck && (ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize, nullptr)) != ErrorCode::Success)
                     {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge: Check failed after Put %d\n", headID);
@@ -1078,13 +1078,15 @@ namespace SPTAG::SPANN {
                     }
                 }
                 mergedPostingList.resize(currentLength * m_vectorInfoSize);
-                m_postingSizes.UpdateSize(headID, currentLength);
-                *m_checkSums[headID] =
-                    m_checkSum.CalcChecksum(mergedPostingList.c_str(), (int)(mergedPostingList.size()));
                 if ((ret=db->Put(headID, mergedPostingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge Fail to write back postings\n");
                     return ret;
                 }
+
+                m_postingSizes.UpdateSize(headID, currentLength);
+                *m_checkSums[headID] =
+                    m_checkSum.CalcChecksum(mergedPostingList.c_str(), (int)(mergedPostingList.size()));
+
                 if (m_opt->m_consistencyCheck && (ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize, nullptr)) != ErrorCode::Success)
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge: Check failed after put original posting %d\n", headID);
@@ -1724,7 +1726,7 @@ namespace SPTAG::SPANN {
                     queryResults.AddPoint(vectorID, distance2leaf);
                 }
                 auto compEnd = std::chrono::high_resolution_clock::now();
-                //if (realNum <= m_mergeThreshold) MergeAsync(p_index.get(), curPostingID); // TODO: Control merge
+                if (realNum <= m_mergeThreshold) MergeAsync(p_index.get(), curPostingID); // TODO: Control merge
 
                 compLatency += ((double)std::chrono::duration_cast<std::chrono::microseconds>(compEnd - compStart).count());
 

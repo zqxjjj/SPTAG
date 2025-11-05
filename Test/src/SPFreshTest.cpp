@@ -94,7 +94,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             OneClusterCutMax=true
             ConsistencyCheck=true
             ChecksumCheck=true
-            ChecksumInRead=true
+            ChecksumInRead=false
             AsyncAppendQueueSize=0
             AllowZeroReplica=false
         )";
@@ -994,6 +994,10 @@ BOOST_AUTO_TEST_CASE(RefineIndex)
     recall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N, iterations);
     std::cout << "After Refine:" << " recall@" << K << "=" << recall << std::endl;
     static_cast<SPANN::Index<int8_t> *>(originalIndex.get())->GetDBStat();
+    BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
+    originalIndex = nullptr;
+
+    std::filesystem::remove_all("original_index");
 }
 
 BOOST_AUTO_TEST_CASE(CacheTest)

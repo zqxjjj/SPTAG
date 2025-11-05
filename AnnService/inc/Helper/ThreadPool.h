@@ -58,18 +58,18 @@ namespace SPTAG
                         Job *j;
                         while (get(j))
                         {
-                            try 
+                            try
                             {
-                                currentJobs++;
                                 j->exec(&m_abort);
-                                currentJobs--;
                             }
-                            catch (std::exception& e) {
-                                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n", typeid(*j).name(), e.what());
+                            catch (std::exception &e)
+                            {
+                                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ThreadPool: exception in %s %s\n",
+                                             typeid(*j).name(), e.what());
                             }
-                            
                             delete j;
-                        }
+                            currentJobs--;
+                        }   
                     });
                 }
             }
@@ -89,9 +89,11 @@ namespace SPTAG
                 while (m_jobs.empty() && !m_abort.ShouldAbort()) m_cond.wait(lock);
                 if (!m_abort.ShouldAbort()) {
                     j = m_jobs.front();
+                    currentJobs++;
                     m_jobs.pop();
+                    return true;
                 }
-                return !m_abort.ShouldAbort();
+                return false;
             }
 
             size_t jobsize()
