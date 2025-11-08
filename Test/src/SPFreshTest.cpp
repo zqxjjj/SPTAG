@@ -95,6 +95,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             ConsistencyCheck=true
             ChecksumCheck=true
             ChecksumInRead=false
+            DeletePercentageForRefine=0.4
             AsyncAppendQueueSize=0
             AllowZeroReplica=false
         )";
@@ -1052,14 +1053,15 @@ BOOST_AUTO_TEST_CASE(CacheTest)
                   << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t0).count()
                   << " ms" << std::endl;
         
-        recall = Search<int8_t>(prevIndex, queryset, vecset, addvecset, K, truth, N, iter);
-        std::cout << "[INFO] After Save and Load:" << " recall@" << K << "=" << recall << std::endl;
-        static_cast<SPANN::Index<int8_t> *>(prevIndex.get())->GetDBStat();
 
         auto cloneIndex = prevIndex->Clone(clone_path);
         prevIndex = nullptr;
         BOOST_REQUIRE(cloneIndex->Check() == ErrorCode::Success);
         
+        recall = Search<int8_t>(cloneIndex, queryset, vecset, addvecset, K, truth, N, iter);
+        std::cout << "[INFO] After Save, Clone and Load:" << " recall@" << K << "=" << recall << std::endl;
+        static_cast<SPANN::Index<int8_t> *>(cloneIndex.get())->GetDBStat();
+
         auto t1 = std::chrono::high_resolution_clock::now();
         InsertVectors<int8_t>(static_cast<SPANN::Index<int8_t> *>(cloneIndex.get()), 1, insertBatchSize, addvecset,
                               metaset, iter * insertBatchSize);
@@ -1073,6 +1075,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         recall = Search<int8_t>(cloneIndex, queryset, vecset, addvecset, K, truth, N, iter + 1);
         std::cout << "[INFO] After iter " << iter << ": recall@" << K << "=" << recall << std::endl;
         static_cast<SPANN::Index<int8_t> *>(cloneIndex.get())->GetDBStat();
+
         BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
         cloneIndex = nullptr;
         prevPath = clone_path;
@@ -1095,7 +1098,6 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
     
-    /*
     std::cout << "=================Enable Cache===================" << std::endl;
     prevPath = "original_index";
     for (int iter = 0; iter < iterations; iter++)
@@ -1110,15 +1112,16 @@ BOOST_AUTO_TEST_CASE(CacheTest)
                   << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t0).count()
                   << " ms" << std::endl;
         
-        recall = Search<int8_t>(prevIndex, queryset, vecset, addvecset, K, truth, N, iter);
-        std::cout << "[INFO] After Save and Load:" << " recall@" << K << "=" << recall << std::endl;
-        static_cast<SPANN::Index<int8_t> *>(prevIndex.get())->GetDBStat();
 
-        prevIndex->SetParameter("CacheSizeGB", "10", "BuildSSDIndex");
-        prevIndex->SetParameter("CacheShards", "4", "BuildSSDIndex");
+        prevIndex->SetParameter("CacheSizeGB", "4", "BuildSSDIndex");
+        prevIndex->SetParameter("CacheShards", "2", "BuildSSDIndex");
         
         BOOST_REQUIRE(prevIndex->SaveIndex(prevPath) == ErrorCode::Success);
         auto cloneIndex = prevIndex->Clone(clone_path);
+
+        recall = Search<int8_t>(cloneIndex, queryset, vecset, addvecset, K, truth, N, iter);
+        std::cout << "[INFO] After Save, Clone and Load:" << " recall@" << K << "=" << recall << std::endl;
+        static_cast<SPANN::Index<int8_t> *>(cloneIndex.get())->GetDBStat();
 
         auto t1 = std::chrono::high_resolution_clock::now();
         InsertVectors<int8_t>(static_cast<SPANN::Index<int8_t> *>(cloneIndex.get()), 1, insertBatchSize, addvecset,
@@ -1133,6 +1136,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         recall = Search<int8_t>(cloneIndex, queryset, vecset, addvecset, K, truth, N, iter + 1);
         std::cout << "[INFO] After iter " << iter << ": recall@" << K << "=" << recall << std::endl;
         static_cast<SPANN::Index<int8_t> *>(cloneIndex.get())->GetDBStat();
+
         BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
         cloneIndex = nullptr;
         prevPath = clone_path;
@@ -1154,7 +1158,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     {
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
-    */
+    
     std::filesystem::remove_all("original_index");
 }
 

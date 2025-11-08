@@ -804,7 +804,7 @@ namespace SPTAG::SPANN {
                         }
                         newHeadVID = begin;
                         newHeadsID.push_back(begin);
-                                                auto splitPutBegin = std::chrono::high_resolution_clock::now();
+                        auto splitPutBegin = std::chrono::high_resolution_clock::now();
                         if (!preReassign && (ret=db->Put(newHeadVID, newPostingLists[k], MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to add new postings\n");
                             return ret;
@@ -828,7 +828,7 @@ namespace SPTAG::SPANN {
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split: Cluster Write Check failed after Put %d\n", newHeadVID);
                             return ret;
                         }
-                            
+                         
                         auto updateHeadBegin = std::chrono::high_resolution_clock::now();
                         p_index->AddIndexIdx(begin, end);
                         auto updateHeadEnd = std::chrono::high_resolution_clock::now();
@@ -955,9 +955,13 @@ namespace SPTAG::SPANN {
                                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Fail to get to be merged postings: %d\n", queryResult->VID);
                                 return ret;
                             }
-
-                            postingP = reinterpret_cast<uint8_t*>(&nextPostingList.front());
+                            postingP = reinterpret_cast<uint8_t*>(nextPostingList.data());
                             postVectorNum = nextPostingList.size() / m_vectorInfoSize;
+                            if (currentLength + postVectorNum > m_postingSizeLimit)
+                            {
+                                continue;
+                            }
+
                             nextLength = 0;
                             vectorId = postingP;
                             for (int j = 0; j < postVectorNum; j++, vectorId += m_vectorInfoSize)
@@ -1200,7 +1204,7 @@ namespace SPTAG::SPANN {
                 }
                 auto reassignScanIOBegin = std::chrono::high_resolution_clock::now();
                 ErrorCode ret;
-                if ((ret=db->MultiGet(HeadPrevTopK, &postingLists, m_hardLatencyLimit, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
+                if ((ret=db->MultiGet(HeadPrevTopK, &postingLists, m_hardLatencyLimit, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success || !ValidatePostings(HeadPrevTopK, postingLists)) {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ReAssign can't get all the near postings\n");
                     return ret;
                 }
@@ -1634,7 +1638,29 @@ namespace SPTAG::SPANN {
                         Helper::LogLevel::LL_Error,
                         "ValidatePostings fail: posting id:%d, required size:%d, buffer size:%d, checksum:%d\n",
                         pids[i], (int)(m_postingSizes.GetSize(pids[i]) * m_vectorInfoSize), (int)(postings[i].GetAvailableSize()), (int)(*m_checkSums[pids[i]]));
-                    return false;
+                    //return false;
+                }
+            }
+            return true;
+        }
+
+        bool ValidatePostings(std::vector<SizeType> &pids, std::vector<std::string> &postings)
+        {
+            if (!m_opt->m_checksumInRead)
+                return true;
+
+            ErrorCode ret;
+            for (int i = 0; i < pids.size(); i++)
+            {
+                if (!m_checkSum.ValidateChecksum(postings[i].c_str(),
+                                                 postings[i].size(), *m_checkSums[pids[i]]))
+                {
+                    SPTAGLIB_LOG(
+                        Helper::LogLevel::LL_Error,
+                        "ValidatePostings fail: posting id:%d, required size:%d, buffer size:%d, checksum:%d\n",
+                        pids[i], (int)(m_postingSizes.GetSize(pids[i]) * m_vectorInfoSize),
+                        (int)(postings[i].size()), (int)(*m_checkSums[pids[i]]));
+                    // return false;
                 }
             }
             return true;

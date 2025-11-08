@@ -29,14 +29,15 @@ namespace SPTAG
                 unsigned index = hash_func((unsigned)idx);
                 return m_locks[index];
             }
-        private:
-            static const int PoolSize = 32767;
-            std::unique_ptr<std::mutex[]> m_locks;
 
-            inline unsigned hash_func(unsigned idx) const
+            static inline unsigned hash_func(unsigned idx)
             {
                 return ((unsigned)(idx * 99991) + _rotl(idx, 2) + 101) & PoolSize;
             }
+
+        private:
+            static const int PoolSize = 32767;
+            std::unique_ptr<std::mutex[]> m_locks;
         };
 
         class FineGrainedRWLock {
@@ -56,7 +57,7 @@ namespace SPTAG
                 return m_locks[index];
             }
 
-            inline unsigned hash_func(unsigned idx) const
+            static inline unsigned hash_func(unsigned idx)
             {
                 return ((unsigned)(idx * 99991) + _rotl(idx, 2) + 101) & PoolSize;
             }
