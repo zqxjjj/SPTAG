@@ -1379,7 +1379,8 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
         new_versionMap.SetVersion(i, m_versionMap.GetVersion(NewtoOld[i]));
     new_versionMap.Save(m_options.m_indexDirectory + FolderSep + m_options.m_deleteIDFile);
 
-    m_extraSearcher->RefineIndex(m_index, false, &headOldtoNew, p_mapping);
+    if ((ret = m_extraSearcher->RefineIndex(m_index, false, &headOldtoNew, p_mapping)) != ErrorCode::Success)
+        return ret;
 
     if (nullptr != m_pMetadata)
     {
