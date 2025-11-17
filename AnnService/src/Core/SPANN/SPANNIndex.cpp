@@ -407,6 +407,7 @@ ErrorCode Index<T>::SearchIndexIterative(QueryResult &p_headQuery, QueryResult &
 
     if (first)
     {
+        p_headQueryResults->SetResultNum(m_options.m_searchInternalResultNum);
         p_headQueryResults->Reset();
         m_index->SearchIndexIterativeFromNeareast(*p_headQueryResults, p_indexWorkspace, true);
         p_extraWorkspace->m_loadPosting = true;
@@ -416,15 +417,20 @@ ErrorCode Index<T>::SearchIndexIterative(QueryResult &p_headQuery, QueryResult &
     resultCount = 0;
     while (continueSearch && resultCount < p_batch)
     {
+        bool oldRelaxedMono = p_extraWorkspace->m_relaxedMono;
         ErrorCode ret = SearchDiskIndexIterative(p_headQuery, p_query, p_extraWorkspace);
         bool found = (ret == ErrorCode::Success);
         if (!found && ret != ErrorCode::VectorNotFound) return ret;
         p_extraWorkspace->m_loadPosting = false;
         if (!found)
         {
+            p_headQueryResults->SetResultNum(m_options.m_headBatch);
             p_headQueryResults->Reset();
             continueSearch = m_index->SearchIndexIterativeFromNeareast(*p_headQueryResults, p_indexWorkspace, false);
             p_extraWorkspace->m_loadPosting = true;
+
+            if (!oldRelaxedMono && p_extraWorkspace->m_relaxedMono)
+                continueSearch = false;
         }
         else
             resultCount++;
@@ -463,7 +469,8 @@ std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool
     extraWorkspace->m_deduper.clear();
     extraWorkspace->m_postingIDs.clear();
     std::shared_ptr<ResultIterator> resultIterator = std::make_shared<SPANNResultIterator<T>>(
-        this, m_index.get(), p_target, std::move(extraWorkspace), m_options.m_headBatch, p_maxCheck);
+        this, m_index.get(), p_target, std::move(extraWorkspace),
+        std::max(m_options.m_headBatch, m_options.m_searchInternalResultNum), p_maxCheck);
     return resultIterator;
 }
 
@@ -619,12 +626,13 @@ ErrorCode Index<T>::SearchDiskIndexIterative(QueryResult &p_headQuery, QueryResu
                 res->Dist = MaxDist;
             }
         }
-        if (extraWorkspace->m_loadedPostingNum >= m_options.m_searchInternalResultNum)
-            extraWorkspace->m_relaxedMono = true;
         extraWorkspace->m_loadedPostingNum += (int)(extraWorkspace->m_postingIDs.size());
     }
 
-    return m_extraSearcher->SearchIterativeNext(extraWorkspace, p_headQuery, p_query, m_index, this);
+    ErrorCode ret = m_extraSearcher->SearchIterativeNext(extraWorkspace, p_headQuery, p_query, m_index, this);
+    if (ret == ErrorCode::VectorNotFound && extraWorkspace->m_loadedPostingNum >= m_options.m_searchInternalResultNum)
+        extraWorkspace->m_relaxedMono = true;
+    return ret;
 }
 
 template <typename T> std::unique_ptr<COMMON::WorkSpace> Index<T>::RentWorkSpace(int batch, std::function<bool(const ByteArray&)> p_filterFunc, int p_maxCheck) const
