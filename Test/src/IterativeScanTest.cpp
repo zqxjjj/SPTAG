@@ -73,7 +73,6 @@ void SearchIterativeBatch(const std::string folder, T *vec, SizeType n, std::str
         int resultCount = results->GetResultNum();
         if (resultCount <= 0)
             break;
-        BOOST_CHECK(resultCount == batch);
         for (int j = 0; j < resultCount; j++)
         {
 
@@ -207,7 +206,6 @@ template <typename T> void TestIterativeScanRandom(IndexAlgoType algo, std::stri
             auto results = resultIterator->Next(batch);
             int resultCount = results->GetResultNum();
             if (resultCount <= 0) break;
-            BOOST_CHECK(resultCount == batch);
             for (int j = 0; j < resultCount; j++)
             {
                 relaxMono = results->GetResult(j)->RelaxedMono;

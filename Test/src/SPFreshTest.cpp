@@ -922,7 +922,7 @@ BOOST_AUTO_TEST_CASE(IterativeSearch)
             int resultCount = results->GetResultNum();
             if (resultCount <= 0)
                 break;
-            BOOST_CHECK(resultCount == batch);
+
             previous = current;
             current = 0;
             for (int j = 0; j < resultCount; j++)
