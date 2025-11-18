@@ -2453,7 +2453,8 @@ namespace SPTAG::SPANN {
             return (postingID < m_postingSizes.GetPostingNum()) && (m_postingSizes.GetSize(postingID) > 0);
         }
 
-        virtual ErrorCode CheckPosting(SizeType postingID, std::vector<bool> *visited = nullptr) override
+        virtual ErrorCode CheckPosting(SizeType postingID, std::vector<bool> *visited = nullptr,
+                                       ExtraWorkSpace *p_exWorkSpace = nullptr) override
         {
             if (postingID < 0 || postingID >= m_postingSizes.GetPostingNum())
             {
@@ -2473,6 +2474,19 @@ namespace SPTAG::SPANN {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting]: postingID %d has wrong meta data\n",
                              postingID);
                 return ret;
+            }
+
+                        
+            if (m_opt->m_checksumInRead && p_exWorkSpace != nullptr)
+            {
+                std::string posting;
+                if ((ret = db->Get(postingID, &posting, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) !=
+                        ErrorCode::Success ||
+                    !m_checkSum.ValidateChecksum(posting.c_str(), (int)(posting.size()), *m_checkSums[postingID]))
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting] Get checksum fail %d!\n", postingID);
+                    return ret;
+                }
             }
             return ErrorCode::Success;
         }

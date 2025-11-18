@@ -330,7 +330,8 @@ namespace SPTAG {
             virtual void ForceCompaction() { return; }
 
             virtual bool CheckValidPosting(SizeType postingID) = 0;
-            virtual ErrorCode CheckPosting(SizeType postingiD, std::vector<bool>* visited = nullptr) = 0;
+            virtual ErrorCode CheckPosting(SizeType postingiD, std::vector<bool> *visited = nullptr,
+                                           ExtraWorkSpace *p_exWorkSpace = nullptr) = 0;
             virtual SizeType SearchVector(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorSet>& p_vectorSet,
                 std::shared_ptr<VectorIndex> p_index, int testNum = 64, SizeType VID = -1) { return -1; }
             virtual void ForceGC(ExtraWorkSpace* p_exWorkSpace, VectorIndex* p_index) { return; }

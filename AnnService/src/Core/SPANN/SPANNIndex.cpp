@@ -470,7 +470,7 @@ std::shared_ptr<ResultIterator> Index<T>::GetIterator(const void *p_target, bool
     extraWorkspace->m_postingIDs.clear();
     std::shared_ptr<ResultIterator> resultIterator = std::make_shared<SPANNResultIterator<T>>(
         this, m_index.get(), p_target, std::move(extraWorkspace),
-        std::max(m_options.m_headBatch, m_options.m_searchInternalResultNum), p_maxCheck);
+        max(m_options.m_headBatch, m_options.m_searchInternalResultNum), p_maxCheck);
     return resultIterator;
 }
 
@@ -1563,6 +1563,16 @@ ErrorCode Index<T>::Check()
     for (int tid = 0; tid < m_options.m_iSSDNumberOfThreads; tid++)
     {
         mythreads.emplace_back([&, tid]() {
+            auto workSpace = m_workSpaceFactory->GetWorkSpace();
+            if (!workSpace)
+            {
+                workSpace.reset(new ExtraWorkSpace());
+                m_extraSearcher->InitWorkSpace(workSpace.get(), false);
+            }
+            else
+            {
+                m_extraSearcher->InitWorkSpace(workSpace.get(), true);
+            }
             size_t i = 0;
             while (true)
             {
@@ -1571,7 +1581,7 @@ ErrorCode Index<T>::Check()
                 {
                     if (m_index->ContainSample(i))
                     {
-                        if (m_extraSearcher->CheckPosting(i, &checked) != ErrorCode::Success)
+                        if (m_extraSearcher->CheckPosting(i, &checked, workSpace.get()) != ErrorCode::Success)
                         {
                             ret = ErrorCode::Fail;
                             return;
@@ -1590,6 +1600,7 @@ ErrorCode Index<T>::Check()
                     return;
                 }
             }
+            m_workSpaceFactory->ReturnWorkSpace(std::move(workSpace));
         });
     }
     for (auto &t : mythreads)
