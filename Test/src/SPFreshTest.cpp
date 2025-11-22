@@ -428,7 +428,7 @@ BOOST_AUTO_TEST_CASE(TestReopenIndexRecall)
     auto originalIndex = BuildIndex<int8_t>("original_index", vecset, metaset);
     BOOST_REQUIRE(originalIndex != nullptr);
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
-    float recall1 = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N);
+    float recall1 = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N);    
     originalIndex = nullptr;
 
     std::shared_ptr<VectorIndex> loadedOnce;
@@ -523,7 +523,7 @@ BOOST_AUTO_TEST_CASE(TestCloneRecall)
     BOOST_REQUIRE(originalIndex != nullptr);
     BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
     float originalRecall = Search<int8_t>(originalIndex, queryset, vecset, addvecset, K, truth, N);
-
+    
     auto clonedIndex = originalIndex->Clone("cloned_index");
     BOOST_REQUIRE(clonedIndex != nullptr);
     originalIndex.reset();
@@ -1216,68 +1216,4 @@ BOOST_AUTO_TEST_CASE(IterativeSearchPerf)
     std::filesystem::remove_all("original_index");
 }
 
-BOOST_AUTO_TEST_CASE(RefineTestIdx)
-{
-    using namespace SPFreshTest;
-
-    constexpr int dimension = 1024;
-
-    std::shared_ptr<VectorSet> vecset = get_embeddings<float>(0, 500, dimension, -1);
-    std::shared_ptr<MetadataSet> metaset = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(1000, 0);
-
-    for (auto i = 0; i < 2; ++i) {
-        void* p = vecset->GetVector(i);
-        for (auto i = 0; i < dimension; ++i) {
-            std::cout << ((float*)p)[i] << " ";
-        }
-        std::cout << std::endl;
-    }
-
-    auto originalIndex = BuildIndex<float>("original_index", vecset, metaset, "COSINE");
-    BOOST_REQUIRE(originalIndex != nullptr);
-    BOOST_REQUIRE(originalIndex->SaveIndex("original_index") == ErrorCode::Success);
-    originalIndex = nullptr;
-
-    std::string prevPath = "original_index";
-    for (int iter = 0; iter < 1; iter++)
-    {
-        std::string clone_path = "clone_index_" + std::to_string(iter);
-        std::shared_ptr<VectorIndex> prevIndex;
-        BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
-        BOOST_REQUIRE(prevIndex != nullptr);
-        auto t0 = std::chrono::high_resolution_clock::now();
-        BOOST_REQUIRE(prevIndex->Check() == ErrorCode::Success);
-        std::cout << "Check time for iteration " << iter << ": "
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() -
-                                                                           t0)
-                         .count()
-                  << " ms" << std::endl;
-
-        auto cloneIndex = prevIndex->Clone(clone_path);
-        auto *cloneIndexPtr = static_cast<SPANN::Index<float> *>(cloneIndex.get());
-        std::shared_ptr<VectorSet> tmpvecs = get_embeddings<float>(500, 1100, dimension, -1);
-        std::shared_ptr<MetadataSet> tmpmetas = TestUtils::TestDataGenerator<float>::GenerateMetadataSet(1200, 1000);
-        auto t1 = std::chrono::high_resolution_clock::now();
-        InsertVectors<float>(cloneIndexPtr, 1, 1200, tmpvecs, tmpmetas);
-        std::cout << "Insert time for iteration " << iter << ": "
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() -
-                                                                           t1)
-                         .count()
-                  << " ms" << std::endl;
-
-        for (auto i = 1000; i < 1900; ++i)
-        {
-            cloneIndexPtr->DeleteIndex(i);
-        }
-
-        BOOST_REQUIRE(cloneIndex->SaveIndex(clone_path) == ErrorCode::Success);
-        cloneIndex = nullptr;
-    }
-
-    for (int iter = 0; iter < 1; iter++)
-    {
-        std::filesystem::remove_all("clone_index_" + std::to_string(iter));
-    }
-    // std::filesystem::remove_all("original_index");
-} 
 BOOST_AUTO_TEST_SUITE_END()

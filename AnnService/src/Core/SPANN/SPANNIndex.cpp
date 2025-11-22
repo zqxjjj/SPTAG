@@ -1387,18 +1387,22 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
         new_versionMap.SetVersion(i, m_versionMap.GetVersion(NewtoOld[i]));
     new_versionMap.Save(m_options.m_indexDirectory + FolderSep + m_options.m_deleteIDFile);
 
-    if ((ret = m_extraSearcher->RefineIndex(m_index, false, &headOldtoNew, p_mapping)) != ErrorCode::Success)
-        return ret;
-
     if (nullptr != m_pMetadata)
     {
         if (p_indexStreams.size() < GetIndexFiles()->size() + 2)
             return ErrorCode::LackOfInputs;
         if ((ret = m_pMetadata->RefineMetadata(NewtoOld, p_indexStreams[GetIndexFiles()->size()],
-                                               p_indexStreams[GetIndexFiles()->size()+1])) !=
-            ErrorCode::Success)
+                                               p_indexStreams[GetIndexFiles()->size() + 1])) != ErrorCode::Success)
             return ret;
     }
+    for (int i = 0; i < p_indexStreams.size(); i++)
+    {
+        p_indexStreams[i]->ShutDown();
+    }
+
+    if ((ret = m_extraSearcher->RefineIndex(m_index, false, &headOldtoNew, p_mapping)) != ErrorCode::Success)
+        return ret;
+
     return ret;
 }
 

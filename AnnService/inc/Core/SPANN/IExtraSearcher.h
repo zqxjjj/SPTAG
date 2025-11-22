@@ -313,7 +313,7 @@ namespace SPTAG {
 
             virtual ErrorCode GetPostingDebug(ExtraWorkSpace* p_exWorkSpace, std::shared_ptr<VectorIndex> p_index, SizeType vid, std::vector<SizeType>& VIDs, std::shared_ptr<VectorSet>& vecs) = 0;
             
-            virtual ErrorCode RefineIndex(std::shared_ptr<VectorIndex> p_index, bool p_prereassign = true,
+            virtual ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_index, bool p_prereassign = true,
                                           std::vector<SizeType> *p_headmapping = nullptr,
                                           std::vector<SizeType> *p_mapping = nullptr)
             {

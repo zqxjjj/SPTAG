@@ -392,6 +392,27 @@ ErrorCode VectorIndex::SaveIndex(const std::string &p_folderPath)
     if (!m_bReady || GetNumSamples() - GetNumDeleted() == 0)
         return ErrorCode::EmptyIndex;
 
+    if (GetIndexAlgoType() == IndexAlgoType::SPANN && GetParameter("IndexDirectory", "Base") != p_folderPath)
+    {
+        std::string oldFolder = GetParameter("IndexDirectory", "Base");
+        ErrorCode ret = SaveIndex(oldFolder);
+        if (ret != ErrorCode::Success || !copydirectory(oldFolder, p_folderPath))
+        {
+            SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to copy index directory contents to %s!\n",
+                         p_folderPath.c_str());
+            return ErrorCode::Fail;
+        }
+
+        SetParameter("IndexDirectory", p_folderPath, "Base");
+        auto configFile = SPTAG::f_createIO();
+        if (configFile == nullptr || !configFile->Initialize((p_folderPath + FolderSep + "indexloader.ini").c_str(), std::ios::out))
+            return ErrorCode::FailedCreateFile;
+        if ((ret = SaveIndexConfig(configFile)) != ErrorCode::Success)
+            return ret;
+
+        return ErrorCode::Success;
+    }
+
     std::string folderPath(p_folderPath);
     if (!folderPath.empty() && *(folderPath.rbegin()) != FolderSep)
     {
@@ -400,29 +421,6 @@ ErrorCode VectorIndex::SaveIndex(const std::string &p_folderPath)
     if (!direxists(folderPath.c_str()))
     {
         mkdir(folderPath.c_str());
-    }
-
-    if (GetIndexAlgoType() == IndexAlgoType::SPANN && GetParameter("IndexDirectory", "Base") != p_folderPath)
-    {
-        std::vector<std::string> files;
-        std::string oldFolder = GetParameter("IndexDirectory", "Base");
-        if (!oldFolder.empty() && *(oldFolder.rbegin()) != FolderSep)
-            oldFolder += FolderSep;
-        listdir((oldFolder + "*").c_str(), files);
-        for (auto file : files)
-        {
-            size_t firstSep = oldFolder.length(), lastSep = file.find_last_of(FolderSep);
-            std::string newFolder =
-                            folderPath + ((lastSep > firstSep) ? file.substr(firstSep, lastSep - firstSep) : ""),
-                        filename = file.substr(lastSep + 1);
-            if (!direxists(newFolder.c_str()))
-                mkdir(newFolder.c_str());
-            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Copy file %s to %s...\n", file.c_str(),
-                         (newFolder + FolderSep + filename).c_str());
-            if (!copyfile(file.c_str(), (newFolder + FolderSep + filename).c_str()))
-                return ErrorCode::DiskIOFail;
-        }
-        SetParameter("IndexDirectory", p_folderPath, "Base");
     }
 
     ErrorCode ret = ErrorCode::Success;
@@ -457,6 +455,11 @@ ErrorCode VectorIndex::SaveIndex(const std::string &p_folderPath)
         handles.push_back(std::move(ptr));
     }
 
+    if (m_pQuantizer)
+    {
+        ret = m_pQuantizer->SaveQuantizer(handles.back());
+    }
+
     size_t metaStart = GetIndexFiles()->size();
     if (NeedRefine())
     {
@@ -468,13 +471,6 @@ ErrorCode VectorIndex::SaveIndex(const std::string &p_folderPath)
             ret = m_pMetadata->SaveMetadata(handles[metaStart], handles[metaStart + 1]);
         if (ErrorCode::Success == ret)
             ret = SaveIndexData(handles);
-    }
-    if (m_pMetadata != nullptr)
-        metaStart += 2;
-
-    if (ErrorCode::Success == ret && m_pQuantizer)
-    {
-        ret = m_pQuantizer->SaveQuantizer(handles[metaStart]);
     }
     return ret;
 }
@@ -1010,7 +1006,7 @@ std::shared_ptr<VectorIndex> VectorIndex::Clone(std::string p_clone)
     else
     {
         std::string indexFolder = GetParameter("IndexDirectory", "Base");
-        //ret = SaveIndex(indexFolder);
+        ret = SaveIndex(indexFolder);
         if (!copydirectory(indexFolder, p_clone))
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to copy index directory contents to %s!\n",

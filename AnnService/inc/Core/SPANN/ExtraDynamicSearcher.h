@@ -298,7 +298,7 @@ namespace SPTAG::SPANN {
         {
             int assumptionBrokenNum = 0;
             int postVectorNum = postingList.size() / m_vectorInfoSize;
-            uint8_t* postingP = reinterpret_cast<uint8_t*>(&postingList.front());
+            uint8_t* postingP = reinterpret_cast<uint8_t*>(postingList.data());
             float minDist;
             float maxDist;
             float avgDist = 0;
@@ -486,7 +486,7 @@ namespace SPTAG::SPANN {
         }
 
         // TODO
-        ErrorCode RefineIndex(std::shared_ptr<VectorIndex> p_index,
+        ErrorCode RefineIndex(std::shared_ptr<VectorIndex>& p_index,
                               bool p_prereassign, std::vector<SizeType> *p_headmapping, std::vector<SizeType> *p_mapping) override
         {
             SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Begin RefineIndex\n");
@@ -501,6 +501,7 @@ namespace SPTAG::SPANN {
                                             p_index->m_iDataBlockSize, p_index->m_iDataCapacity);
             }
             std::atomic_bool doneReassign = false;
+            Helper::Concurrent::ConcurrentSet<SizeType> mergelist;
             while (!doneReassign) {
                 auto preReassignTimeBegin = std::chrono::high_resolution_clock::now();
                 std::atomic<ErrorCode> finalcode = ErrorCode::Success;
@@ -552,10 +553,10 @@ namespace SPTAG::SPANN {
                                                  (int)(postingList.size()), (int)(ret == ErrorCode::Success));
                                     PrintErrorInPosting(postingList, index);
                                     finalcode = ret;
-                                    return;
+                                    //return;
                                 }
                                 SizeType postVectorNum = (SizeType)(postingList.size() / m_vectorInfoSize);
-                                auto *postingP = reinterpret_cast<uint8_t *>(&postingList.front());
+                                auto *postingP = reinterpret_cast<uint8_t *>(postingList.data());
                                 uint8_t *vectorId = postingP;
                                 int vectorCount = 0;
                                 for (int j = 0; j < postVectorNum;
@@ -574,6 +575,8 @@ namespace SPTAG::SPANN {
                                     }
                                     vectorCount++;
                                 }
+
+                                if (vectorCount <= m_mergeThreshold) mergelist.insert(p_headmapping->at(index));
 
                                 postingList.resize(vectorCount * m_vectorInfoSize);
                                 new_postingSizes.UpdateSize(p_headmapping->at(index), vectorCount);
@@ -615,8 +618,8 @@ namespace SPTAG::SPANN {
 
                 if (p_prereassign)
                 {
-                    p_index->SaveIndex(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIndexFolder);
                     Checkpoint(m_opt->m_indexDirectory);
+                    p_index->SaveIndex(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIndexFolder);
                     CalculatePostingDistribution(p_index.get());
                 }
                 else
@@ -627,6 +630,37 @@ namespace SPTAG::SPANN {
                     std::string p_checksumPath = m_opt->m_indexDirectory + FolderSep + m_opt->m_checksumFile;
                     new_checkSums.Save(p_checksumPath);
                     db->Checkpoint(m_opt->m_indexDirectory);
+
+                    if ((finalcode = m_postingSizes.Load(p_persistenRecord, p_index->m_iDataBlockSize,
+                                                         p_index->m_iDataCapacity)) != ErrorCode::Success)
+                        return finalcode;
+                    if ((finalcode = m_checkSums.Load(p_checksumPath, p_index->m_iDataBlockSize,
+                                                      p_index->m_iDataCapacity)) != ErrorCode::Success)
+                        return finalcode;
+                    
+                    if ((finalcode = m_versionMap->Load(m_opt->m_indexDirectory + FolderSep + m_opt->m_deleteIDFile,
+                                                        p_index->m_iDataBlockSize, p_index->m_iDataCapacity)) !=
+                        ErrorCode::Success)
+                        return finalcode;
+                    if ((finalcode = m_vectorTranslateMap->Load(
+                             m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile, p_index->m_iDataBlockSize,
+                             p_index->m_iDataCapacity)) != ErrorCode::Success)
+                        return finalcode;
+                    if ((finalcode =
+                             VectorIndex::LoadIndex(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIndexFolder,
+                                                    p_index)) != ErrorCode::Success)
+                        return finalcode;
+
+                    if (mergelist.size() > 0)
+                    {
+                        for (SizeType pid : mergelist)
+                        {
+                            MergeAsync(p_index.get(), pid);
+                        }
+                        Checkpoint(m_opt->m_indexDirectory);
+                        p_index->SaveIndex(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIndexFolder);
+                        m_vectorTranslateMap->Save(m_opt->m_indexDirectory + FolderSep + m_opt->m_headIDFile);
+                    }
                 }
                 
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "SPFresh: ReWriting SSD Info\n");
@@ -651,7 +685,7 @@ namespace SPTAG::SPANN {
                 std::string postingList;
                 auto splitGetBegin = std::chrono::high_resolution_clock::now();
                 if ((ret=db->Get(headID, &postingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) !=
-                    ErrorCode::Success)// || !m_checkSum.ValidateChecksum(postingList.c_str(), (int)(postingList.size()), *m_checkSums[headID]))
+                    ErrorCode::Success || !m_checkSum.ValidateChecksum(postingList.c_str(), (int)(postingList.size()), *m_checkSums[headID]))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split fail to get oversized postings: key=%d size=%d\n", headID, m_postingSizes.GetSize(headID));
                     return ret;
@@ -660,7 +694,7 @@ namespace SPTAG::SPANN {
                 elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(splitGetEnd - splitGetBegin).count();
                 m_stat.m_getCost += elapsedMSeconds;
                 // reinterpret postingList to vectors and IDs
-                auto* postingP = reinterpret_cast<uint8_t*>(&postingList.front());
+                auto* postingP = reinterpret_cast<uint8_t*>(postingList.data());
                 SizeType postVectorNum = (SizeType)(postingList.size() / m_vectorInfoSize);
                
                 //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "DEBUG: db get Posting %d successfully with length %d real length:%d vectorNum:%d\n", headID, (int)(postingList.size()), m_postingSizes.GetSize(headID), postVectorNum);
@@ -926,7 +960,7 @@ namespace SPTAG::SPANN {
                     return ret;
                 }
 
-                auto* postingP = reinterpret_cast<uint8_t*>(&currentPostingList.front());
+                auto* postingP = reinterpret_cast<uint8_t*>(currentPostingList.data());
                 size_t postVectorNum = currentPostingList.size() / m_vectorInfoSize;
                 int currentLength = 0;
                 uint8_t* vectorId = postingP;
@@ -1076,7 +1110,7 @@ namespace SPTAG::SPANN {
                             if (currentLength > nextLength) 
                             {
                                 /* ReAssign queryResult->VID*/
-                                postingP = reinterpret_cast<uint8_t*>(&nextPostingList.front());
+                                postingP = reinterpret_cast<uint8_t*>(nextPostingList.data());
                                 for (int j = 0; j < nextLength; j++) {
                                     uint8_t* vectorId = postingP + j * m_vectorInfoSize;
                                     // SizeType vid = *(reinterpret_cast<SizeType*>(vectorId));
@@ -1090,7 +1124,7 @@ namespace SPTAG::SPANN {
                             } else
                             {
                                 /* ReAssign headID*/
-                                postingP = reinterpret_cast<uint8_t*>(&currentPostingList.front());
+                                postingP = reinterpret_cast<uint8_t*>(currentPostingList.data());
                                 for (int j = 0; j < currentLength; j++) {
                                     uint8_t* vectorId = postingP + j * m_vectorInfoSize;
                                     // SizeType vid = *(reinterpret_cast<SizeType*>(vectorId));
@@ -1110,7 +1144,7 @@ namespace SPTAG::SPANN {
                                 {
                                     std::shared_ptr<std::string> vectorinfo =
                                         std::make_shared<std::string>(m_vectorInfoSize, ' ');
-                                    Serialize(&(vectorinfo->front()), vid, m_versionMap->GetVersion(vid),
+                                    Serialize(vectorinfo->data(), vid, m_versionMap->GetVersion(vid),
                                               p_index->GetSample(deletedHead));
                                     ReassignAsync(p_index, vectorinfo, -1);
                                 }
@@ -1197,7 +1231,7 @@ namespace SPTAG::SPANN {
                 if (!m_versionMap->Deleted(vid))
                 {
                     std::shared_ptr<std::string> vectorinfo = std::make_shared<std::string>(m_vectorInfoSize, ' ');
-                    Serialize(&(vectorinfo->front()), vid, m_versionMap->GetVersion(vid), headVector);
+                    Serialize(vectorinfo->data(), vid, m_versionMap->GetVersion(vid), headVector);
                     ReassignAsync(p_index, vectorinfo, -1);
                 }
             }
@@ -1208,7 +1242,7 @@ namespace SPTAG::SPANN {
             for (int i = 0; i < postingLists.size(); i++) {
                 auto& postingList = postingLists[i];
                 size_t postVectorNum = postingList.size() / m_vectorInfoSize;
-                auto* postingP = reinterpret_cast<uint8_t*>(&postingList.front());
+                auto* postingP = reinterpret_cast<uint8_t*>(postingList.data());
                 for (int j = 0; j < postVectorNum; j++) {
                     uint8_t* vectorId = postingP + j * m_vectorInfoSize;
                     SizeType vid = *(reinterpret_cast<SizeType*>(vectorId));
@@ -1566,7 +1600,7 @@ namespace SPTAG::SPANN {
 
                                 if (vectorNum > m_postingSizeLimit)
                                     vectorNum = m_postingSizeLimit;
-                                auto *postingP = reinterpret_cast<char *>(&tempPosting.front());
+                                auto *postingP = reinterpret_cast<char *>(tempPosting.data());
                                 std::string newPosting(m_vectorInfoSize * vectorNum, '\0');
                                 char *ptr = (char *)(newPosting.c_str());
                                 for (int j = 0; j < vectorNum; ++j, ptr += m_vectorInfoSize)
@@ -1680,7 +1714,7 @@ namespace SPTAG::SPANN {
                         Helper::LogLevel::LL_Error,
                         "ValidatePostings fail: posting id:%d, required size:%d, buffer size:%d, checksum:%d\n",
                         pids[i], (int)(m_postingSizes.GetSize(pids[i]) * m_vectorInfoSize), (int)(postings[i].GetAvailableSize()), (int)(*m_checkSums[pids[i]]));
-                    //return false;
+                    return false;
                 }
             }
             return true;
@@ -1688,8 +1722,7 @@ namespace SPTAG::SPANN {
 
         bool ValidatePostings(std::vector<SizeType> &pids, std::vector<std::string> &postings)
         {
-            if (!m_opt->m_checksumInRead)
-                return true;
+            if (!m_opt->m_checksumInRead) return true;
 
             ErrorCode ret;
             for (int i = 0; i < pids.size(); i++)
@@ -1702,7 +1735,8 @@ namespace SPTAG::SPANN {
                         "ValidatePostings fail: posting id:%d, required size:%d, buffer size:%d, checksum:%d\n",
                         pids[i], (int)(m_postingSizes.GetSize(pids[i]) * m_vectorInfoSize),
                         (int)(postings[i].size()), (int)(*m_checkSums[pids[i]]));
-                    // return false;
+                    PrintErrorInPosting(postings[i], pids[i]);
+                    return false;
                 }
             }
             return true;
@@ -1794,7 +1828,7 @@ namespace SPTAG::SPANN {
                     queryResults.AddPoint(vectorID, distance2leaf);
                 }
                 auto compEnd = std::chrono::high_resolution_clock::now();
-                if (realNum <= m_mergeThreshold) MergeAsync(p_index.get(), curPostingID); // TODO: Control merge
+                //if (realNum <= m_mergeThreshold) MergeAsync(p_index.get(), curPostingID); // TODO: Control merge
 
                 compLatency += ((double)std::chrono::duration_cast<std::chrono::microseconds>(compEnd - compStart).count());
 
@@ -2485,6 +2519,7 @@ namespace SPTAG::SPANN {
                     !m_checkSum.ValidateChecksum(posting.c_str(), (int)(posting.size()), *m_checkSums[postingID]))
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "[CheckPosting] Get checksum fail %d!\n", postingID);
+                    PrintErrorInPosting(posting, postingID);
                     return ret;
                 }
             }
