@@ -1098,6 +1098,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
     
+    /*
     std::cout << "=================Enable Cache===================" << std::endl;
     prevPath = "original_index";
     for (int iter = 0; iter < iterations; iter++)
@@ -1158,7 +1159,7 @@ BOOST_AUTO_TEST_CASE(CacheTest)
     {
         std::filesystem::remove_all("clone_index_" + std::to_string(iter));
     }
-    
+    */
     std::filesystem::remove_all("original_index");
 }
 

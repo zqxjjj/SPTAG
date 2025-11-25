@@ -552,7 +552,7 @@ namespace SPTAG::SPANN {
                                                  index, (int)(m_postingSizes.GetSize(index) * m_vectorInfoSize),
                                                  (int)(postingList.size()), (int)(ret == ErrorCode::Success));
                                     PrintErrorInPosting(postingList, index);
-                                    finalcode = ret;
+                                    finalcode = ErrorCode::Fail;
                                     //return;
                                 }
                                 SizeType postVectorNum = (SizeType)(postingList.size() / m_vectorInfoSize);
@@ -687,7 +687,11 @@ namespace SPTAG::SPANN {
                 if ((ret=db->Get(headID, &postingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) !=
                     ErrorCode::Success || !m_checkSum.ValidateChecksum(postingList.c_str(), (int)(postingList.size()), *m_checkSums[headID]))
                 {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split fail to get oversized postings: key=%d size=%d\n", headID, m_postingSizes.GetSize(headID));
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "Split fail to get oversized postings: key=%d required size=%d read size=%d checksum "
+                                 "issue=%d\n",
+                                 headID, (int)(m_postingSizes.GetSize(headID) * m_vectorInfoSize),
+                                 (int)(postingList.size()), (int)(ret == ErrorCode::Success));
                     return ret;
                 }
                 auto splitGetEnd = std::chrono::high_resolution_clock::now();
