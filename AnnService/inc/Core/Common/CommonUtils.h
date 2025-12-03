@@ -100,6 +100,30 @@ namespace SPTAG
                     }
                 }
             }
+
+            static void PrintPostingDiff(std::string &p1, std::string &p2, const char *pos)
+            {
+                if (p1.size() != p2.size())
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                 "Merge %s: p1 and p2 have different sizes: before=%u after=%u\n", pos, p1.size(),
+                                 p2.size());
+                    return;
+                }
+                std::string diff = "";
+                for (size_t i = 0; i < p1.size(); i++)
+                {
+                    if (p1[i] != p2[i])
+                    {
+                        diff += "[" + std::to_string(i) + "]:" + std::to_string(int(p1[i])) + "^" +
+                                std::to_string(int(p2[i])) + " ";
+                    }
+                }
+                if (diff.size() != 0)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "%s: %s\n", pos, diff.substr(0, 1000).c_str());
+                }
+            }
         };
     }
 }

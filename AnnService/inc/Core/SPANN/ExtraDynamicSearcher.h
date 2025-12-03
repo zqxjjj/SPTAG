@@ -1429,28 +1429,33 @@ namespace SPTAG::SPANN {
             {
                 //std::shared_lock<std::shared_timed_mutex> lock(m_rwLocks[headID]); //ROCKSDB
                 std::unique_lock<std::shared_timed_mutex> lock(m_rwLocks[headID]); //SPDK
+                ErrorCode ret;
                 if (!p_index->ContainSample(headID)) {
                     lock.unlock();
                     goto checkDeleted;
                 }
                 if (m_postingSizes.GetSize(headID) + appendNum > (m_postingSizeLimit + m_bufferSizeLimit)) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "After appending, the number of vectors exceeds the postingsize + buffersize (%d + %d)! Do split now...\n", m_postingSizeLimit, m_bufferSizeLimit);
-                    Split(p_exWorkSpace, p_index, headID, !m_opt->m_disableReassign, false, false);
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Warning, "After appending, the number of vectors in %d exceeds the postingsize + buffersize (%d + %d)! Do split now...\n", headID, m_postingSizeLimit, m_bufferSizeLimit);
+                    ret = Split(p_exWorkSpace, p_index, headID, !m_opt->m_disableReassign, false, false);
+                    if (ret != ErrorCode::Success)
+                        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split %d failed!\n", headID);
                     lock.unlock();
                     goto checkDeleted;
                 }
 
-                ErrorCode ret;
                 auto appendIOBegin = std::chrono::high_resolution_clock::now();
-                *m_checkSums[headID] =
-                    m_checkSum.AppendChecksum(*m_checkSums[headID], appendPosting.c_str(), (int)(appendPosting.size()));
-                if ((ret=db->Merge(headID, appendPosting, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
-                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge failed! Posting Size:%d, limit: %d\n", m_postingSizes.GetSize(headID), m_postingSizeLimit);
+                if ((ret = db->Merge(headID, appendPosting, MaxTimeout, &(p_exWorkSpace->m_diskRequests), [this, prefixChecksum = *m_checkSums[headID]] (const std::string& readPrefix) -> bool {
+                    return this->m_checkSum.ValidateChecksum(readPrefix.c_str(), (int)(readPrefix.size()), prefixChecksum);
+                })) != ErrorCode::Success)
+                {
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge failed for %d! Posting Size:%d, limit: %d\n", headID, m_postingSizes.GetSize(headID), m_postingSizeLimit);
                     GetDBStats();
                     return ret;
                 }
                 auto appendIOEnd = std::chrono::high_resolution_clock::now();
                 appendIOSeconds = std::chrono::duration_cast<std::chrono::microseconds>(appendIOEnd - appendIOBegin).count();
+                *m_checkSums[headID] =
+                    m_checkSum.AppendChecksum(*m_checkSums[headID], appendPosting.c_str(), (int)(appendPosting.size()));
                 m_postingSizes.IncSize(headID, appendNum);
                 if (m_opt->m_consistencyCheck && (ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize, nullptr)) != ErrorCode::Success)
                 {

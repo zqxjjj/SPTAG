@@ -1557,6 +1557,10 @@ template <typename T>
 ErrorCode Index<T>::Check()
 {
     std::atomic<ErrorCode> ret = ErrorCode::Success;
+    while (!AllFinished())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
     //if ((ret = m_index->Check()) != ErrorCode::Success)
     //    return ret;
 

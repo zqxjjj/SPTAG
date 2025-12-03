@@ -32,7 +32,10 @@ namespace SPTAG
 
             virtual ErrorCode Put(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) = 0;
 
-            virtual ErrorCode Merge(const SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) = 0;
+            virtual ErrorCode Merge(const SizeType key, const std::string &value,
+                                    const std::chrono::microseconds &timeout,
+                                    std::vector<Helper::AsyncReadRequest> *reqs,
+                                    std::function<bool(const std::string &)> checksum) = 0;
 
             virtual ErrorCode Delete(SizeType key) = 0;
 

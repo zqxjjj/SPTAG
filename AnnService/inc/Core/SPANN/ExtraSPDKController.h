@@ -348,7 +348,10 @@ namespace SPTAG::SPANN
             return ErrorCode::Success;
         }
 
-        ErrorCode Merge(SizeType key, const std::string& value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
+        ErrorCode Merge(SizeType key, const std::string &value, const std::chrono::microseconds &timeout,
+                        std::vector<Helper::AsyncReadRequest> *reqs,
+                        std::function<bool(const std::string &)> checksum) override
+        {
             if (key >= m_pBlockMapping.R()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key range error: key: %d, mapping size: %d\n", key, m_pBlockMapping.R());
                 return ErrorCode::Fail;
