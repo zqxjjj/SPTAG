@@ -572,10 +572,13 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
             jsonFile << std::fixed << std::setprecision(4);
 
             // Get current timestamp
-            auto now = std::chrono::system_clock::now();
-            auto time_t_now = std::chrono::system_clock::to_time_t(now);
+            auto time_t_now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
             std::tm tm_now;
+#if defined(_MSC_VER)
             localtime_s(&tm_now, &time_t_now);
+#else
+            localtime_r(&time_t_now, &tm_now);
+#endif
 
             std::ostringstream timestampStream;
             timestampStream << std::put_time(&tm_now, "%Y-%m-%dT%H:%M:%S");
@@ -624,6 +627,11 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
             BOOST_TEST_MESSAGE("\n=== Failed to create output.json ===");
         }
     }
+
+    M = oldM;
+    K = oldK;
+    N = oldN;
+    queries = oldQueries;
 }
 
 } // namespace SPFreshTest
@@ -1038,7 +1046,6 @@ BOOST_AUTO_TEST_CASE(IndexPersistenceAndInsertMultipleThreads)
     // Cleanup
     std::filesystem::remove_all("insert_test_index_multi");
     std::filesystem::remove_all("insert_cloned_index_multi");
-    std::filesystem::remove_all("insert_final_index_multi");
 }
 
 BOOST_AUTO_TEST_CASE(IndexSaveDuringQuery)
@@ -1657,18 +1664,18 @@ BOOST_AUTO_TEST_CASE(BenchmarkFromConfig)
     // Dispatch to appropriate type
     if (valueType == VectorValueType::Float)
     {
-        RunBenchmark<float>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount, insertVectorCount, 0, 
-                            batchNum, topK, numThreads, numQueries);
+        RunBenchmark<float>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
+                            insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries);
     }
     else if (valueType == VectorValueType::Int8)
     {
         RunBenchmark<std::int8_t>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
-                                  insertVectorCount, 0, batchNum, topK, numThreads, numQueries);
+                                  insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries);
     }
     else if (valueType == VectorValueType::UInt8)
     {
         RunBenchmark<std::uint8_t>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
-                                   insertVectorCount, 0, batchNum, topK, numThreads, numQueries);
+                                   insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries);
     }
 
     std::filesystem::remove_all(indexPath);
