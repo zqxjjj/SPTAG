@@ -9,8 +9,10 @@ namespace TestUtils
 {
 
 template <typename T>
-TestDataGenerator<T>::TestDataGenerator(int n, int q, int m, int k, std::string distMethod)
-    : m_n(n), m_q(q), m_m(m), m_k(k), m_distMethod(std::move(distMethod))
+TestDataGenerator<T>::TestDataGenerator(int n, int q, int m, int k, std::string distMethod, int a, bool isRandom,
+                                        std::string vectorPath, std::string queryPath)
+    : m_n(n), m_a((a == 0)? n : a), m_q(q), m_m(m), m_k(k), m_distMethod(std::move(distMethod)), m_isRandom(isRandom),
+      m_vectorPath(vectorPath), m_queryPath(queryPath)
 {
 }
 
@@ -53,7 +55,14 @@ void TestDataGenerator<T>::LoadOrGenerateBase(std::shared_ptr<VectorSet> &vecset
     }
     else
     {
-        vecset = GenerateRandomVectorSet(m_n, m_m);
+        if (m_isRandom)
+        {
+            vecset = GenerateRandomVectorSet(m_n, m_m);
+        }
+        else
+        {
+            vecset = GenerateLoadVectorSet(m_n, m_m, m_vectorPath, 0);
+        }
         vecset->Save("perftest_vector.bin");
 
         metaset = GenerateMetadataSet(m_n, 0);
@@ -70,7 +79,14 @@ template <typename T> void TestDataGenerator<T>::LoadOrGenerateQuery(std::shared
     }
     else
     {
-        queryset = GenerateRandomVectorSet(m_q, m_m);
+        if (m_isRandom)
+        {
+            queryset = GenerateRandomVectorSet(m_q, m_m);
+        }
+        else
+        {
+            queryset = GenerateLoadVectorSet(m_q, m_m, m_queryPath, 0);
+        }
         queryset->Save("perftest_query.bin");
     }
 }
@@ -89,10 +105,17 @@ void TestDataGenerator<T>::LoadOrGenerateAdd(std::shared_ptr<VectorSet> &addvecs
     }
     else
     {
-        addvecset = GenerateRandomVectorSet(m_n, m_m);
+        if (m_isRandom)
+        {
+            addvecset = GenerateRandomVectorSet(m_a, m_m);
+        }
+        else
+        {
+            addvecset = GenerateLoadVectorSet(m_a, m_m, m_vectorPath, m_n);
+        }
         addvecset->Save("perftest_addvector.bin");
 
-        addmetaset = GenerateMetadataSet(m_n, m_n);
+        addmetaset = GenerateMetadataSet(m_a, m_n);
         addmetaset->SaveMetadata("perftest_addmeta.bin", "perftest_addmetaidx.bin");
     }
 }
@@ -270,6 +293,45 @@ std::shared_ptr<MetadataSet> TestDataGenerator<T>::GenerateMetadataSet(SizeType 
     }
     ((std::uint64_t *)metaoffset.Data())[count] = offset;
     return std::make_shared<MemMetadataSet>(meta, metaoffset, count, count * 2, MaxSize, 10);
+}
+
+template <typename T>
+std::shared_ptr<SPTAG::VectorSet> TestDataGenerator<T>::GenerateLoadVectorSet(SPTAG::SizeType count,
+                                                                              SPTAG::DimensionType dim,
+                                                                              std::string path, SPTAG::SizeType start)
+{
+    VectorFileType fileType = VectorFileType::DEFAULT;
+    if (path.find(".fvecs") != std::string::npos || path.find(".ivecs") != std::string::npos)
+    {
+        fileType = VectorFileType::XVEC;
+    }
+    auto vectorOptions =
+        std::shared_ptr<Helper::ReaderOptions>(new Helper::ReaderOptions(GetEnumValueType<T>(), dim, fileType));
+    auto vectorReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
+
+    if (!fileexists(path.c_str()) || ErrorCode::Success != vectorReader->LoadFile(path))
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find or load %s. Using random generation!\n", path.c_str());
+        return GenerateRandomVectorSet(count, dim);
+    }
+
+    auto allVectors = vectorReader->GetVectorSet();
+    int totalVectors = allVectors->Count();
+    if (totalVectors - start < count)
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                        "%s contains total %d vectors. Cannot get %d vectors start from %d. Using random generation!\n", path.c_str(),
+                        totalVectors, count, start);
+        return GenerateRandomVectorSet(count, dim);
+    }
+
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "%s contains total %d vectors. Load %d vectors start from %d\n",
+                    path.c_str(), totalVectors, count, start);
+
+
+    ByteArray baseData = ByteArray::Alloc(sizeof(T) * count * dim);
+    memcpy(baseData.Data(), (char *)(allVectors->GetData()) + sizeof(T) * start * dim, sizeof(T) * count * dim);
+    return std::make_shared<BasicVectorSet>(baseData, GetEnumValueType<T>(), dim, count);
 }
 
 template <typename T>

@@ -15,7 +15,8 @@ namespace TestUtils {
     template <typename T>
     class TestDataGenerator {
     public:
-        TestDataGenerator(int n, int q, int m, int k, std::string distMethod);
+        TestDataGenerator(int n, int q, int m, int k, std::string distMethod, int a = 0, bool isRandom = true,
+                        std::string vectorPath = "", std::string queryPath = "");
 
         void Run(std::shared_ptr<SPTAG::VectorSet>& vecset,
             std::shared_ptr<SPTAG::MetadataSet>& metaset,
@@ -29,15 +30,18 @@ namespace TestUtils {
 
         static std::shared_ptr<SPTAG::MetadataSet> GenerateMetadataSet(SPTAG::SizeType count, SPTAG::SizeType offsetStart);
 
+        static std::shared_ptr<SPTAG::VectorSet> GenerateLoadVectorSet(SPTAG::SizeType count, SPTAG::DimensionType dim,
+                                                                       std::string path, SPTAG::SizeType start = 0);
+
         void RunBatches(std::shared_ptr<SPTAG::VectorSet> &vecset, std::shared_ptr<SPTAG::MetadataSet> &metaset,
                         std::shared_ptr<SPTAG::VectorSet> &addvecset, std::shared_ptr<SPTAG::MetadataSet> &addmetaset,
                         std::shared_ptr<SPTAG::VectorSet> &queryset, int base, int batchinsert, int batchdelete, int batches, 
                         std::shared_ptr<SPTAG::VectorSet> &truths);
     private:
-        int m_n, m_q, m_m, m_k;
+        int m_n, m_a, m_q, m_m, m_k;
         std::string m_distMethod;
-
-        bool FileExists(const std::string& filename);
+        bool m_isRandom;
+        std::string m_vectorPath, m_queryPath;
 
         std::shared_ptr<SPTAG::Helper::VectorSetReader> LoadReader(const std::string& filename);
 
