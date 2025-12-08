@@ -316,23 +316,23 @@ namespace SPTAG {
                     sortHeadByNodeAndGlobalVectorID[m_vectorHashMaps.get()[localHeadID]].emplace(globalVectorID, localHeadID);
                 }
 
-                // std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
+                std::shared_ptr<Helper::DiskIO> ptr = SPTAG::f_createIO();
 
-                // std::string filename = options.m_hashRoute + "_globalVID";
+                std::string filename = options.m_hashRoute + "_globalVID";
 
-                // if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::out)) {
-                //     LOG(Helper::LogLevel::LL_Error, "Failed to create headMapFile file:%s\n", filename.c_str());
-                //     exit(0);
-                // }
-                // LOG(Helper::LogLevel::LL_Info, "Creating Hash Map from :%s\n", filename.c_str());
+                if (ptr == nullptr || !ptr->Initialize(filename.c_str(), std::ios::binary | std::ios::out)) {
+                    LOG(Helper::LogLevel::LL_Error, "Failed to create headMapFile file:%s\n", filename.c_str());
+                    exit(0);
+                }
+                LOG(Helper::LogLevel::LL_Info, "Creating Hash Map from :%s\n", filename.c_str());
 
-                // for (int nodeID = 0; nodeID < p_opts.m_numNodes; nodeID++) {
-                //     int64_t totalSize = sortHeadByNodeAndGlobalVectorID[nodeID].size();
-                //     ptr->WriteBinary(sizeof(int64_t), (char*)&totalSize);
-                //     for (auto iter : sortHeadByNodeAndGlobalVectorID[nodeID]) {
-                //         ptr->WriteBinary(sizeof(int64_t), (char*)&(iter.first));
-                //     }
-                // }
+                for (int nodeID = 0; nodeID < p_opts.m_numNodes; nodeID++) {
+                    int64_t totalSize = sortHeadByNodeAndGlobalVectorID[nodeID].size();
+                    ptr->WriteBinary(sizeof(int64_t), (char*)&totalSize);
+                    for (auto iter : sortHeadByNodeAndGlobalVectorID[nodeID]) {
+                        ptr->WriteBinary(sizeof(int64_t), (char*)&(iter.first));
+                    }
+                }
                 // exit(0);
             }
             for (int i = 0; i < p_opts.m_numNodes; i++) {
