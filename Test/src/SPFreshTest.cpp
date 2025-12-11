@@ -359,8 +359,8 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     M = dimension;
     K = topK;
     std::string dist = Helper::Convert::ConvertToString(distMethod);
-    int insertBatchSize = insertVectorCount / batches;
-    int deleteBatchSize = deleteVectorCount / batches;
+    int insertBatchSize = insertVectorCount / max(batches, 1);
+    int deleteBatchSize = deleteVectorCount / max(batches, 1);
 
     // Variables to collect JSON output data
     std::ostringstream tmpbenchmark, benchmark0Data, benchmark1Data, benchmark2Data, benchmark3Data, benchmark4Data, benchmark5Data,
@@ -383,7 +383,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     // Benchmark 0: Query performance before insertions
     BOOST_TEST_MESSAGE("\n=== Benchmark 0: Query Before Insertions ===");
     BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
-                                 numThreads, numQueries, batches, benchmark0Data);
+                                 numThreads, numQueries, 0, benchmark0Data);
 
     // Benchmark 1: Insert performance
     if (insertVectorCount > 0)
