@@ -34,7 +34,7 @@ int queries = 10;
 
 template <typename T>
 std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::shared_ptr<VectorSet> vecset,
-                                        std::shared_ptr<MetadataSet> metaset, const std::string &distMethod = "L2")
+                                        std::shared_ptr<MetadataSet> metaset, const std::string &distMethod = "L2", int searchthread = 2)
 {
     auto vecIndex = VectorIndex::CreateInstance(IndexAlgoType::SPANN, GetEnumValueType<T>());
 
@@ -76,7 +76,8 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             SpdkBatchSize=64
             ExcludeHead=false
             ResultNum=10
-            SearchThreadNum=2
+            SearchThreadNum=)" + std::to_string(searchthread) +
+                                R"(
             Update=true
             SteadyState=true
             InsertThreadNum=1
@@ -91,11 +92,11 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             BufferLength=6
             InPlace=true
             StartFileSizeGB=1
-            OneClusterCutMax=true
-            ConsistencyCheck=true
-            ChecksumCheck=true
+            OneClusterCutMax=false
+            ConsistencyCheck=false
+            ChecksumCheck=false
             ChecksumInRead=false
-            AsyncMergeInSearch=true
+            AsyncMergeInSearch=false
             DeletePercentageForRefine=0.4
             AsyncAppendQueueSize=0
             AllowZeroReplica=false
@@ -248,6 +249,105 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
     }
 }
 
+
+template <typename T>
+void BenchmarkQueryPerformance(std::shared_ptr<VectorIndex> &index, std::shared_ptr<VectorSet> &queryset,
+                               std::shared_ptr<VectorSet> &truth, std::shared_ptr<VectorSet> &vecset,
+                               std::shared_ptr<VectorSet> &addvecset, const std::string &truthPath,
+                               SizeType baseVectorCount, int topK, int numThreads, int numQueries, int batches,
+                               std::ostringstream &benchmarkData)
+{
+    // Benchmark: Query performance with detailed latency stats
+    std::vector<float> latencies(numQueries);
+    std::atomic_size_t queriesSent(0);
+    std::vector<QueryResult> results(numQueries);
+
+    for (int i = 0; i < numQueries; i++)
+    {
+        results[i] = QueryResult((const T *)queryset->GetVector(i), topK, false);
+    }
+
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
+
+    auto batchStart = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < numThreads; i++)
+    {
+        threads.emplace_back([&]() {
+            size_t qid;
+            while ((qid = queriesSent.fetch_add(1)) < numQueries)
+            {
+                auto t1 = std::chrono::high_resolution_clock::now();
+                index->SearchIndex(results[qid]);
+                auto t2 = std::chrono::high_resolution_clock::now();
+                latencies[qid] = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000.0f;
+            }
+        });
+    }
+
+    for (auto &thread : threads)
+        thread.join();
+
+    auto batchEnd = std::chrono::high_resolution_clock::now();
+    float batchLatency =
+        std::chrono::duration_cast<std::chrono::microseconds>(batchEnd - batchStart).count() / 1000000.0f;
+
+    // Calculate statistics
+    float mean = 0, minLat = (std::numeric_limits<float>::max)(), maxLat = 0;
+    for (int i = 0; i < numQueries; i++)
+    {
+        mean += latencies[i];
+        minLat = (std::min)(minLat, latencies[i]);
+        maxLat = (std::max)(maxLat, latencies[i]);
+    }
+    mean /= numQueries;
+
+    std::sort(latencies.begin(), latencies.end());
+    float p50 = latencies[static_cast<size_t>(numQueries * 0.50)];
+    float p90 = latencies[static_cast<size_t>(numQueries * 0.90)];
+    float p95 = latencies[static_cast<size_t>(numQueries * 0.95)];
+    float p99 = latencies[static_cast<size_t>(numQueries * 0.99)];
+    float qps = numQueries / batchLatency;
+
+    BOOST_TEST_MESSAGE("  Queries: " << numQueries);
+    BOOST_TEST_MESSAGE("  Mean Latency: " << mean << " ms");
+    BOOST_TEST_MESSAGE("  P50 Latency:  " << p50 << " ms");
+    BOOST_TEST_MESSAGE("  P90 Latency:  " << p90 << " ms");
+    BOOST_TEST_MESSAGE("  P95 Latency:  " << p95 << " ms");
+    BOOST_TEST_MESSAGE("  P99 Latency:  " << p99 << " ms");
+    BOOST_TEST_MESSAGE("  Min Latency:  " << minLat << " ms");
+    BOOST_TEST_MESSAGE("  Max Latency:  " << maxLat << " ms");
+    BOOST_TEST_MESSAGE("  QPS:          " << qps);
+
+    // Collect JSON data for Benchmark
+    benchmarkData << std::fixed << std::setprecision(4);
+    benchmarkData << "{\n";
+    benchmarkData << "      \"numQueries\": " << numQueries << ",\n";
+    benchmarkData << "      \"meanLatency\": " << mean << ",\n";
+    benchmarkData << "      \"p50\": " << p50 << ",\n";
+    benchmarkData << "      \"p90\": " << p90 << ",\n";
+    benchmarkData << "      \"p95\": " << p95 << ",\n";
+    benchmarkData << "      \"p99\": " << p99 << ",\n";
+    benchmarkData << "      \"minLatency\": " << minLat << ",\n";
+    benchmarkData << "      \"maxLatency\": " << maxLat << ",\n";
+    benchmarkData << "      \"qps\": " << qps << ",\n";
+    
+
+    // Recall evaluation (if truth file provided)
+    BOOST_TEST_MESSAGE("Checking for truth file: " << truthPath);
+    float avgRecall = EvaluateRecall<T>(results, index, queryset, truth, vecset, addvecset, baseVectorCount, topK, batches);
+    BOOST_TEST_MESSAGE("  Recall@" << topK << " = " << (avgRecall * 100.0f) << "%");
+    BOOST_TEST_MESSAGE("  (Evaluated on " << numQueries << " queries against base vectors)");
+    benchmarkData << std::fixed << std::setprecision(4);
+    benchmarkData << "      \"recall\": {\n";
+    benchmarkData << "        \"recallAtK\": " << avgRecall << ",\n";
+    benchmarkData << "        \"k\": " << topK << ",\n";
+    benchmarkData << "        \"numQueries\": " << numQueries << "\n";
+    benchmarkData << "      }\n";
+    benchmarkData << "    }";
+}
+
 template <typename T>
 void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, const std::string &truthPath, DistCalcMethod distMethod,
                   const std::string &indexPath, int dimension, int baseVectorCount, int insertVectorCount, int deleteVectorCount,
@@ -263,7 +363,8 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     int deleteBatchSize = deleteVectorCount / batches;
 
     // Variables to collect JSON output data
-    std::ostringstream benchmark1Data, benchmark2Data, benchmark3Data, benchmark4Data, benchmark5Data, benchmark6Data;
+    std::ostringstream tmpbenchmark, benchmark0Data, benchmark1Data, benchmark2Data, benchmark3Data, benchmark4Data, benchmark5Data,
+        benchmark6Data;
 
     // Generate test data
     std::shared_ptr<VectorSet> vecset, addvecset, queryset, truth;
@@ -274,159 +375,97 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
 
     // Build initial index
     BOOST_TEST_MESSAGE("\n=== Building Index ===");
-    std::shared_ptr<VectorIndex> index = BuildIndex<T>(indexPath, vecset, metaset, dist);
+    std::shared_ptr<VectorIndex> index = BuildIndex<T>(indexPath, vecset, metaset, dist, numThreads);
     BOOST_REQUIRE(index != nullptr);
-    float recall = Search<T>(index, queryset, vecset, addvecset, K, truth, N, 0);
-    BOOST_TEST_MESSAGE("Index built successfully with " << N << " vectors. Recall@" << K << "=" << recall << ".");
+
+    BOOST_TEST_MESSAGE("Index built successfully with " << baseVectorCount << " vectors");
+
+    // Benchmark 0: Query performance before insertions
+    BOOST_TEST_MESSAGE("\n=== Benchmark 0: Query Before Insertions ===");
+    BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
+                                 numThreads, numQueries, batches, benchmark0Data);
 
     // Benchmark 1: Insert performance
-    BOOST_TEST_MESSAGE("\n=== Benchmark 1: Insert Performance ===");
+    if (insertVectorCount > 0)
     {
-        auto start = std::chrono::high_resolution_clock::now();
-        for (int iter = 0; iter < batches; iter++)
+        BOOST_TEST_MESSAGE("\n=== Benchmark 1: Insert Performance ===");
         {
-            InsertVectors<T>(static_cast<SPANN::Index<T> *>(index.get()), numThreads, insertBatchSize, addvecset,
-                             addmetaset, iter * insertBatchSize);
-        }
-        auto end = std::chrono::high_resolution_clock::now();
-
-        double seconds = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000000.0f;
-        double throughput = insertVectorCount / seconds;
-
-        BOOST_TEST_MESSAGE("  Inserted: " << insertVectorCount << " vectors");
-        BOOST_TEST_MESSAGE("  Time: " << seconds << " seconds");
-        BOOST_TEST_MESSAGE("  Throughput: " << throughput << " vectors/sec");
-
-        // Collect JSON data for Benchmark 1
-        benchmark1Data << std::fixed << std::setprecision(4);
-        benchmark1Data << "{\n";
-        benchmark1Data << "      \"inserted\": " << insertVectorCount << ",\n";
-        benchmark1Data << "      \"insert timeSeconds\": " << seconds << ",\n";
-        benchmark1Data << "      \"insert throughput\": " << throughput << "\n";
-        
-
-        std::vector<std::thread> threads;
-        threads.reserve(numThreads);
-
-        std::atomic_size_t vectorsSent(0);
-        int totaldeleted = batches * deleteBatchSize;
-        auto func = [&]() {
-            size_t idx = 0;
-            while (true)
+            auto start = std::chrono::high_resolution_clock::now();
+            for (int iter = 0; iter < batches; iter++)
             {
-                idx = vectorsSent.fetch_add(1);
-                if (idx < totaldeleted)
-                {
-                    if ((idx & ((1 << 5) - 1)) == 0)
-                    {
-                        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", idx * 100.0 / totaldeleted);
-                    }
-                    BOOST_REQUIRE(index->DeleteIndex(idx) == ErrorCode::Success);
-                }
-                else
-                {
-                    return;
-                }
+                InsertVectors<T>(static_cast<SPANN::Index<T> *>(index.get()), numThreads, insertBatchSize, addvecset,
+                                 addmetaset, iter * insertBatchSize);
             }
-        };
-        
-        start = std::chrono::high_resolution_clock::now();
-        for (int j = 0; j < numThreads; j++)
-        {
-            threads.emplace_back(func);
-        }
-        for (auto &thread : threads)
-        {
-            thread.join();
-        }
-        end = std::chrono::high_resolution_clock::now();
-        seconds = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000000.0f;
-        throughput = deleteVectorCount / seconds;
+            auto end = std::chrono::high_resolution_clock::now();
 
-        benchmark1Data << "      \"deleted\": " << deleteVectorCount << ",\n";
-        benchmark1Data << "      \"delete timeSeconds\": " << seconds << ",\n";
-        benchmark1Data << "      \"delete throughput\": " << throughput << "\n";
-        benchmark1Data << "    }";
-    }
+            double seconds = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000000.0f;
+            double throughput = insertVectorCount / seconds;
 
-    // Benchmark 2: Query performance with detailed latency stats
-    BOOST_TEST_MESSAGE("\n=== Benchmark 2: Query Performance ===");
-    {
-        std::vector<float> latencies(numQueries);
-        std::atomic_size_t queriesSent(0);
-        std::vector<QueryResult> results(numQueries);
+            BOOST_TEST_MESSAGE("  Inserted: " << insertVectorCount << " vectors");
+            BOOST_TEST_MESSAGE("  Time: " << seconds << " seconds");
+            BOOST_TEST_MESSAGE("  Throughput: " << throughput << " vectors/sec");
 
-        for (int i = 0; i < numQueries; i++)
-        {
-            results[i] = QueryResult((const T *)queryset->GetVector(i), K, false);
+            // Collect JSON data for Benchmark 1
+            benchmark1Data << std::fixed << std::setprecision(4);
+            benchmark1Data << "{\n";
+            benchmark1Data << "      \"inserted\": " << insertVectorCount << ",\n";
+            benchmark1Data << "      \"insert timeSeconds\": " << seconds << ",\n";
+            benchmark1Data << "      \"insert throughput\": " << throughput << "\n";
         }
 
-        std::vector<std::thread> threads;
-        threads.reserve(numThreads);
-
-        auto batchStart = std::chrono::high_resolution_clock::now();
-
-        for (int i = 0; i < numThreads; i++)
+        if (deleteVectorCount > 0)
         {
-            threads.emplace_back([&]() {
-                size_t qid;
-                while ((qid = queriesSent.fetch_add(1)) < numQueries)
+
+            std::vector<std::thread> threads;
+            threads.reserve(numThreads);
+
+            std::atomic_size_t vectorsSent(0);
+            int totaldeleted = batches * deleteBatchSize;
+            auto func = [&]() {
+                size_t idx = 0;
+                while (true)
                 {
-                    auto t1 = std::chrono::high_resolution_clock::now();
-                    index->SearchIndex(results[qid]);
-                    auto t2 = std::chrono::high_resolution_clock::now();
-                    latencies[qid] = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000.0f;
+                    idx = vectorsSent.fetch_add(1);
+                    if (idx < totaldeleted)
+                    {
+                        if ((idx & ((1 << 5) - 1)) == 0)
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n",
+                                            idx * 100.0 / totaldeleted);
+                        }
+                        BOOST_REQUIRE(index->DeleteIndex(idx) == ErrorCode::Success);
+                    }
+                    else
+                    {
+                        return;
+                    }
                 }
-            });
+            };
+
+            auto start = std::chrono::high_resolution_clock::now();
+            for (int j = 0; j < numThreads; j++)
+            {
+                threads.emplace_back(func);
+            }
+            for (auto &thread : threads)
+            {
+                thread.join();
+            }
+            auto end = std::chrono::high_resolution_clock::now();
+            double seconds = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000000.0f;
+            double throughput = deleteVectorCount / seconds;
+
+            benchmark1Data << "      \"deleted\": " << deleteVectorCount << ",\n";
+            benchmark1Data << "      \"delete timeSeconds\": " << seconds << ",\n";
+            benchmark1Data << "      \"delete throughput\": " << throughput << "\n";
+            
         }
-
-        for (auto &thread : threads)
-            thread.join();
-
-        auto batchEnd = std::chrono::high_resolution_clock::now();
-        float batchLatency =
-            std::chrono::duration_cast<std::chrono::microseconds>(batchEnd - batchStart).count() / 1000000.0f;
-
-        // Calculate statistics
-        float mean = 0, minLat = (std::numeric_limits<float>::max)(), maxLat = 0;
-        for (int i = 0; i < numQueries; i++)
-        {
-            mean += latencies[i];
-            minLat = (std::min)(minLat, latencies[i]);
-            maxLat = (std::max)(maxLat, latencies[i]);
-        }
-        mean /= numQueries;
-
-        std::sort(latencies.begin(), latencies.end());
-        float p50 = latencies[static_cast<size_t>(numQueries * 0.50)];
-        float p90 = latencies[static_cast<size_t>(numQueries * 0.90)];
-        float p95 = latencies[static_cast<size_t>(numQueries * 0.95)];
-        float p99 = latencies[static_cast<size_t>(numQueries * 0.99)];
-        float qps = numQueries / batchLatency;
-
-        BOOST_TEST_MESSAGE("  Queries: " << numQueries);
-        BOOST_TEST_MESSAGE("  Mean Latency: " << mean << " ms");
-        BOOST_TEST_MESSAGE("  P50 Latency:  " << p50 << " ms");
-        BOOST_TEST_MESSAGE("  P90 Latency:  " << p90 << " ms");
-        BOOST_TEST_MESSAGE("  P95 Latency:  " << p95 << " ms");
-        BOOST_TEST_MESSAGE("  P99 Latency:  " << p99 << " ms");
-        BOOST_TEST_MESSAGE("  Min Latency:  " << minLat << " ms");
-        BOOST_TEST_MESSAGE("  Max Latency:  " << maxLat << " ms");
-        BOOST_TEST_MESSAGE("  QPS:          " << qps);
-
-        // Collect JSON data for Benchmark 2
-        benchmark2Data << std::fixed << std::setprecision(4);
-        benchmark2Data << "{\n";
-        benchmark2Data << "      \"numQueries\": " << numQueries << ",\n";
-        benchmark2Data << "      \"meanLatency\": " << mean << ",\n";
-        benchmark2Data << "      \"p50\": " << p50 << ",\n";
-        benchmark2Data << "      \"p90\": " << p90 << ",\n";
-        benchmark2Data << "      \"p95\": " << p95 << ",\n";
-        benchmark2Data << "      \"p99\": " << p99 << ",\n";
-        benchmark2Data << "      \"minLatency\": " << minLat << ",\n";
-        benchmark2Data << "      \"maxLatency\": " << maxLat << ",\n";
-        benchmark2Data << "      \"qps\": " << qps << "\n";
-        benchmark2Data << "    }";
+        benchmark1Data << "    }";
+        
+        // Benchmark 2: Query performance with detailed latency stats
+        BOOST_TEST_MESSAGE("\n=== Benchmark 2: Query After Insertions ===");
+        BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
+                                     numThreads, numQueries, batches, benchmark2Data);
     }
 
     // Benchmark 3: Save index to disk
@@ -483,84 +522,13 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
 
     BOOST_TEST_MESSAGE("Benchmark 4 completed successfully");
 
-    std::vector<QueryResult> results(numQueries);
     // Benchmark 5: Query performance after reload
     BOOST_TEST_MESSAGE("\n=== Benchmark 5: Query After Reload ===");
-    {
-        std::vector<float> latencies(numQueries);
-        std::atomic_size_t queriesSent(0);
+    BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
+                                 numThreads, numQueries, batches, tmpbenchmark);
 
-        for (int i = 0; i < numQueries; i++)
-        {
-            results[i] = QueryResult((const T *)queryset->GetVector(i), K, false);
-        }
-
-        std::vector<std::thread> threads;
-        threads.reserve(numThreads);
-
-        auto batchStart = std::chrono::high_resolution_clock::now();
-
-        for (int i = 0; i < numThreads; i++)
-        {
-            threads.emplace_back([&]() {
-                size_t qid;
-                while ((qid = queriesSent.fetch_add(1)) < numQueries)
-                {
-                    auto t1 = std::chrono::high_resolution_clock::now();
-                    index->SearchIndex(results[qid]);
-                    auto t2 = std::chrono::high_resolution_clock::now();
-                    latencies[qid] = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000.0f;
-                }
-            });
-        }
-
-        for (auto &thread : threads)
-            thread.join();
-
-        auto batchEnd = std::chrono::high_resolution_clock::now();
-        float batchLatency =
-            std::chrono::duration_cast<std::chrono::microseconds>(batchEnd - batchStart).count() / 1000000.0f;
-
-        float mean = 0;
-        for (int i = 0; i < numQueries; i++)
-        {
-            mean += latencies[i];
-        }
-        mean /= numQueries;
-
-        std::sort(latencies.begin(), latencies.end());
-        float p95 = latencies[static_cast<size_t>(numQueries * 0.95)];
-        float p99 = latencies[static_cast<size_t>(numQueries * 0.99)];
-        float qps = numQueries / batchLatency;
-
-        BOOST_TEST_MESSAGE("  Mean Latency: " << mean << " ms");
-        BOOST_TEST_MESSAGE("  P95 Latency:  " << p95 << " ms");
-        BOOST_TEST_MESSAGE("  P99 Latency:  " << p99 << " ms");
-        BOOST_TEST_MESSAGE("  QPS:          " << qps);
-
-        // Collect JSON data for Benchmark 5
-        benchmark5Data << std::fixed << std::setprecision(4);
-        benchmark5Data << "{\n";
-        benchmark5Data << "      \"meanLatency\": " << mean << ",\n";
-        benchmark5Data << "      \"p95\": " << p95 << ",\n";
-        benchmark5Data << "      \"p99\": " << p99 << ",\n";
-        benchmark5Data << "      \"qps\": " << qps << "\n";
-        benchmark5Data << "    }";
-    }
-
-    // Benchmark 6: Recall evaluation (if truth file provided)
-    BOOST_TEST_MESSAGE("Checking for truth file: " << truthPath);
-    float avgRecall = EvaluateRecall<T>(results, index, queryset, truth, vecset, addvecset, N, K, batches);
-    BOOST_TEST_MESSAGE("  Recall@" << K << " = " << (avgRecall * 100.0f) << "%");
-    BOOST_TEST_MESSAGE("  (Evaluated on " << numQueries << " queries against base vectors)");
-
-    // Collect JSON data for Benchmark 6
-    benchmark6Data << std::fixed << std::setprecision(4);
-    benchmark6Data << "{\n";
-    benchmark6Data << "      \"recallAtK\": " << avgRecall << ",\n";
-    benchmark6Data << "      \"k\": " << K << ",\n";
-    benchmark6Data << "      \"numQueries\": " << numQueries << "\n";
-    benchmark6Data << "    }";
+    BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
+                                 numThreads, numQueries, batches, benchmark5Data);
 
     BOOST_TEST_MESSAGE("\n=== Benchmark Complete ===");
 
@@ -603,8 +571,12 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
             jsonFile << "    \"DistMethod\": \"" << Helper::Convert::ConvertToString(distMethod) << "\"\n";
             jsonFile << "  },\n";
             jsonFile << "  \"results\": {\n";
-            jsonFile << "    \"benchmark1_insert\": " << benchmark1Data.str() << ",\n";
-            jsonFile << "    \"benchmark2_query_before_save\": " << benchmark2Data.str() << ",\n";
+            jsonFile << "    \"benchmark0_query_before_insert\": " << benchmark0Data.str() << ",\n";
+            if (!benchmark1Data.str().empty())
+            {
+                jsonFile << "    \"benchmark1_insert\": " << benchmark1Data.str() << ",\n";
+                jsonFile << "    \"benchmark2_query_before_save\": " << benchmark2Data.str() << ",\n";
+            }
             jsonFile << "    \"benchmark3_save\": " << benchmark3Data.str() << ",\n";
             jsonFile << "    \"benchmark4_reload\": " << benchmark4Data.str() << ",\n";
             jsonFile << "    \"benchmark5_query_after_reload\": " << benchmark5Data.str();
