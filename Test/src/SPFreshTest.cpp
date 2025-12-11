@@ -350,8 +350,8 @@ void BenchmarkQueryPerformance(std::shared_ptr<VectorIndex> &index, std::shared_
 
 template <typename T>
 void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, const std::string &truthPath, DistCalcMethod distMethod,
-                  const std::string &indexPath, int dimension, int baseVectorCount, int insertVectorCount, int deleteVectorCount,
-                  int batches, int topK, int numThreads, int numQueries)
+                  const std::string &indexPath, int dimension, int baseVectorCount, int insertVectorCount, int deleteVectorCount, int batches, int topK, int numThreads, int numQueries,
+                  const std::string &outputFile = "output.json")
 {
     int oldM = M, oldK = K, oldN = N, oldQueries = queries;
     N = baseVectorCount;
@@ -534,7 +534,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
 
     // Write JSON output
     {
-        std::ofstream jsonFile("output.json");
+        std::ofstream jsonFile(outputFile);
         if (jsonFile.is_open())
         {
             jsonFile << std::fixed << std::setprecision(4);
@@ -1633,21 +1633,28 @@ BOOST_AUTO_TEST_CASE(BenchmarkFromConfig)
     BOOST_TEST_MESSAGE("Queries: " << numQueries);
     BOOST_TEST_MESSAGE("DistMethod: " << Helper::Convert::ConvertToString(distMethod));
 
+    // Get output file path from environment variable or use default
+    const char *outputPath = std::getenv("BENCHMARK_OUTPUT");
+    std::string outputFile = outputPath ? std::string(outputPath) : "output.json";
+    BOOST_TEST_MESSAGE("Output File: " << outputFile);
+
     // Dispatch to appropriate type
     if (valueType == VectorValueType::Float)
     {
         RunBenchmark<float>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
-                            insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries);
+                            insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries, outputFile);
     }
     else if (valueType == VectorValueType::Int8)
     {
         RunBenchmark<std::int8_t>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
-                                  insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries);
+                                  insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries,
+                                  outputFile);
     }
     else if (valueType == VectorValueType::UInt8)
     {
         RunBenchmark<std::uint8_t>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
-                                   insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries);
+                                   insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries,
+                                   outputFile);
     }
 
     std::filesystem::remove_all(indexPath);
