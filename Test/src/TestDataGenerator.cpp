@@ -436,7 +436,7 @@ std::shared_ptr<VectorSet> TestDataGenerator<T>::GenerateRandomVectorSet(SizeTyp
 template <typename T>
 std::shared_ptr<MetadataSet> TestDataGenerator<T>::GenerateMetadataSet(SizeType count, SizeType offsetBase)
 {
-    ByteArray meta = ByteArray::Alloc(count * 6);
+    ByteArray meta = ByteArray::Alloc(count * 10);
     ByteArray metaoffset = ByteArray::Alloc((count + 1) * sizeof(std::uint64_t));
     std::uint64_t offset = 0;
     for (SizeType i = 0; i < count; i++)
