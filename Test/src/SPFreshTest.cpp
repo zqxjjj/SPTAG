@@ -255,7 +255,7 @@ void BenchmarkQueryPerformance(std::shared_ptr<VectorIndex> &index, std::shared_
                                std::shared_ptr<VectorSet> &truth, std::shared_ptr<VectorSet> &vecset,
                                std::shared_ptr<VectorSet> &addvecset, const std::string &truthPath,
                                SizeType baseVectorCount, int topK, int numThreads, int numQueries, int batches,
-                               std::ostringstream &benchmarkData, std::string prefix = "")
+                               std::ostream &benchmarkData, std::string prefix = "")
 {
     // Benchmark: Query performance with detailed latency stats
     std::vector<float> latencies(numQueries);
@@ -363,7 +363,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     int deleteBatchSize = deleteVectorCount / max(batches, 1);
 
     // Variables to collect JSON output data
-    std::ostringstream tmpbenchmark, benchmark0Data, benchmark1Data;
+    std::ostringstream tmpbenchmark;
 
     // Generate test data
     std::shared_ptr<VectorSet> vecset, addvecset, queryset, truth;
@@ -371,6 +371,45 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     TestUtils::TestDataGenerator<T> generator(N, queries, M, K, dist, insertVectorCount, false, vectorPath, queryPath);
     generator.RunBatches(vecset, metaset, addvecset, addmetaset, queryset, N, insertBatchSize, deleteBatchSize,
                          batches, truth);
+
+
+    std::ofstream jsonFile(outputFile);
+    BOOST_REQUIRE(jsonFile.is_open());
+
+    jsonFile << std::fixed << std::setprecision(4);
+
+    // Get current timestamp
+    auto time_t_now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm tm_now;
+#if defined(_MSC_VER)
+    localtime_s(&tm_now, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_now);
+#endif
+
+    std::ostringstream timestampStream;
+    timestampStream << std::put_time(&tm_now, "%Y-%m-%dT%H:%M:%S");
+    std::string timestamp = timestampStream.str();
+
+    jsonFile << "{\n";
+    jsonFile << "  \"timestamp\": \"" << timestamp << "\",\n";
+    jsonFile << "  \"config\": {\n";
+    jsonFile << "    \"vectorPath\": \"" << vectorPath << "\",\n";
+    jsonFile << "    \"queryPath\": \"" << queryPath << "\",\n";
+    jsonFile << "    \"truthPath\": \"" << truthPath << "\",\n";
+    jsonFile << "    \"indexPath\": \"" << indexPath << "\",\n";
+    jsonFile << "    \"ValueType\": \"" << Helper::Convert::ConvertToString(GetEnumValueType<T>()) << "\",\n";
+    jsonFile << "    \"dimension\": " << dimension << ",\n";
+    jsonFile << "    \"baseVectorCount\": " << baseVectorCount << ",\n";
+    jsonFile << "    \"insertVectorCount\": " << insertVectorCount << ",\n";
+    jsonFile << "    \"DeleteVectorCount\": " << deleteVectorCount << ",\n";
+    jsonFile << "    \"BatchNum\": " << batches << ",\n";
+    jsonFile << "    \"topK\": " << topK << ",\n";
+    jsonFile << "    \"numQueries\": " << numQueries << ",\n";
+    jsonFile << "    \"numThreads\": " << numThreads << ",\n";
+    jsonFile << "    \"DistMethod\": \"" << Helper::Convert::ConvertToString(distMethod) << "\"\n";
+    jsonFile << "  },\n";
+    jsonFile << "  \"results\": {\n";
 
     // Build initial index
     BOOST_TEST_MESSAGE("\n=== Building Index ===");
@@ -384,8 +423,12 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     BOOST_TEST_MESSAGE("\n=== Benchmark 0: Query Before Insertions ===");
     BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
                                  numThreads, numQueries, 0, tmpbenchmark);
+    jsonFile << "    \"benchmark0_query_before_insert\": ";
     BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
-                                 numThreads, numQueries, 0, benchmark0Data);
+                                 numThreads, numQueries, 0, jsonFile);
+    jsonFile << ",\n";
+    jsonFile.flush();
+
     BOOST_REQUIRE(index->SaveIndex(indexPath) == ErrorCode::Success);
     index = nullptr;
 
@@ -402,12 +445,11 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     {
         BOOST_TEST_MESSAGE("\n=== Benchmark 1: Insert Performance ===");
         {
-            benchmark1Data << std::fixed << std::setprecision(4);
-            benchmark1Data << "{\n";
+            jsonFile << "    \"benchmark1_insert\": {\n";
             std::string prevPath = indexPath;
             for (int iter = 0; iter < batches; iter++)
             {
-                benchmark1Data << "      \"batch_" << iter + 1 << "\": {\n";
+                jsonFile << "      \"batch_" << iter + 1 << "\": {\n";
 
                 std::string clonePath = indexPath + "_" + std::to_string(iter);
                 std::shared_ptr<VectorIndex> prevIndex, clonedIndex;
@@ -424,8 +466,8 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                 BOOST_TEST_MESSAGE("  Index vectors after reload: " << vectorCount);
 
                 // Collect JSON data for Benchmark 4
-                benchmark1Data << "        \"Load timeSeconds\": " << seconds << ",\n";
-                benchmark1Data << "        \"Load vectorCount\": " << vectorCount << ",\n";
+                jsonFile << "        \"Load timeSeconds\": " << seconds << ",\n";
+                jsonFile << "        \"Load vectorCount\": " << vectorCount << ",\n";
 
                 auto cloneIndex = prevIndex->Clone(clonePath);
                 prevIndex = nullptr;
@@ -445,9 +487,9 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                 BOOST_TEST_MESSAGE("  Throughput: " << throughput << " vectors/sec");
 
                 // Collect JSON data for Benchmark 1               
-                benchmark1Data << "        \"inserted\": " << insertBatchSize << ",\n";
-                benchmark1Data << "        \"insert timeSeconds\": " << seconds << ",\n";
-                benchmark1Data << "        \"insert throughput\": " << throughput << ",\n";
+                jsonFile << "        \"inserted\": " << insertBatchSize << ",\n";
+                jsonFile << "        \"insert timeSeconds\": " << seconds << ",\n";
+                jsonFile << "        \"insert throughput\": " << throughput << ",\n";
 
                 if (deleteBatchSize > 0)
                 {
@@ -492,16 +534,16 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                         std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000000.0f;
                     double throughput = deleteBatchSize / seconds;
 
-                    benchmark1Data << "        \"deleted\": " << deleteVectorCount << ",\n";
-                    benchmark1Data << "        \"delete timeSeconds\": " << seconds << ",\n";
-                    benchmark1Data << "        \"delete throughput\": " << throughput << ",\n";
+                    jsonFile << "        \"deleted\": " << deleteVectorCount << ",\n";
+                    jsonFile << "        \"delete timeSeconds\": " << seconds << ",\n";
+                    jsonFile << "        \"delete throughput\": " << throughput << ",\n";
                 }
 
                 BOOST_TEST_MESSAGE("\n=== Benchmark 2: Query After Insertions and Deletions ===");
-                benchmark1Data << "        \"search\":";
+                jsonFile << "        \"search\":";
                 BenchmarkQueryPerformance<T>(cloneIndex, queryset, truth, vecset, addvecset, truthPath, baseVectorCount,
-                                             topK, numThreads, numQueries, iter + 1, benchmark1Data, "    ");
-                benchmark1Data << ",\n";
+                                             topK, numThreads, numQueries, iter + 1, jsonFile, "    ");
+                jsonFile << ",\n";
 
                 start = std::chrono::high_resolution_clock::now();
                 BOOST_REQUIRE(cloneIndex->SaveIndex(clonePath) == ErrorCode::Success);
@@ -512,80 +554,24 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                 BOOST_TEST_MESSAGE("  Save completed successfully");
 
                 // Collect JSON data for Benchmark 3
-                benchmark1Data << "        \"save timeSeconds\": " << seconds << "\n";
+                jsonFile << "        \"save timeSeconds\": " << seconds << "\n";
 
                 if (iter != batches - 1)
-                    benchmark1Data << "      },\n";
+                    jsonFile << "      },\n";
                 else
-                    benchmark1Data << "      }\n";
-
-
+                    jsonFile << "      }\n";
 
                 cloneIndex = nullptr;
                 prevPath = clonePath;
+                jsonFile.flush();
             }
         }
-        benchmark1Data << "    }";
+        jsonFile << "    }\n";
     }
 
-
-    BOOST_TEST_MESSAGE("\n=== Benchmark Complete ===");
-
-    // Write JSON output
-    {
-        std::ofstream jsonFile(outputFile);
-        if (jsonFile.is_open())
-        {
-            jsonFile << std::fixed << std::setprecision(4);
-
-            // Get current timestamp
-            auto time_t_now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-            std::tm tm_now;
-#if defined(_MSC_VER)
-            localtime_s(&tm_now, &time_t_now);
-#else
-            localtime_r(&time_t_now, &tm_now);
-#endif
-
-            std::ostringstream timestampStream;
-            timestampStream << std::put_time(&tm_now, "%Y-%m-%dT%H:%M:%S");
-            std::string timestamp = timestampStream.str();
-
-            jsonFile << "{\n";
-            jsonFile << "  \"timestamp\": \"" << timestamp << "\",\n";
-            jsonFile << "  \"config\": {\n";
-            jsonFile << "    \"vectorPath\": \"" << vectorPath << "\",\n";
-            jsonFile << "    \"queryPath\": \"" << queryPath << "\",\n";
-            jsonFile << "    \"truthPath\": \"" << truthPath << "\",\n";
-            jsonFile << "    \"indexPath\": \"" << indexPath << "\",\n";
-            jsonFile << "    \"ValueType\": \"" << Helper::Convert::ConvertToString(GetEnumValueType<T>()) << "\",\n";
-            jsonFile << "    \"dimension\": " << dimension << ",\n";
-            jsonFile << "    \"baseVectorCount\": " << baseVectorCount << ",\n";
-            jsonFile << "    \"insertVectorCount\": " << insertVectorCount << ",\n";
-            jsonFile << "    \"DeleteVectorCount\": " << deleteVectorCount << ",\n";
-            jsonFile << "    \"BatchNum\": " << batches << ",\n";
-            jsonFile << "    \"topK\": " << topK << ",\n";
-            jsonFile << "    \"numQueries\": " << numQueries << ",\n";
-            jsonFile << "    \"numThreads\": " << numThreads << ",\n";
-            jsonFile << "    \"DistMethod\": \"" << Helper::Convert::ConvertToString(distMethod) << "\"\n";
-            jsonFile << "  },\n";
-            jsonFile << "  \"results\": {\n";
-            jsonFile << "    \"benchmark0_query_before_insert\": " << benchmark0Data.str() << ",\n";
-            if (!benchmark1Data.str().empty())
-            {
-                jsonFile << "    \"benchmark1_insert\": " << benchmark1Data.str() << "\n";
-            }
-            jsonFile << "  }\n";
-            jsonFile << "}\n";
-
-            jsonFile.close();
-            BOOST_TEST_MESSAGE("\n=== Benchmark results saved to output.json ===");
-        }
-        else
-        {
-            BOOST_TEST_MESSAGE("\n=== Failed to create output.json ===");
-        }
-    }
+    jsonFile << "  }\n";
+    jsonFile << "}\n";
+    jsonFile.close();
 
     M = oldM;
     K = oldK;
