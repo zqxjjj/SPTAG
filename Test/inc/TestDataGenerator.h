@@ -37,6 +37,12 @@ namespace TestUtils {
                         std::shared_ptr<SPTAG::VectorSet> &addvecset, std::shared_ptr<SPTAG::MetadataSet> &addmetaset,
                         std::shared_ptr<SPTAG::VectorSet> &queryset, int base, int batchinsert, int batchdelete, int batches, 
                         std::shared_ptr<SPTAG::VectorSet> &truths);
+
+        void RunLargeBatches(std::string &vecset, std::string &metaset, std::string &metaidx, 
+                             std::string &addset, std::string &addmetaset, std::string &addmetaidx,
+                             std::string &queryset, int bash, int batchinsert, int batchdelete, int batches,
+                             std::string &truth);
+
     private:
         int m_n, m_a, m_q, m_m, m_k;
         std::string m_distMethod;
@@ -64,6 +70,13 @@ namespace TestUtils {
 
         std::shared_ptr<SPTAG::VectorSet> CombineVectorSets(std::shared_ptr<SPTAG::VectorSet> base,
             std::shared_ptr<SPTAG::VectorSet> additional);
+
+        void GenerateVectorSet(std::string &vecset, std::string &metaset, std::string &metaidx, std::string &vecPath,
+                               SPTAG::SizeType start, int count);
+
+        void GenerateBatchTruth(const std::string &filename, std::string &pvecset, std::string &paddset, std::string &pqueryset,
+                                int base, int batchinsert, int batchdelete, int batches,
+                                bool normalize);
     };
 
 } // namespace TestUtils

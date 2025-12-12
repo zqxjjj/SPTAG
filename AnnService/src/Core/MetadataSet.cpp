@@ -276,23 +276,34 @@ MemMetadataSet::MemMetadataSet(std::uint64_t p_blockSize, std::uint64_t p_capaci
 }
 
 ErrorCode MemMetadataSet::Init(std::shared_ptr<Helper::DiskIO> p_metain, std::shared_ptr<Helper::DiskIO> p_metaindexin,
-                               std::uint64_t p_blockSize, std::uint64_t p_capacity, std::uint64_t p_metaSize)
+                               std::uint64_t p_blockSize, std::uint64_t p_capacity, std::uint64_t p_metaSize, int start, int count)
 {
     IOBINARY(p_metaindexin, ReadBinary, sizeof(m_count), (char *)&m_count);
+    if (start > m_count) start = m_count;
+    if (count < 0 || count > m_count - start) count = m_count - start;
+
+    std::uint64_t offset = 0;
     m_pOffsets.reset(new MetadataOffsets, std::default_delete<MetadataOffsets>());
     auto &m_offsets = *static_cast<MetadataOffsets *>(m_pOffsets.get());
     m_offsets.reserve(p_blockSize, p_capacity);
     {
         std::vector<std::uint64_t> tmp(m_count + 1, 0);
         IOBINARY(p_metaindexin, ReadBinary, sizeof(std::uint64_t) * (m_count + 1), (char *)tmp.data());
-        m_offsets.assign(tmp.data(), tmp.data() + tmp.size());
+        offset = tmp[start];
+        if (offset > 0)
+        {
+             for (int i = start; i <= start + count; i++)
+            tmp[i] -= offset;
+        }
+        m_offsets.assign(tmp.data() + start, tmp.data() + start + count + 1);
     }
-    m_metadataHolder = ByteArray::Alloc(m_offsets[m_count]);
-    IOBINARY(p_metain, ReadBinary, m_metadataHolder.Length(), (char *)m_metadataHolder.Data());
+    m_metadataHolder = ByteArray::Alloc(m_offsets[count]);
+    IOBINARY(p_metain, ReadBinary, m_metadataHolder.Length(), (char *)m_metadataHolder.Data(), offset);
 
     m_newdata.reserve(p_blockSize * p_metaSize);
     m_lock.reset(new std::shared_timed_mutex, std::default_delete<std::shared_timed_mutex>());
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load MetaIndex(%d) Meta(%llu)\n", m_count, m_offsets[m_count]);
+    m_count = count;
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load MetaIndex(%d) Meta(%llu) Offset(%llu)\n", m_count, m_offsets[m_count], offset);
     return ErrorCode::Success;
 }
 
@@ -307,7 +318,8 @@ MemMetadataSet::MemMetadataSet(std::shared_ptr<Helper::DiskIO> p_metain, std::sh
 }
 
 MemMetadataSet::MemMetadataSet(const std::string &p_metafile, const std::string &p_metaindexfile,
-                               std::uint64_t p_blockSize, std::uint64_t p_capacity, std::uint64_t p_metaSize)
+                               std::uint64_t p_blockSize, std::uint64_t p_capacity, std::uint64_t p_metaSize,
+                               int start, int count)
 {
     std::shared_ptr<Helper::DiskIO> ptrMeta = f_createIO(), ptrMetaIndex = f_createIO();
     if (ptrMeta == nullptr || ptrMetaIndex == nullptr ||
@@ -318,7 +330,7 @@ MemMetadataSet::MemMetadataSet(const std::string &p_metafile, const std::string 
                      p_metaindexfile.c_str());
         throw std::runtime_error("Cannot open MemMetadataSet files");
     }
-    if (Init(ptrMeta, ptrMetaIndex, p_blockSize, p_capacity, p_metaSize) != ErrorCode::Success)
+    if (Init(ptrMeta, ptrMetaIndex, p_blockSize, p_capacity, p_metaSize, start, count) != ErrorCode::Success)
     {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ERROR: Cannot read MemMetadataSet!\n");
         throw std::runtime_error("Cannot read MemMetadataSet");

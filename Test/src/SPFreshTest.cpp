@@ -127,6 +127,103 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
 }
 
 template <typename T>
+std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, std::string &pvecset,
+                                        std::string& pmetaset, std::string& pmetaidx, const std::string &distMethod = "L2",
+                                        int searchthread = 2)
+{
+    auto vecIndex = VectorIndex::CreateInstance(IndexAlgoType::SPANN, GetEnumValueType<T>());
+
+    std::string configuration = R"(
+        [Base]
+            DistCalcMethod=L2
+            IndexAlgoType=BKT
+            VectorPath=)" + pvecset + R"(
+            ValueType=)" + Helper::Convert::ConvertToString(GetEnumValueType<T>()) +
+                                R"(
+            Dim=)" + std::to_string(M) +
+                                R"(
+            IndexDirectory=)" + outDirectory +
+                                R"(
+
+        [SelectHead]
+            isExecute=true
+            NumberOfThreads=16
+            SelectThreshold=0
+            SplitFactor=0
+            SplitThreshold=0
+            Ratio=0.2
+
+        [BuildHead]
+            isExecute=true
+            NumberOfThreads=16
+
+        [BuildSSDIndex]
+            isExecute=true
+            BuildSsdIndex=true
+            InternalResultNum=64
+            SearchInternalResultNum=64
+            NumberOfThreads=16
+	    PostingPageLimit=)" + std::to_string(4 * sizeof(T)) +
+                                R"(
+            SearchPostingPageLimit=)" +
+                                std::to_string(4 * sizeof(T)) + R"(
+            TmpDir=tmpdir
+            Storage=FILEIO
+            SpdkBatchSize=64
+            ExcludeHead=false
+            ResultNum=10
+            SearchThreadNum=)" + std::to_string(searchthread) +
+                                R"(
+            Update=true
+            SteadyState=true
+            InsertThreadNum=1
+            AppendThreadNum=1
+            ReassignThreadNum=0
+            DisableReassign=false
+            ReassignK=64
+            LatencyLimit=50.0
+            SearchDuringUpdate=true
+            MergeThreshold=10
+            Sampling=4
+            BufferLength=6
+            InPlace=true
+            StartFileSizeGB=1
+            OneClusterCutMax=false
+            ConsistencyCheck=false
+            ChecksumCheck=false
+            ChecksumInRead=false
+            AsyncMergeInSearch=false
+            DeletePercentageForRefine=0.4
+            AsyncAppendQueueSize=0
+            AllowZeroReplica=false
+        )";
+
+    std::shared_ptr<Helper::DiskIO> buffer(new Helper::SimpleBufferIO());
+    Helper::IniReader reader;
+    if (!buffer->Initialize(configuration.data(), std::ios::in, configuration.size()))
+        return nullptr;
+    if (ErrorCode::Success != reader.LoadIni(buffer))
+        return nullptr;
+
+    std::string sections[] = {"Base", "SelectHead", "BuildHead", "BuildSSDIndex"};
+    for (const auto &sec : sections)
+    {
+        auto params = reader.GetParameters(sec.c_str());
+        for (const auto &[key, val] : params)
+        {
+            vecIndex->SetParameter(key.c_str(), val.c_str(), sec.c_str());
+        }
+    }
+
+    auto buildStatus = vecIndex->BuildIndex();
+    if (buildStatus != ErrorCode::Success)
+        return nullptr;
+
+    vecIndex->SetMetadata(new SPTAG::FileMetadataSet(pmetaset, pmetaidx));
+    return vecIndex;
+}
+
+template <typename T>
 std::vector<QueryResult> SearchOnly(std::shared_ptr<VectorIndex> &vecIndex, std::shared_ptr<VectorSet> &queryset, int k)
 {
     std::vector<QueryResult> res(queryset->Count(), QueryResult(nullptr, k, true));
@@ -149,7 +246,7 @@ std::vector<QueryResult> SearchOnly(std::shared_ptr<VectorIndex> &vecIndex, std:
 template <typename T>
 float EvaluateRecall(const std::vector<QueryResult> &res, std::shared_ptr<VectorIndex> &vecIndex,
                      std::shared_ptr<VectorSet> &queryset, std::shared_ptr<VectorSet> &truth,
-                     std::shared_ptr<VectorSet> &baseVec, std::shared_ptr<VectorSet> &addVec, SizeType baseCount, int k, int batch)
+                     std::shared_ptr<VectorSet> &baseVec, std::shared_ptr<VectorSet> &addVec, SizeType baseCount, int k, int batch, int totalbatches = -1)
 {
     if (!truth)
     {
@@ -160,18 +257,28 @@ float EvaluateRecall(const std::vector<QueryResult> &res, std::shared_ptr<Vector
     const SizeType recallK = min(k, static_cast<int>(truth->Dimension()));
     float totalRecall = 0.0f;
     float eps = 1e-4f;
-
+    int distbase = (totalbatches + 1) * queryset->Count();
     for (SizeType i = 0; i < queryset->Count(); ++i)
     {
         const SizeType *truthNN = reinterpret_cast<const SizeType *>(truth->GetVector(i + batch * queryset->Count()));
+        float *truthD = nullptr;
+        if (truth->Count() == 2 * distbase)
+        {
+            truthD = reinterpret_cast<float *>(truth->GetVector(distbase + i + batch * queryset->Count()));
+        }
         for (int j = 0; j < recallK; ++j)
         {
             SizeType truthVid = truthNN[j];
-            float truthDist =
-                (truthVid < baseCount)
+            float truthDist = MaxDist;
+            if (baseVec != nullptr && addVec != nullptr)
+                truthDist = (truthVid < baseCount)
                     ? vecIndex->ComputeDistance(queryset->GetVector(i), baseVec->GetVector(truthVid))
                     : vecIndex->ComputeDistance(queryset->GetVector(i), addVec->GetVector(truthVid - baseCount));
-
+            else if (truthD)
+            {
+                truthDist = truthD[j];
+            }
+            
             for (int l = 0; l < k; ++l)
             {
                 const auto result = res[i].GetResult(l);
@@ -252,9 +359,8 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
 
 template <typename T>
 void BenchmarkQueryPerformance(std::shared_ptr<VectorIndex> &index, std::shared_ptr<VectorSet> &queryset,
-                               std::shared_ptr<VectorSet> &truth, std::shared_ptr<VectorSet> &vecset,
-                               std::shared_ptr<VectorSet> &addvecset, const std::string &truthPath,
-                               SizeType baseVectorCount, int topK, int numThreads, int numQueries, int batches,
+                               std::shared_ptr<VectorSet> &truth, const std::string &truthPath,
+                               SizeType baseVectorCount, int topK, int numThreads, int numQueries, int batches, int totalbatches,
                                std::ostream &benchmarkData, std::string prefix = "")
 {
     // Benchmark: Query performance with detailed latency stats
@@ -336,7 +442,8 @@ void BenchmarkQueryPerformance(std::shared_ptr<VectorIndex> &index, std::shared_
 
     // Recall evaluation (if truth file provided)
     BOOST_TEST_MESSAGE("Checking for truth file: " << truthPath);
-    float avgRecall = EvaluateRecall<T>(results, index, queryset, truth, vecset, addvecset, baseVectorCount, topK, batches);
+    std::shared_ptr<VectorSet> pvecset, paddvecset;
+    float avgRecall = EvaluateRecall<T>(results, index, queryset, truth, pvecset, paddvecset, baseVectorCount, topK, batches, totalbatches);
     BOOST_TEST_MESSAGE("  Recall@" << topK << " = " << (avgRecall * 100.0f) << "%");
     BOOST_TEST_MESSAGE("  (Evaluated on " << numQueries << " queries against base vectors)");
     benchmarkData << std::fixed << std::setprecision(4);
@@ -366,11 +473,10 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     std::ostringstream tmpbenchmark;
 
     // Generate test data
-    std::shared_ptr<VectorSet> vecset, addvecset, queryset, truth;
-    std::shared_ptr<MetadataSet> metaset, addmetaset;
+    std::string pvecset, paddset, pqueryset, ptruth, pmeta, pmetaidx, paddmeta, paddmetaidx;
     TestUtils::TestDataGenerator<T> generator(N, queries, M, K, dist, insertVectorCount, false, vectorPath, queryPath);
-    generator.RunBatches(vecset, metaset, addvecset, addmetaset, queryset, N, insertBatchSize, deleteBatchSize,
-                         batches, truth);
+    generator.RunLargeBatches(pvecset, pmeta, pmetaidx, paddset, paddmeta, paddmetaidx, pqueryset, N, insertBatchSize, deleteBatchSize,
+                         batches, ptruth);
 
 
     std::ofstream jsonFile(outputFile);
@@ -414,18 +520,46 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     // Build initial index
     BOOST_TEST_MESSAGE("\n=== Building Index ===");
     std::filesystem::remove_all(indexPath);
-    std::shared_ptr<VectorIndex> index = BuildIndex<T>(indexPath, vecset, metaset, dist, numThreads);
+    std::shared_ptr<VectorIndex> index = BuildLargeIndex<T>(indexPath, pvecset, pmeta, pmetaidx, dist, numThreads);
     BOOST_REQUIRE(index != nullptr);
 
     BOOST_TEST_MESSAGE("Index built successfully with " << baseVectorCount << " vectors");
 
+    auto vectorOptions = std::shared_ptr<Helper::ReaderOptions>(
+        new Helper::ReaderOptions(GetEnumValueType<T>(), M, VectorFileType::DEFAULT));
+
+    auto queryReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
+    if (!fileexists(pqueryset.c_str()) || ErrorCode::Success != queryReader->LoadFile(pqueryset))
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find or load %s. Using random generation!\n",
+                     pqueryset.c_str());
+        return;
+    }
+    auto queryset = queryReader->GetVectorSet();
+
+    auto addReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
+    if (!fileexists(paddset.c_str()) || ErrorCode::Success != addReader->LoadFile(paddset))
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find or load %s. Using random generation!\n", paddset.c_str());
+        return;
+    }
+
+    auto opts = std::make_shared<Helper::ReaderOptions>(GetEnumValueType<float>(), K, VectorFileType::DEFAULT);
+    auto reader = Helper::VectorSetReader::CreateInstance(opts);
+    if (ErrorCode::Success != reader->LoadFile(ptruth))
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Failed to read file %s\n", ptruth.c_str());
+        return;
+    }
+    auto truth = reader->GetVectorSet();
+
     // Benchmark 0: Query performance before insertions
     BOOST_TEST_MESSAGE("\n=== Benchmark 0: Query Before Insertions ===");
-    BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
-                                 numThreads, numQueries, 0, tmpbenchmark);
+    BenchmarkQueryPerformance<T>(index, queryset, truth,truthPath, baseVectorCount, topK,
+                                 numThreads, numQueries, 0, batches, tmpbenchmark);
     jsonFile << "    \"benchmark0_query_before_insert\": ";
-    BenchmarkQueryPerformance<T>(index, queryset, truth, vecset, addvecset, truthPath, baseVectorCount, topK,
-                                 numThreads, numQueries, 0, jsonFile);
+    BenchmarkQueryPerformance<T>(index, queryset, truth, truthPath, baseVectorCount, topK,
+                                 numThreads, numQueries, 0, batches, jsonFile);
     jsonFile << ",\n";
     jsonFile.flush();
 
@@ -452,7 +586,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                 jsonFile << "      \"batch_" << iter + 1 << "\": {\n";
 
                 std::string clonePath = indexPath + "_" + std::to_string(iter);
-                std::shared_ptr<VectorIndex> prevIndex, clonedIndex;
+                std::shared_ptr<VectorIndex> prevIndex, cloneIndex;
                 auto start = std::chrono::high_resolution_clock::now();
                 BOOST_REQUIRE(VectorIndex::LoadIndex(prevPath, prevIndex) == ErrorCode::Success);
                 auto end = std::chrono::high_resolution_clock::now();
@@ -469,15 +603,19 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                 jsonFile << "        \"Load timeSeconds\": " << seconds << ",\n";
                 jsonFile << "        \"Load vectorCount\": " << vectorCount << ",\n";
 
-                auto cloneIndex = prevIndex->Clone(clonePath);
+                cloneIndex = prevIndex->Clone(clonePath);
                 prevIndex = nullptr;
 
-                start = std::chrono::high_resolution_clock::now();
-                InsertVectors<T>(static_cast<SPANN::Index<T> *>(cloneIndex.get()), numThreads, insertBatchSize,
-                                 addvecset,
-                                 addmetaset, iter * insertBatchSize);
-                end = std::chrono::high_resolution_clock::now();
-
+                int insertStart = iter * insertBatchSize;
+                {
+                    std::shared_ptr<VectorSet> addset = addReader->GetVectorSet(insertStart, insertStart + insertBatchSize);
+                    std::shared_ptr<MetadataSet> addmetaset(new MemMetadataSet(
+                        paddmeta, paddmetaidx, cloneIndex->m_iDataBlockSize, cloneIndex->m_iDataCapacity, 10, insertStart, insertBatchSize));
+                    start = std::chrono::high_resolution_clock::now();
+                    InsertVectors<T>(static_cast<SPANN::Index<T> *>(cloneIndex.get()), numThreads, insertBatchSize,
+                                     addset, addmetaset, 0);
+                    end = std::chrono::high_resolution_clock::now();
+                }
                 seconds =
                     std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000000.0f;
                 double throughput = insertBatchSize / seconds;
@@ -541,8 +679,8 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
 
                 BOOST_TEST_MESSAGE("\n=== Benchmark 2: Query After Insertions and Deletions ===");
                 jsonFile << "        \"search\":";
-                BenchmarkQueryPerformance<T>(cloneIndex, queryset, truth, vecset, addvecset, truthPath, baseVectorCount,
-                                             topK, numThreads, numQueries, iter + 1, jsonFile, "    ");
+                BenchmarkQueryPerformance<T>(cloneIndex, queryset, truth, truthPath, baseVectorCount,
+                                             topK, numThreads, numQueries, iter + 1, batches, jsonFile, "    ");
                 jsonFile << ",\n";
 
                 start = std::chrono::high_resolution_clock::now();

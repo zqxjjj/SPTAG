@@ -29,6 +29,7 @@ void TestDataGenerator<T>::Run(std::shared_ptr<VectorSet> &vecset, std::shared_p
     LoadOrGenerateTruth("perftest_addtruth." + m_distMethod, CombineVectorSets(vecset, addvecset), queryset, addtruth,
                         true);
 }
+
 template <typename T>
 void TestDataGenerator<T>::RunBatches(std::shared_ptr<SPTAG::VectorSet>& vecset,
     std::shared_ptr<SPTAG::MetadataSet>& metaset,
@@ -42,7 +43,161 @@ void TestDataGenerator<T>::RunBatches(std::shared_ptr<SPTAG::VectorSet>& vecset,
     LoadOrGenerateBatchTruth("perftest_batchtruth." + m_distMethod, CombineVectorSets(vecset, addvecset), queryset,
                              truths, base, batchinsert, batchdelete, batches, true);
 }
-    
+
+template <typename T>
+void TestDataGenerator<T>::RunLargeBatches(std::string &vecset, std::string &metaset, std::string &metaidx,
+                                           std::string &addset, std::string &addmetaset, std::string &addmetaidx,
+                                           std::string &queryset, int base, int batchinsert, int batchdelete,
+                                           int batches, std::string &truth)
+{
+    vecset = "perftest_vector.bin";
+    metaset = "perftest_meta.bin";
+    metaidx = "perftest_metaidx.bin";
+    addset = "perftest_addvector.bin";
+    addmetaset = "perftest_addmeta.bin";
+    addmetaidx = "perftest_addmetaidx.bin";
+    queryset = "perftest_query.bin";
+    truth = "perftest_batchtruth." + m_distMethod;
+    std::string empty;
+
+    GenerateVectorSet(vecset, metaset, metaidx, m_vectorPath, 0, m_n);
+    GenerateVectorSet(queryset, empty, empty, m_queryPath, 0, m_q);
+    GenerateVectorSet(addset, addmetaset, addmetaidx, m_vectorPath, m_n, m_a);
+    GenerateBatchTruth(truth, vecset, addset, queryset, base, batchinsert, batchdelete, batches, true);
+}
+
+template<typename T>
+void TestDataGenerator<T>::GenerateVectorSet(std::string & pvecset, std::string & pmetaset, std::string & pmetaidx, std::string& pvecPath, SPTAG::SizeType start, int count)
+{
+    if (!fileexists(pvecset.c_str()))
+    {
+        std::shared_ptr<SPTAG::VectorSet> vecset;
+        if (m_isRandom)
+        {
+            vecset = GenerateRandomVectorSet(count, m_m);
+        }
+        else
+        {
+            vecset = GenerateLoadVectorSet(count, m_m, pvecPath, start);
+        }
+        vecset->Save(pvecset);
+    }
+
+    if (pmetaset.empty() || pmetaidx.empty())
+        return;
+
+    if (!fileexists(pmetaset.c_str()) || !fileexists(pmetaidx.c_str()))
+    {
+        auto metaset = GenerateMetadataSet(count, start);
+        metaset->SaveMetadata(pmetaset, pmetaidx);
+    }
+}
+
+template <typename T>
+void TestDataGenerator<T>::GenerateBatchTruth(const std::string &filename, std::string &pvecset, std::string &paddset, std::string &pqueryset, int base,
+                                                    int batchinsert, int batchdelete, int batches, bool normalize)
+{
+    if (fileexists(filename.c_str()))
+        return;
+
+    auto vectorOptions = std::shared_ptr<Helper::ReaderOptions>(new Helper::ReaderOptions(GetEnumValueType<T>(), m_m, VectorFileType::DEFAULT));
+    auto vectorReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
+    if (!fileexists(pvecset.c_str()) || ErrorCode::Success != vectorReader->LoadFile(pvecset))
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find or load %s. Using random generation!\n", pvecset.c_str());
+        return;
+    }
+    auto vecset = vectorReader->GetVectorSet();
+
+    auto queryReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
+    if (!fileexists(pqueryset.c_str()) || ErrorCode::Success != queryReader->LoadFile(pqueryset))
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find or load %s. Using random generation!\n",
+                     pqueryset.c_str());
+        return;
+    }
+    auto queryset = queryReader->GetVectorSet();
+
+    auto addReader = Helper::VectorSetReader::CreateInstance(vectorOptions);
+    if (!fileexists(paddset.c_str()) || ErrorCode::Success != addReader->LoadFile(paddset))
+    {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Cannot find or load %s. Using random generation!\n",
+                     paddset.c_str());
+        return;
+    }
+    auto addset = addReader->GetVectorSet();
+
+
+    DistCalcMethod distMethod;
+    Helper::Convert::ConvertStringTo(m_distMethod.c_str(), distMethod);
+    if (normalize && distMethod == DistCalcMethod::Cosine)
+    {
+        COMMON::Utils::BatchNormalize((T *)vecset->GetData(), vecset->Count(), vecset->Dimension(),
+                                      COMMON::Utils::GetBase<T>(), 5);
+        COMMON::Utils::BatchNormalize((T *)addset->GetData(), addset->Count(), addset->Dimension(),
+                                      COMMON::Utils::GetBase<T>(), 5);
+    }
+
+    ByteArray tru = ByteArray::Alloc(2 * sizeof(float) * (batches + 1) * queryset->Count() * m_k);
+    int distbase = (batches + 1) * queryset->Count() * m_k;
+    int start = 0;
+    int end = base;
+    int maxthreads = std::thread::hardware_concurrency();
+    for (int iter = 0; iter < batches + 1; iter++)
+    {
+        std::vector<std::thread> mythreads;
+        mythreads.reserve(maxthreads);
+        std::atomic_size_t sent(0);
+        for (int tid = 0; tid < maxthreads; tid++)
+        {
+            mythreads.emplace_back([&, tid]() {
+                size_t i = 0;
+                while (true)
+                {
+                    i = sent.fetch_add(1);
+                    if (i < queryset->Count())
+                    {
+                        SizeType *neighbors = ((SizeType *)tru.Data()) + iter * (queryset->Count() * m_k) + i * m_k;
+                        float *dists = ((float *)tru.Data()) + distbase + iter * (queryset->Count() * m_k) + i * m_k;
+                        COMMON::QueryResultSet<T> res((const T *)queryset->GetVector(i), m_k);
+                        for (SizeType j = start; j < end; ++j)
+                        {
+                            float dist = MaxDist;
+                            if (j < vecset->Count())
+                                dist = COMMON::DistanceUtils::ComputeDistance(res.GetTarget(), 
+                                    reinterpret_cast<T *>(vecset->GetVector(j)), m_m, distMethod);
+                            else
+                                dist = COMMON::DistanceUtils::ComputeDistance(res.GetTarget(), 
+                                    reinterpret_cast<T *>(addset->GetVector(j - vecset->Count())), m_m, distMethod);
+
+                            res.AddPoint(j, dist);
+                        }
+                        res.SortResult();
+                        for (int j = 0; j < m_k; ++j)
+                        {
+                            neighbors[j] = res.GetResult(j)->VID;
+                            dists[j] = res.GetResult(j)->Dist;
+                        }
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+            });
+        }
+        for (auto &t : mythreads)
+        {
+            t.join();
+        }
+        mythreads.clear();
+        start += batchdelete;
+        end += batchinsert;
+    }
+    auto truths = std::make_shared<BasicVectorSet>(tru, GetEnumValueType<float>(), m_k, 2 * (batches + 1) * queryset->Count());
+    truths->Save(filename);
+}
+
 template <typename T>
 void TestDataGenerator<T>::LoadOrGenerateBase(std::shared_ptr<VectorSet> &vecset, std::shared_ptr<MetadataSet> &metaset)
 {
@@ -315,23 +470,16 @@ std::shared_ptr<SPTAG::VectorSet> TestDataGenerator<T>::GenerateLoadVectorSet(SP
         return GenerateRandomVectorSet(count, dim);
     }
 
-    auto allVectors = vectorReader->GetVectorSet();
-    int totalVectors = allVectors->Count();
-    if (totalVectors - start < count)
+    auto allVectors = vectorReader->GetVectorSet(start, start + count);
+    if (allVectors->Count() < count)
     {
         SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
-                        "%s contains total %d vectors. Cannot get %d vectors start from %d. Using random generation!\n", path.c_str(),
-                        totalVectors, count, start);
+                        "Cannot get %d vectors start from %d. Using random generation!\n", count, start);
         return GenerateRandomVectorSet(count, dim);
     }
 
-    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "%s contains total %d vectors. Load %d vectors start from %d\n",
-                    path.c_str(), totalVectors, count, start);
-
-
-    ByteArray baseData = ByteArray::Alloc(sizeof(T) * count * dim);
-    memcpy(baseData.Data(), (char *)(allVectors->GetData()) + sizeof(T) * start * dim, sizeof(T) * count * dim);
-    return std::make_shared<BasicVectorSet>(baseData, GetEnumValueType<T>(), dim, count);
+    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Load %d vectors start from %d\n", count, start);
+    return allVectors;
 }
 
 template <typename T>
