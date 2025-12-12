@@ -456,9 +456,10 @@ void BenchmarkQueryPerformance(std::shared_ptr<VectorIndex> &index, std::shared_
 }
 
 template <typename T>
-void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, const std::string &truthPath, DistCalcMethod distMethod,
-                  const std::string &indexPath, int dimension, int baseVectorCount, int insertVectorCount, int deleteVectorCount, int batches, int topK, int numThreads, int numQueries,
-                  const std::string &outputFile = "output.json")
+void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, const std::string &truthPath,
+                  DistCalcMethod distMethod, const std::string &indexPath, int dimension, int baseVectorCount,
+                  int insertVectorCount, int deleteVectorCount, int batches, int topK, int numThreads, int numQueries,
+                  const std::string &outputFile = "output.json", const bool rebuild = true, const int resume = -1)
 {
     int oldM = M, oldK = K, oldN = N, oldQueries = queries;
     N = baseVectorCount;
@@ -475,9 +476,8 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     // Generate test data
     std::string pvecset, paddset, pqueryset, ptruth, pmeta, pmetaidx, paddmeta, paddmetaidx;
     TestUtils::TestDataGenerator<T> generator(N, queries, M, K, dist, insertVectorCount, false, vectorPath, queryPath);
-    generator.RunLargeBatches(pvecset, pmeta, pmetaidx, paddset, paddmeta, paddmetaidx, pqueryset, N, insertBatchSize, deleteBatchSize,
-                         batches, ptruth);
-
+    generator.RunLargeBatches(pvecset, pmeta, pmetaidx, paddset, paddmeta, paddmetaidx, pqueryset, N, insertBatchSize,
+                              deleteBatchSize, batches, ptruth);
 
     std::ofstream jsonFile(outputFile);
     BOOST_REQUIRE(jsonFile.is_open());
@@ -517,17 +517,25 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     jsonFile << "  },\n";
     jsonFile << "  \"results\": {\n";
 
+    std::shared_ptr<VectorIndex> index;
     // Build initial index
     BOOST_TEST_MESSAGE("\n=== Building Index ===");
-    std::filesystem::remove_all(indexPath);
-    auto buildstart = std::chrono::high_resolution_clock::now();
-    std::shared_ptr<VectorIndex> index = BuildLargeIndex<T>(indexPath, pvecset, pmeta, pmetaidx, dist, numThreads);
-    BOOST_REQUIRE(index != nullptr);
-    auto buildend = std::chrono::high_resolution_clock::now();
-    double buildseconds =
-        std::chrono::duration_cast<std::chrono::microseconds>(buildend - buildstart).count() / 1000000.0f;
-    jsonFile << "    \"build timeSeconds\": " << buildseconds << ",\n";
-    BOOST_TEST_MESSAGE("Index built successfully with " << baseVectorCount << " vectors");
+    if (rebuild || !direxists(indexPath.c_str())) {
+        std::filesystem::remove_all(indexPath);
+        auto buildstart = std::chrono::high_resolution_clock::now();
+        index = BuildLargeIndex<T>(indexPath, pvecset, pmeta, pmetaidx, dist, numThreads);
+        BOOST_REQUIRE(index != nullptr);
+        auto buildend = std::chrono::high_resolution_clock::now();
+        double buildseconds =
+            std::chrono::duration_cast<std::chrono::microseconds>(buildend - buildstart).count() / 1000000.0f;
+        jsonFile << "    \"build timeSeconds\": " << buildseconds << ",\n";
+        BOOST_TEST_MESSAGE("Index built successfully with " << baseVectorCount << " vectors");
+    }
+    else
+    {
+        BOOST_REQUIRE(VectorIndex::LoadIndex(indexPath, index) == ErrorCode::Success);
+        BOOST_REQUIRE(index != nullptr);
+    }
 
     auto vectorOptions = std::shared_ptr<Helper::ReaderOptions>(
         new Helper::ReaderOptions(GetEnumValueType<T>(), M, VectorFileType::DEFAULT));
@@ -570,13 +578,6 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     BOOST_REQUIRE(index->SaveIndex(indexPath) == ErrorCode::Success);
     index = nullptr;
 
-    for (int iter = 0; iter < batches; iter++)
-    {
-        if (direxists((indexPath + "_" + std::to_string(iter)).c_str()))
-        {
-            std::filesystem::remove_all(indexPath + "_" + std::to_string(iter));
-        }
-    }
 
     // Benchmark 1: Insert performance
     if (insertBatchSize > 0)
@@ -585,7 +586,11 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
         {
             jsonFile << "    \"benchmark1_insert\": {\n";
             std::string prevPath = indexPath;
-            for (int iter = 0; iter < batches; iter++)
+            if (resume >= 0)
+            {
+                prevPath = indexPath + "_" + std::to_string(resume);
+            }
+            for (int iter = resume + 1; iter < batches; iter++)
             {
                 jsonFile << "      \"batch_" << iter + 1 << "\": {\n";
 
@@ -705,7 +710,10 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
 
                 cloneIndex = nullptr;
                 prevPath = clonePath;
-                 jsonFile.flush();
+                jsonFile.flush();
+
+                if (iter > 0)
+                    std::filesystem::remove_all(indexPath + "_" + std::to_string(iter - 1));
             }
         }
         jsonFile << "    }\n";
@@ -1735,6 +1743,8 @@ BOOST_AUTO_TEST_CASE(BenchmarkFromConfig)
     int numThreads = iniReader.GetParameter("Benchmark", "NumThreads", 32);
     int numQueries = iniReader.GetParameter("Benchmark", "NumQueries", 1000);
     DistCalcMethod distMethod = iniReader.GetParameter("Benchmark", "DistMethod", DistCalcMethod::L2);
+    bool rebuild = iniReader.GetParameter("Benchmark", "Rebuild", true);
+    int resume = iniReader.GetParameter("Benchmark", "Resume", -1);
 
     BOOST_TEST_MESSAGE("=== Benchmark Configuration ===");
     BOOST_TEST_MESSAGE("Vector Path: " << vectorPath);
@@ -1757,19 +1767,20 @@ BOOST_AUTO_TEST_CASE(BenchmarkFromConfig)
     if (valueType == VectorValueType::Float)
     {
         RunBenchmark<float>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
-                            insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries, outputFile);
+                            insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries, outputFile, 
+                            rebuild, resume);
     }
     else if (valueType == VectorValueType::Int8)
     {
         RunBenchmark<std::int8_t>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
                                   insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries,
-                                  outputFile);
+                                  outputFile, rebuild, resume);
     }
     else if (valueType == VectorValueType::UInt8)
     {
         RunBenchmark<std::uint8_t>(vectorPath, queryPath, truthPath, distMethod, indexPath, dimension, baseVectorCount,
                                    insertVectorCount, deleteVectorCount, batchNum, topK, numThreads, numQueries,
-                                   outputFile);
+                                   outputFile, rebuild, resume);
     }
 
     std::filesystem::remove_all(indexPath);
