@@ -93,7 +93,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             InPlace=true
             StartFileSizeGB=1
             OneClusterCutMax=false
-            ConsistencyCheck=false
+            ConsistencyCheck=true
             ChecksumCheck=false
             ChecksumInRead=false
             AsyncMergeInSearch=false
@@ -316,6 +316,7 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
 
     std::vector<std::thread> threads;
 
+    int printstep = step / 50;
     std::atomic_size_t vectorsSent(start);
     auto func = [&]() {
         size_t index = start;
@@ -324,7 +325,7 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
             index = vectorsSent.fetch_add(1);
             if (index < start + step)
             {
-                if ((index & ((1 << 5) - 1)) == 0)
+                if ((index & (printstep - 1)) == 0)
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / step);
                 }
@@ -646,6 +647,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                     int startidx = iter * deleteBatchSize;
                     std::atomic_size_t vectorsSent(startidx);
                     int totaldeleted = startidx + deleteBatchSize;
+                    int printstep = deleteBatchSize / 50;
                     auto func = [&]() {
                         size_t idx = startidx;
                         while (true)
@@ -653,7 +655,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                             idx = vectorsSent.fetch_add(1);
                             if (idx < totaldeleted)
                             {
-                                if ((idx & ((1 << 5) - 1)) == 0)
+                                if ((idx & (printstep - 1)) == 0)
                                 {
                                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n",
                                                  (idx - startidx) * 100.0 / deleteBatchSize);
