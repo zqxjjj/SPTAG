@@ -132,7 +132,7 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
                                         int searchthread = 2)
 {
     auto vecIndex = VectorIndex::CreateInstance(IndexAlgoType::SPANN, GetEnumValueType<T>());
-
+    int maxthreads = std::thread::hardware_concurrency();
     std::string configuration = R"(
         [Base]
             DistCalcMethod=L2
@@ -147,7 +147,7 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
 
         [SelectHead]
             isExecute=true
-            NumberOfThreads=16
+            NumberOfThreads=)" + std::to_string(maxthreads) + R"(
             SelectThreshold=0
             SplitFactor=0
             SplitThreshold=0
@@ -155,15 +155,15 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
 
         [BuildHead]
             isExecute=true
-            NumberOfThreads=16
+            NumberOfThreads=)" + std::to_string(maxthreads) + R"(
 
         [BuildSSDIndex]
             isExecute=true
             BuildSsdIndex=true
             InternalResultNum=64
             SearchInternalResultNum=64
-            NumberOfThreads=16
-	    PostingPageLimit=)" + std::to_string(4 * sizeof(T)) +
+            NumberOfThreads=)" + std::to_string(maxthreads) + R"(
+	        PostingPageLimit=)" + std::to_string(4 * sizeof(T)) +
                                 R"(
             SearchPostingPageLimit=)" +
                                 std::to_string(4 * sizeof(T)) + R"(
@@ -520,9 +520,13 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     // Build initial index
     BOOST_TEST_MESSAGE("\n=== Building Index ===");
     std::filesystem::remove_all(indexPath);
+    auto buildstart = std::chrono::high_resolution_clock::now();
     std::shared_ptr<VectorIndex> index = BuildLargeIndex<T>(indexPath, pvecset, pmeta, pmetaidx, dist, numThreads);
     BOOST_REQUIRE(index != nullptr);
-
+    auto buildend = std::chrono::high_resolution_clock::now();
+    double buildseconds =
+        std::chrono::duration_cast<std::chrono::microseconds>(buildend - buildstart).count() / 1000000.0f;
+    jsonFile << "    \"build timeSeconds\": " << buildseconds << ",\n";
     BOOST_TEST_MESSAGE("Index built successfully with " << baseVectorCount << " vectors");
 
     auto vectorOptions = std::shared_ptr<Helper::ReaderOptions>(
@@ -609,8 +613,8 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                 int insertStart = iter * insertBatchSize;
                 {
                     std::shared_ptr<VectorSet> addset = addReader->GetVectorSet(insertStart, insertStart + insertBatchSize);
-                    std::shared_ptr<MetadataSet> addmetaset(new MemMetadataSet(
-                        paddmeta, paddmetaidx, cloneIndex->m_iDataBlockSize, cloneIndex->m_iDataCapacity, 10, insertStart, insertBatchSize));
+                    std::shared_ptr<MetadataSet> addmetaset(new MemMetadataSet(paddmeta, paddmetaidx, cloneIndex->m_iDataBlockSize,
+                                           cloneIndex->m_iDataCapacity, 10, insertStart, insertBatchSize), std::default_delete<MemMetadataSet>());
                     start = std::chrono::high_resolution_clock::now();
                     InsertVectors<T>(static_cast<SPANN::Index<T> *>(cloneIndex.get()), numThreads, insertBatchSize,
                                      addset, addmetaset, 0);
@@ -701,7 +705,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
 
                 cloneIndex = nullptr;
                 prevPath = clonePath;
-                jsonFile.flush();
+                 jsonFile.flush();
             }
         }
         jsonFile << "    }\n";
