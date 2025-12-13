@@ -325,7 +325,7 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
             index = vectorsSent.fetch_add(1);
             if (index < start + step)
             {
-                if ((index & (printstep - 1)) == 0)
+                if ((index % (printstep - 1)) == 0)
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n", index * 100.0 / step);
                 }
@@ -655,7 +655,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                             idx = vectorsSent.fetch_add(1);
                             if (idx < totaldeleted)
                             {
-                                if ((idx & (printstep - 1)) == 0)
+                                if ((idx % (printstep - 1)) == 0)
                                 {
                                     SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Sent %.2lf%%...\n",
                                                  (idx - startidx) * 100.0 / deleteBatchSize);
