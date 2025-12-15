@@ -177,7 +177,7 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
             Update=true
             SteadyState=true
             InsertThreadNum=1
-            AppendThreadNum=1
+            AppendThreadNum=4
             ReassignThreadNum=0
             DisableReassign=false
             ReassignK=64
@@ -333,8 +333,8 @@ void InsertVectors(SPANN::Index<ValueType> *p_index, int insertThreads, int step
                 std::uint64_t *offsets = new std::uint64_t[2]{0, p_meta.Length()};
                 std::shared_ptr<MetadataSet> meta(new MemMetadataSet(
                     p_meta, ByteArray((std::uint8_t *)offsets, 2 * sizeof(std::uint64_t), true), 1));
-                auto status = p_index->AddIndex(addset->GetVector((SizeType)index), 1, p_opts.m_dim, meta, true);
-                BOOST_REQUIRE(status == ErrorCode::Success);
+                BOOST_REQUIRE(p_index->AddIndex(addset->GetVector((SizeType)index), 1, p_opts.m_dim, meta, true) ==
+                              ErrorCode::Success);
             }
             else
             {

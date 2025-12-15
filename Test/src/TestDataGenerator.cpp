@@ -145,6 +145,7 @@ void TestDataGenerator<T>::GenerateBatchTruth(const std::string &filename, std::
     int maxthreads = std::thread::hardware_concurrency();
     for (int iter = 0; iter < batches + 1; iter++)
     {
+        SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Generating groundtruth for batch %d\n", iter);
         std::vector<std::thread> mythreads;
         mythreads.reserve(maxthreads);
         std::atomic_size_t sent(0);
