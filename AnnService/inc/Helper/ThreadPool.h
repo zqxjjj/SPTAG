@@ -105,9 +105,10 @@ namespace SPTAG
             inline uint32_t runningJobs() { return currentJobs; }
 
             inline bool allClear() {
-                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "currentJobs: %u, jobsize: %zu\n", currentJobs.load(),
-                             jobsize());
-                return currentJobs == 0 && jobsize() == 0; 
+                size_t totaljobs = jobsize();
+                if (totaljobs % 10000 == 0)
+                    SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "jobsize: %zu\n", totaljobs);
+                return currentJobs == 0 && totaljobs == 0; 
             }
 
         protected:
