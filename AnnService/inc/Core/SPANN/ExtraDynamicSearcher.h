@@ -1267,8 +1267,6 @@ namespace SPTAG::SPANN {
                 std::vector<SizeType> HeadPrevTopK;
                 newHeadsDist.clear();
                 newHeadsDist.resize(0);
-                postingLists.clear();
-                postingLists.resize(0);
                 COMMON::QueryResultSet<ValueType> nearbyHeads(headVector, m_opt->m_reassignK);
                 p_index->SearchIndex(nearbyHeads);
                 BasicResult* queryResults = nearbyHeads.GetResults();
@@ -1284,7 +1282,10 @@ namespace SPTAG::SPANN {
                 }
                 auto reassignScanIOBegin = std::chrono::high_resolution_clock::now();
                 ErrorCode ret;
-                if ((ret=db->MultiGet(HeadPrevTopK, &postingLists, m_hardLatencyLimit, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success || !ValidatePostings(HeadPrevTopK, postingLists)) {
+                if ((ret = db->MultiGet(HeadPrevTopK, p_exWorkSpace->m_pageBuffers, m_hardLatencyLimit,
+                                        &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success ||
+                    !ValidatePostings(HeadPrevTopK, p_exWorkSpace->m_pageBuffers))
+                {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "ReAssign can't get all the near postings\n");
                     return ret;
                 }
@@ -1293,15 +1294,16 @@ namespace SPTAG::SPANN {
                 auto elapsedMSeconds = std::chrono::duration_cast<std::chrono::microseconds>(reassignScanIOEnd - reassignScanIOBegin).count();
                 m_stat.m_reassignScanIOCost += elapsedMSeconds;
 
-                for (int i = 0; i < postingLists.size(); i++) {
-                    auto& postingList = postingLists[i];
-                    size_t postVectorNum = postingList.size() / m_vectorInfoSize;
-                    auto* postingP = reinterpret_cast<uint8_t*>(postingList.data());
+                for (int i = 0; i < HeadPrevTopK.size(); i++)
+                {
+                    auto &buffer = (p_exWorkSpace->m_pageBuffers[i]);
+                    size_t postVectorNum = (int)(buffer.GetAvailableSize() / m_vectorInfoSize);
+                    auto *postingP = buffer.GetBuffer();
                     for (int j = 0; j < postVectorNum; j++) {
                         uint8_t* vectorId = postingP + j * m_vectorInfoSize;
                         SizeType vid = *(reinterpret_cast<SizeType*>(vectorId));
                         // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "%d: VID: %d, Head: %d, size:%d/%d\n", i, vid, HeadPrevTopK[i], postingLists.size(), HeadPrevTopK.size());
-                        uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(int)));
+                        uint8_t version = *(reinterpret_cast<uint8_t*>(vectorId + sizeof(SizeType)));
                         ValueType* vector = reinterpret_cast<ValueType*>(vectorId + m_metaDataSize);
                         if (reAssignVectorsTopK.find(vid) == reAssignVectorsTopK.end() && !m_versionMap->Deleted(vid) && m_versionMap->GetVersion(vid) == version) {
                             m_stat.m_reAssignScanNum++;

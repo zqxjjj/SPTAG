@@ -104,7 +104,11 @@ namespace SPTAG
 
             inline uint32_t runningJobs() { return currentJobs; }
 
-            inline bool allClear() { return currentJobs == 0 && jobsize() == 0; }
+            inline bool allClear() {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "currentJobs: %u, jobsize: %zu\n", currentJobs.load(),
+                             jobsize());
+                return currentJobs == 0 && jobsize() == 0; 
+            }
 
         protected:
             std::atomic_uint32_t currentJobs{ 0 };
