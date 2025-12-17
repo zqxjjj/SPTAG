@@ -1446,8 +1446,10 @@ namespace SPTAG::SPANN {
                 }
 
                 auto appendIOBegin = std::chrono::high_resolution_clock::now();
-                if ((ret = db->Merge(headID, appendPosting, MaxTimeout, &(p_exWorkSpace->m_diskRequests), [this, prefixChecksum = *m_checkSums[headID]] (const std::string& readPrefix) -> bool {
-                    return this->m_checkSum.ValidateChecksum(readPrefix.c_str(), (int)(readPrefix.size()), prefixChecksum);
+                if ((ret = db->Merge(
+                         headID, appendPosting, MaxTimeout, &(p_exWorkSpace->m_diskRequests),
+                         [this, prefixChecksum = *m_checkSums[headID]](const void *val, const int size) -> bool {
+                    return this->m_checkSum.ValidateChecksum((const char*)val, size, prefixChecksum);
                 })) != ErrorCode::Success)
                 {
                     SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Merge failed for %d! Posting Size:%d, limit: %d\n", headID, m_postingSizes.GetSize(headID), m_postingSizeLimit);

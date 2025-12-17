@@ -109,7 +109,7 @@ void Test(std::string path, std::string type, bool debug = false)
         for (int j = 0; j < mergeIters; j++)
         {
             db->Merge(i, std::to_string(i), MaxTimeout, &(workspace.m_diskRequests),
-                      [](const std::string &prefix) -> bool { return true; });
+                      [](const void* val, const int size) -> bool { return true; });
         }
     }
     t2 = std::chrono::high_resolution_clock::now();

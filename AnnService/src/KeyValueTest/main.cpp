@@ -398,7 +398,7 @@ MixReadWriteTest:
                             mergeValue += (char)(rand() % 256);
                         }
                         fileIO.Merge(key, mergeValue, MaxTimeout, &(workspace.m_diskRequests),
-                                     [](const std::string &) -> bool { return true; });
+                                     [](const void* val, const int size) -> bool { return true; });
                         write_count++;
                         read_count++;
                         std::string readValue;

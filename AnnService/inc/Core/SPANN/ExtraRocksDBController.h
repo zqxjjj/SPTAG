@@ -281,7 +281,7 @@ namespace SPTAG::SPANN
 
         ErrorCode Merge(const SizeType key, const std::string &value, const std::chrono::microseconds &timeout,
                         std::vector<Helper::AsyncReadRequest> *reqs,
-                        std::function<bool(const std::string &)> checksum) override
+                        std::function<bool(const void *val, const int size)> checksum) override
         {
             if (value.empty()) {
                 SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Error! empty append posting!\n");

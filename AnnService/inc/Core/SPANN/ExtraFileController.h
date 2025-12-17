@@ -75,6 +75,8 @@ namespace SPTAG::SPANN {
 
             bool ReadBlocks(AddressType* p_data, std::string* p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs);
 
+            bool ReadBlocks(AddressType *p_data, Helper::PageBuffer<std::uint8_t> &p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest> *reqs);
+
             bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<std::string>* p_value, const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest>* reqs);
 
             bool ReadBlocks(const std::vector<AddressType*>& p_data, std::vector<Helper::PageBuffer<std::uint8_t>>& p_value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs);
@@ -328,19 +330,21 @@ namespace SPTAG::SPANN {
                 return true;
             }
 
-            bool merge(SizeType key, void *value, int merge_size, std::function<bool(const std::string &)> checksum)
+            bool merge(SizeType key, void *value, int merge_size, std::function<bool(const void* val, const int size)> checksum)
             {
                 // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "LRUCache: merge size: %lld\n", merge_size);
                 auto it = cache.find(key);
                 if (it == cache.end()) {
                     // SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "LRUCache: merge key not found\n");
                     ErrorCode ret;
-                    std::string valstr;
-                    if ((ret = fileIO->Get(key, &valstr, MaxTimeout, &reqs, false)) != ErrorCode::Success || !checksum(valstr)) {
+                    if ((ret = fileIO->Get(key, pageBuffer, MaxTimeout, &reqs, false)) != ErrorCode::Success || 
+                        !checksum(pageBuffer.GetBuffer(), pageBuffer.GetAvailableSize())) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "LRUCache: merge key not found in file or checksum issue = %d\n", (int)(ret == ErrorCode::Success));
                         return false;  // If the key does not exist, return false
                     }
-                    valstr.append((char *)value, merge_size);
+                    std::string valstr(pageBuffer.GetAvailableSize() + merge_size, '\0');
+                    memcpy(valstr.data(), pageBuffer.GetBuffer(), pageBuffer.GetAvailableSize());
+                    memcpy(valstr.data() + pageBuffer.GetAvailableSize(), value, merge_size);
                     while (valstr.size() > (int)(capacity - size) && (!keys.empty()))
                     {
                         auto last = keys.back();
@@ -432,7 +436,8 @@ namespace SPTAG::SPANN {
                 return caches[hash(key)]->del(key);
             }
 
-            bool merge(SizeType key, void *value, int merge_size, std::function<bool(const std::string &)> checksum)
+            bool merge(SizeType key, void *value, int merge_size,
+                       std::function<bool(const void *val, const int size)> checksum)
             {
                 return caches[hash(key)]->merge(key, value, merge_size, checksum);
             }
@@ -620,6 +625,52 @@ namespace SPTAG::SPANN {
 
         ErrorCode Get(const std::string& key, std::string* value, const std::chrono::microseconds& timeout, std::vector<Helper::AsyncReadRequest>* reqs) override {
             return Get(std::stoi(key), value, timeout, reqs, true);
+        }
+
+        ErrorCode Get(const SizeType key, Helper::PageBuffer<std::uint8_t> &value,
+                      const std::chrono::microseconds &timeout, std::vector<Helper::AsyncReadRequest> *reqs, bool useCache = true) override
+        {
+            auto get_begin_time = std::chrono::high_resolution_clock::now();
+            SizeType r = m_pBlockMapping.R();
+
+            if (key >= r)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key OverFlow! Key:%d R:%d\n", key, r);
+                return ErrorCode::Key_OverFlow;
+            }
+            AddressType *addr = (AddressType *)(At(key));
+            if (((uintptr_t)addr) == 0xffffffffffffffff)
+            {
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Key NotFound! Key:%d\n", key);
+                return ErrorCode::Key_NotFound;
+            }
+
+            int size = (int)(addr[0]);
+            if (size < 0)
+                return ErrorCode::Posting_SizeError;
+
+            if (useCache && m_pShardedLRUCache)
+            {
+                value.ReservePageBuffer(size);
+                if (m_pShardedLRUCache->get(key, value.GetBuffer(), size))
+                {
+                    value.SetAvailableSize(size);
+                    return ErrorCode::Success;
+                }
+            }
+
+            // if (m_pBlockController.ReadBlocks((AddressType*)At(key), value)) {
+            //     return ErrorCode::Success;
+            // }
+            auto begin_time = std::chrono::high_resolution_clock::now();
+            auto result = m_pBlockController.ReadBlocks((AddressType *)At(key), value, timeout, reqs);
+            auto end_time = std::chrono::high_resolution_clock::now();
+            read_time_vec += std::chrono::duration_cast<std::chrono::microseconds>(end_time - begin_time).count();
+            get_times_vec++;
+            auto get_end_time = std::chrono::high_resolution_clock::now();
+            get_time_vec +=
+                std::chrono::duration_cast<std::chrono::microseconds>(get_end_time - get_begin_time).count();
+            return result ? ErrorCode::Success : ErrorCode::Fail;
         }
 
         ErrorCode MultiGet(const std::vector<SizeType>& keys, std::vector<Helper::PageBuffer<std::uint8_t>>& values,
@@ -911,7 +962,8 @@ namespace SPTAG::SPANN {
 
 
         ErrorCode Merge(const SizeType key, const std::string &value, const std::chrono::microseconds &timeout,
-                        std::vector<Helper::AsyncReadRequest> *reqs, std::function<bool(const std::string&)> checksum)
+                        std::vector<Helper::AsyncReadRequest> *reqs,
+                        std::function<bool(const void *val, const int size)> checksum)
         {
             SizeType r = m_pBlockMapping.R();
             if (key >= r)
