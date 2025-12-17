@@ -129,7 +129,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
 template <typename T>
 std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, std::string &pvecset,
                                         std::string& pmetaset, std::string& pmetaidx, const std::string &distMethod = "L2",
-                                        int searchthread = 2)
+                                        int searchthread = 2, int insertthread = 2)
 {
     auto vecIndex = VectorIndex::CreateInstance(IndexAlgoType::SPANN, GetEnumValueType<T>());
     int maxthreads = std::thread::hardware_concurrency();
@@ -155,6 +155,7 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
 
         [BuildHead]
             isExecute=true
+            AddCountForRebuild=10000
             NumberOfThreads=)" + std::to_string(maxthreads) + R"(
 
         [BuildSSDIndex]
@@ -172,12 +173,11 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
             SpdkBatchSize=64
             ExcludeHead=false
             ResultNum=10
-            SearchThreadNum=)" + std::to_string(searchthread) +
-                                R"(
+            SearchThreadNum=)" + std::to_string(searchthread) + R"(
             Update=true
             SteadyState=true
             InsertThreadNum=1
-            AppendThreadNum=4
+            AppendThreadNum=)" + std::to_string(insertthread) + R"(
             ReassignThreadNum=0
             DisableReassign=false
             ReassignK=64
@@ -524,7 +524,7 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
     if (rebuild || !direxists(indexPath.c_str())) {
         std::filesystem::remove_all(indexPath);
         auto buildstart = std::chrono::high_resolution_clock::now();
-        index = BuildLargeIndex<T>(indexPath, pvecset, pmeta, pmetaidx, dist, numThreads);
+        index = BuildLargeIndex<T>(indexPath, pvecset, pmeta, pmetaidx, dist, numThreads, numThreads);
         BOOST_REQUIRE(index != nullptr);
         auto buildend = std::chrono::high_resolution_clock::now();
         double buildseconds =
@@ -690,6 +690,8 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
 
                 BOOST_TEST_MESSAGE("\n=== Benchmark 2: Query After Insertions and Deletions ===");
                 jsonFile << "        \"search\":";
+                BenchmarkQueryPerformance<T>(cloneIndex, queryset, truth, truthPath, baseVectorCount, topK, numThreads,
+                                             numQueries, iter + 1, batches, tmpbenchmark, "    ");
                 BenchmarkQueryPerformance<T>(cloneIndex, queryset, truth, truthPath, baseVectorCount,
                                              topK, numThreads, numQueries, iter + 1, batches, jsonFile, "    ");
                 jsonFile << ",\n";
