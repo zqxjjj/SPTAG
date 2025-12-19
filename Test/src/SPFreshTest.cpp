@@ -37,7 +37,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
                                         std::shared_ptr<MetadataSet> metaset, const std::string &distMethod = "L2", int searchthread = 2)
 {
     auto vecIndex = VectorIndex::CreateInstance(IndexAlgoType::SPANN, GetEnumValueType<T>());
-
+    int maxthreads = std::thread::hardware_concurrency();
     std::string configuration = R"(
         [Base]
             DistCalcMethod=L2
@@ -51,7 +51,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
 
         [SelectHead]
             isExecute=true
-            NumberOfThreads=16
+            NumberOfThreads=)" + std::to_string(maxthreads) + R"(
             SelectThreshold=0
             SplitFactor=0
             SplitThreshold=0
@@ -59,25 +59,22 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
 
         [BuildHead]
             isExecute=true
-            NumberOfThreads=16
+            NumberOfThreads=)" + std::to_string(maxthreads) + R"(
 
         [BuildSSDIndex]
             isExecute=true
             BuildSsdIndex=true
             InternalResultNum=64
             SearchInternalResultNum=64
-            NumberOfThreads=16
-	    PostingPageLimit=)" + std::to_string(4 * sizeof(T)) +
-                                R"(
-            SearchPostingPageLimit=)" +
-                                std::to_string(4 * sizeof(T)) + R"(
+            NumberOfThreads=)" + std::to_string(maxthreads) + R"(
+	        PostingPageLimit=)" + std::to_string(4 * sizeof(T)) + R"(
+            SearchPostingPageLimit=)" + std::to_string(4 * sizeof(T)) + R"(
             TmpDir=tmpdir
             Storage=FILEIO
             SpdkBatchSize=64
             ExcludeHead=false
             ResultNum=10
-            SearchThreadNum=)" + std::to_string(searchthread) +
-                                R"(
+            SearchThreadNum=)" + std::to_string(searchthread) + R"(
             Update=true
             SteadyState=true
             InsertThreadNum=1
@@ -89,12 +86,12 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             SearchDuringUpdate=true
             MergeThreshold=10
             Sampling=4
-            BufferLength=6
+            BufferLength=)" + std::to_string(6 * sizeof(T)) + R"(
             InPlace=true
             StartFileSizeGB=1
             OneClusterCutMax=false
             ConsistencyCheck=true
-            ChecksumCheck=false
+            ChecksumCheck=true
             ChecksumInRead=false
             AsyncMergeInSearch=false
             DeletePercentageForRefine=0.4
@@ -185,7 +182,7 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
             SearchDuringUpdate=true
             MergeThreshold=10
             Sampling=4
-            BufferLength=6
+            BufferLength=)" + std::to_string(6 * sizeof(T)) + R"(
             InPlace=true
             StartFileSizeGB=1
             OneClusterCutMax=false
@@ -613,8 +610,17 @@ void RunBenchmark(const std::string &vectorPath, const std::string &queryPath, c
                 jsonFile << "        \"Load timeSeconds\": " << seconds << ",\n";
                 jsonFile << "        \"Load vectorCount\": " << vectorCount << ",\n";
 
+                start = std::chrono::high_resolution_clock::now();
                 cloneIndex = prevIndex->Clone(clonePath);
+                end = std::chrono::high_resolution_clock::now();
+                seconds = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000000.0f;
+                jsonFile << "        \"Clone timeSeconds\": " << seconds << ",\n";
+                
                 prevIndex = nullptr;
+                ErrorCode cloneret = cloneIndex->Check();
+                BOOST_REQUIRE(cloneret == ErrorCode::Success);
+                SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "Cloned index from %s to %s, check:%d, time: %f seconds\n",
+                             prevPath.c_str(), clonePath.c_str(), (int)(cloneret == ErrorCode::Success), seconds);
 
                 int insertStart = iter * insertBatchSize;
                 {
@@ -1787,7 +1793,6 @@ BOOST_AUTO_TEST_CASE(BenchmarkFromConfig)
                                    outputFile, rebuild, resume);
     }
 
-    std::filesystem::remove_all(indexPath);
-    std::filesystem::remove_all(indexPath + "_saved");
+    //std::filesystem::remove_all(indexPath);
 }
 BOOST_AUTO_TEST_SUITE_END()

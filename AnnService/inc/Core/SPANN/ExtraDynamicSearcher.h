@@ -2225,7 +2225,6 @@ namespace SPTAG::SPANN {
                 std::vector<int> replicaCountDist(m_opt->m_replicaCount + 1, 0);
                 for (int i = 0; i < replicaCount.size(); ++i)
                 {
-                    if (headVectorIDS.count(i) > 0) continue;
                     ++replicaCountDist[replicaCount[i]];
                 }
 
