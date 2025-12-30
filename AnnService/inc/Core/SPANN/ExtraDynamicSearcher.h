@@ -726,7 +726,7 @@ namespace SPTAG::SPANN {
                 // double gcEndTime = sw.getElapsedMs();
                 // m_splitGcCost += gcEndTime;
 		
-                if (!preReassign && index < m_postingSizeLimit)
+                if (!preReassign && localIndices.size() < m_postingSizeLimit)
                 {
 
                     //SPTAGLIB_LOG(Helper::LogLevel::LL_Info, "DEBUG: in place or not prereassign & index < m_postingSizeLimit. GC begin...\n");
@@ -737,12 +737,12 @@ namespace SPTAG::SPANN {
                         memcpy(ptr, postingList.c_str() + localIndices[j] * m_vectorInfoSize, m_vectorInfoSize);
                         //Serialize(ptr, localIndicesInsert[j], localIndicesInsertVersion[j], smallSample[j]);
                     }
-                    postingList.resize(index * m_vectorInfoSize);
+                    postingList.resize(localIndices.size() * m_vectorInfoSize);
                     if ((ret=db->Put(headID, postingList, MaxTimeout, &(p_exWorkSpace->m_diskRequests))) != ErrorCode::Success) {
                         SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "Split Fail to write back postings\n");
                         return ret;
                     }
-                    m_postingSizes.UpdateSize(headID, index);
+                    m_postingSizes.UpdateSize(headID, localIndices.size());
                     *m_checkSums[headID] = m_checkSum.CalcChecksum(postingList.c_str(), (int)(postingList.size()));
                     if (m_opt->m_consistencyCheck && (ret = db->Check(headID, m_postingSizes.GetSize(headID) * m_vectorInfoSize, nullptr)) != ErrorCode::Success)
                     {
@@ -1015,7 +1015,7 @@ namespace SPTAG::SPANN {
                     bool listContains = false;
                     {
                         std::shared_lock<std::shared_timed_mutex> anotherLock(m_mergeListLock);
-                        listContains = m_mergeList.contains(queryResult->VID);
+                        listContains = (m_mergeList.find(queryResult->VID) != m_mergeList.end());
                     }
                     if (currentLength + nextLength < m_postingSizeLimit && !listContains)
                     {
