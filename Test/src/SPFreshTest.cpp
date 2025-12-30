@@ -38,6 +38,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
 {
     auto vecIndex = VectorIndex::CreateInstance(IndexAlgoType::SPANN, GetEnumValueType<T>());
     int maxthreads = std::thread::hardware_concurrency();
+    int postingLimit = 4 * sizeof(T);
     std::string configuration = R"(
         [Base]
             DistCalcMethod=L2
@@ -67,8 +68,8 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             InternalResultNum=64
             SearchInternalResultNum=64
             NumberOfThreads=)" + std::to_string(maxthreads) + R"(
-	        PostingPageLimit=)" + std::to_string(4 * sizeof(T)) + R"(
-            SearchPostingPageLimit=)" + std::to_string(4 * sizeof(T)) + R"(
+	        PostingPageLimit=)" + std::to_string(postingLimit) + R"(
+            SearchPostingPageLimit=)" + std::to_string(postingLimit) + R"(
             TmpDir=tmpdir
             Storage=FILEIO
             SpdkBatchSize=64
@@ -86,7 +87,7 @@ std::shared_ptr<VectorIndex> BuildIndex(const std::string &outDirectory, std::sh
             SearchDuringUpdate=true
             MergeThreshold=10
             Sampling=4
-            BufferLength=)" + std::to_string(6 * sizeof(T)) + R"(
+            BufferLength=)" + std::to_string(postingLimit) + R"(
             InPlace=true
             StartFileSizeGB=1
             OneClusterCutMax=false
@@ -130,6 +131,7 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
 {
     auto vecIndex = VectorIndex::CreateInstance(IndexAlgoType::SPANN, GetEnumValueType<T>());
     int maxthreads = std::thread::hardware_concurrency();
+    int postingLimit = 4 * sizeof(T);
     std::string configuration = R"(
         [Base]
             DistCalcMethod=L2
@@ -161,10 +163,10 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
             InternalResultNum=64
             SearchInternalResultNum=64
             NumberOfThreads=)" + std::to_string(maxthreads) + R"(
-	        PostingPageLimit=)" + std::to_string(4 * sizeof(T)) +
+	        PostingPageLimit=)" + std::to_string(postingLimit) +
                                 R"(
             SearchPostingPageLimit=)" +
-                                std::to_string(4 * sizeof(T)) + R"(
+                                std::to_string(postingLimit) + R"(
             TmpDir=tmpdir
             Storage=FILEIO
             SpdkBatchSize=64
@@ -182,7 +184,7 @@ std::shared_ptr<VectorIndex> BuildLargeIndex(const std::string &outDirectory, st
             SearchDuringUpdate=true
             MergeThreshold=10
             Sampling=4
-            BufferLength=)" + std::to_string(6 * sizeof(T)) + R"(
+            BufferLength=)" + std::to_string(postingLimit) +  R"(
             InPlace=true
             StartFileSizeGB=1
             OneClusterCutMax=false
