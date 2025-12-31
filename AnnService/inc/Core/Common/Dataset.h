@@ -260,12 +260,15 @@ namespace SPTAG
             {
                 if (data != nullptr) {
                     if (ownData) ALIGN_FREE(data);
-                    for (char* ptr : *incBlocks) ALIGN_FREE(ptr);
-                    incBlocks->clear();
                 }
-
                 rows = rows_;
+
+                
+                for (char *ptr : *incBlocks)
+                    ALIGN_FREE(ptr);
+                incBlocks->clear();
                 incRows = 0;
+                
                 if (rowEnd_ >= colStart_) cols = rowEnd_;
                 else cols = cols_ * sizeof(T);
                 data = (char*)data_;
