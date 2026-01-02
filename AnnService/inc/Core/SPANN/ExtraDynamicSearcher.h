@@ -681,6 +681,8 @@ namespace SPTAG::SPANN {
                 std::unique_lock<std::shared_timed_mutex> lock(m_rwLocks[headID], std::defer_lock);
                 if (requirelock) lock.lock();
 
+                int retry = 0;
+             Retry:
                 if (!p_index->ContainSample(headID)) return ErrorCode::Success;
 
                 std::string postingList;
@@ -715,6 +717,21 @@ namespace SPTAG::SPANN {
                     //LOG(Helper::LogLevel::LL_Info, "vector index/total:id: %d/%d:%d\n", j, m_postingSizes[headID].load(), *(reinterpret_cast<int*>(vectorId)));
                     uint8_t version = *(vectorId + sizeof(int));
                     int VID = *((int*)(vectorId));
+                    if (VID < 0 || VID >= m_versionMap->Count())
+                    {
+                        if (retry < 3)
+                        {
+                            retry++;
+                            goto Retry;
+                        }
+                        else
+                        {
+                            SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
+                                         "Split fail: Get posting fail after 3 times retries.");
+                            return ErrorCode::DiskIOFail;
+                        }
+                    }
+                        
 		    //if (VID >= m_versionMap->Count()) SPTAGLIB_LOG(Helper::LogLevel::LL_Error, "DEBUG: vector ID:%d total size:%d\n", VID, m_versionMap->Count());
                     if (m_versionMap->Deleted(VID) || m_versionMap->GetVersion(VID) != version) continue;
 
