@@ -263,10 +263,12 @@ namespace SPTAG
                 }
                 rows = rows_;
 
-                
-                for (char *ptr : *incBlocks)
-                    ALIGN_FREE(ptr);
-                incBlocks->clear();
+                if (incBlocks != nullptr)
+                {
+                    for (char *ptr : *incBlocks)
+                        ALIGN_FREE(ptr);
+                    incBlocks->clear();
+                }
                 incRows = 0;
                 
                 if (rowEnd_ >= colStart_) cols = rowEnd_;

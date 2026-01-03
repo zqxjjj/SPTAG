@@ -727,7 +727,7 @@ namespace SPTAG::SPANN {
                         else
                         {
                             SPTAGLIB_LOG(Helper::LogLevel::LL_Error,
-                                         "Split fail: Get posting fail after 3 times retries.");
+                                         "Split fail: Get posting %d fail after 3 times retries.\n", headID);
                             return ErrorCode::DiskIOFail;
                         }
                     }
