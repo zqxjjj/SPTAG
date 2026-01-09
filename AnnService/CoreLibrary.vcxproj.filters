@@ -160,7 +160,7 @@
     <ClInclude Include="inc\Helper\ThreadPool.h">
       <Filter>Header Files\Helper</Filter>
     </ClInclude>
-    <ClInclude Include="inc\Core\Common\Labelset.h">
+    <ClInclude Include="inc\Core\Common\LabelSet.h">
       <Filter>Header Files\Core\Common</Filter>
     </ClInclude>
     <ClInclude Include="inc\Helper\DynamicNeighbors.h">

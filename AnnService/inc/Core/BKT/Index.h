@@ -15,7 +15,7 @@
 #include "inc/Core/Common/WorkSpacePool.h"
 #include "inc/Core/Common/RelativeNeighborhoodGraph.h"
 #include "inc/Core/Common/BKTree.h"
-#include "inc/Core/Common/Labelset.h"
+#include "inc/Core/Common/LabelSet.h"
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/ThreadPool.h"
@@ -94,7 +94,7 @@ namespace SPTAG
             float m_fDeletePercentageForRefine;
             std::mutex m_dataAddLock; // protect data and graph
             std::shared_timed_mutex m_dataDeleteLock;
-            COMMON::Labelset m_deletedID;
+            COMMON::LabelSet m_deletedID;
 
             Helper::ThreadPool m_threadPool;
             int m_iNumberOfThreads;
@@ -230,12 +230,12 @@ namespace SPTAG
 
             int SearchIndexIterative(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space, bool p_isFirst, int batch, bool p_searchDeleted, bool p_searchDuplicated) const;
 
-            template <bool(*notDeleted)(const COMMON::Labelset&, SizeType), bool(*isDup)(COMMON::QueryResultSet<T>&, SizeType, float), bool (*checkFilter)(const std::shared_ptr<MetadataSet> &, SizeType, std::function<bool(const ByteArray &)>)>
+            template <bool(*notDeleted)(const COMMON::LabelSet&, SizeType), bool(*isDup)(COMMON::QueryResultSet<T>&, SizeType, float), bool (*checkFilter)(const std::shared_ptr<MetadataSet> &, SizeType, std::function<bool(const ByteArray &)>)>
             int SearchIterative(COMMON::QueryResultSet<T>& p_query,
                 COMMON::WorkSpace& p_space, bool p_isFirst, int batch) const;
 
             void SearchIndex(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space, bool p_searchDeleted, bool p_searchDuplicated, std::function<bool(const ByteArray&)> filterFunc = nullptr) const;
-            template <bool(*notDeleted)(const COMMON::Labelset&, SizeType), bool(*isDup)(COMMON::QueryResultSet<T>&, SizeType, float), bool(*checkFilter)(const std::shared_ptr<MetadataSet>&, SizeType, std::function<bool(const ByteArray&)>)>
+            template <bool(*notDeleted)(const COMMON::LabelSet&, SizeType), bool(*isDup)(COMMON::QueryResultSet<T>&, SizeType, float), bool(*checkFilter)(const std::shared_ptr<MetadataSet>&, SizeType, std::function<bool(const ByteArray&)>)>
             void Search(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space, std::function<bool(const ByteArray&)> filterFunc) const;
         };
     } // namespace BKT

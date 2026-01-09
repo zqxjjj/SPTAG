@@ -17,7 +17,7 @@
 #include "inc/Core/Common/VersionLabel.h"
 #include "inc/Core/Common/PostingSizeRecord.h"
 
-#include "inc/Core/Common/Labelset.h"
+#include "inc/Core/Common/LabelSet.h"
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/ThreadPool.h"

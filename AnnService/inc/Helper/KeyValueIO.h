@@ -51,9 +51,14 @@ namespace SPTAG
             
             virtual bool Available() { return false; }
 
-            virtual ErrorCode Check(const SizeType key, int size, std::vector<bool> *visited)
+            virtual ErrorCode Check(const SizeType key, int size, std::vector<std::uint8_t> *visited)
             {
                 return ErrorCode::Undefined;
+            }
+
+            virtual int64_t GetApproximateMemoryUsage() const
+            {
+                return 0;
             }
 
             virtual ErrorCode Checkpoint(std::string prefix) {return ErrorCode::Undefined;}

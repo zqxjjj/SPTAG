@@ -2529,7 +2529,7 @@ namespace SPTAG::SPANN {
             return (postingID < m_postingSizes.GetPostingNum()) && (m_postingSizes.GetSize(postingID) > 0);
         }
 
-        virtual ErrorCode CheckPosting(SizeType postingID, std::vector<bool> *visited = nullptr,
+        virtual ErrorCode CheckPosting(SizeType postingID, std::vector<std::uint8_t> *visited = nullptr,
                                        ExtraWorkSpace *p_exWorkSpace = nullptr) override
         {
             if (postingID < 0 || postingID >= m_postingSizes.GetPostingNum())

@@ -11,7 +11,7 @@ namespace SPTAG
 {
     namespace COMMON
     {
-        class Labelset
+        class LabelSet
         {
         public:
             enum class InvalidIDBehavior
@@ -23,10 +23,10 @@ namespace SPTAG
         private:
             std::atomic<SizeType> m_inserted;
             Dataset<std::int8_t> m_data;
-            InvalidIDBehavior m_invalidIDBehaviorSetting;
+            InvalidIDBehavior m_invalidIDBehaviorSetting{};
             
         public:
-            Labelset()
+            LabelSet()
             {
                 m_inserted = 0;
                 m_data.SetName("DeleteID");

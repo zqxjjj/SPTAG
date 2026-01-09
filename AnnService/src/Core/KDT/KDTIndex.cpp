@@ -68,9 +68,9 @@ template <typename T> ErrorCode Index<T>::LoadIndexDataFromMemory(const std::vec
         return ErrorCode::FailedParseValue;
     if (p_indexBlobs.size() <= 3)
         m_deletedID.Initialize(m_pSamples.R(), m_iDataBlockSize, m_iDataCapacity,
-                               COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
+                               COMMON::LabelSet::InvalidIDBehavior::AlwaysContains);
     else if (m_deletedID.Load((char *)p_indexBlobs[3].Data(), m_iDataBlockSize, m_iDataCapacity,
-                              COMMON::Labelset::InvalidIDBehavior::AlwaysContains) != ErrorCode::Success)
+                              COMMON::LabelSet::InvalidIDBehavior::AlwaysContains) != ErrorCode::Success)
         return ErrorCode::FailedParseValue;
 
     if (m_pSamples.R() != m_pGraph.R() || m_pSamples.R() != m_deletedID.R())
@@ -103,9 +103,9 @@ ErrorCode Index<T>::LoadIndexData(const std::vector<std::shared_ptr<Helper::Disk
         return ret;
     if (p_indexStreams[3] == nullptr)
         m_deletedID.Initialize(m_pSamples.R(), m_iDataBlockSize, m_iDataCapacity,
-                               COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
+                               COMMON::LabelSet::InvalidIDBehavior::AlwaysContains);
     else if ((ret = m_deletedID.Load(p_indexStreams[3], m_iDataBlockSize, m_iDataCapacity,
-                                     COMMON::Labelset::InvalidIDBehavior::AlwaysContains)) != ErrorCode::Success)
+                                     COMMON::LabelSet::InvalidIDBehavior::AlwaysContains)) != ErrorCode::Success)
         return ret;
 
     if (m_pSamples.R() != m_pGraph.R() || m_pSamples.R() != m_deletedID.R())
@@ -205,7 +205,7 @@ p_space.m_iNumberOfCheckedLeaves); \
 p_query.SortResult(); \
 */
 template <typename T>
-template <typename Q, bool (*notDeleted)(const COMMON::Labelset &, SizeType)>
+template <typename Q, bool (*notDeleted)(const COMMON::LabelSet &, SizeType)>
 void Index<T>::Search(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space) const
 {
     std::shared_lock<std::shared_timed_mutex> lock(*(m_pTrees.m_lock));
@@ -272,12 +272,12 @@ void Index<T>::Search(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_s
 
 namespace StaticDispatch
 {
-bool AlwaysTrue(const COMMON::Labelset &deletedIDs, SizeType node)
+bool AlwaysTrue(const COMMON::LabelSet &deletedIDs, SizeType node)
 {
     return true;
 }
 
-bool CheckIfNotDeleted(const COMMON::Labelset &deletedIDs, SizeType node)
+bool CheckIfNotDeleted(const COMMON::LabelSet &deletedIDs, SizeType node)
 {
     return !deletedIDs.Contains(node);
 }
@@ -490,7 +490,7 @@ ErrorCode Index<T>::BuildIndex(const void *p_data, SizeType p_vectorNum, Dimensi
 
     m_pSamples.Initialize(p_vectorNum, p_dimension, m_iDataBlockSize, m_iDataCapacity, (T *)p_data, p_shareOwnership);
     m_deletedID.Initialize(p_vectorNum, m_iDataBlockSize, m_iDataCapacity,
-                           COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
+                           COMMON::LabelSet::InvalidIDBehavior::AlwaysContains);
 
     if (DistCalcMethod::Cosine == m_iDistCalcMethod && !p_normalized)
     {
@@ -567,7 +567,7 @@ template <typename T> ErrorCode Index<T>::RefineIndex(std::shared_ptr<VectorInde
         return ret;
 
     ptr->m_deletedID.Initialize(newR, m_iDataBlockSize, m_iDataCapacity,
-                                COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
+                                COMMON::LabelSet::InvalidIDBehavior::AlwaysContains);
     COMMON::KDTree *newtree = &(ptr->m_pTrees);
 
     (*newtree).BuildTrees<T>(ptr->m_pSamples, m_iNumberOfThreads);
@@ -666,9 +666,9 @@ ErrorCode Index<T>::RefineIndex(const std::vector<std::shared_ptr<Helper::DiskIO
         ErrorCode::Success)
         return ret;
 
-    COMMON::Labelset newDeletedID;
+    COMMON::LabelSet newDeletedID;
     newDeletedID.Initialize(newR, m_iDataBlockSize, m_iDataCapacity,
-                            COMMON::Labelset::InvalidIDBehavior::AlwaysContains);
+                            COMMON::LabelSet::InvalidIDBehavior::AlwaysContains);
     if ((ret = newDeletedID.Save(p_indexStreams[3])) != ErrorCode::Success)
         return ret;
 

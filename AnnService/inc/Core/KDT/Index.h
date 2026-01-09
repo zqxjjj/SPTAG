@@ -15,7 +15,7 @@
 #include "inc/Core/Common/WorkSpacePool.h"
 #include "inc/Core/Common/RelativeNeighborhoodGraph.h"
 #include "inc/Core/Common/KDTree.h"
-#include "inc/Core/Common/Labelset.h"
+#include "inc/Core/Common/LabelSet.h"
 #include "inc/Helper/SimpleIniReader.h"
 #include "inc/Helper/StringConvert.h"
 #include "inc/Helper/ThreadPool.h"
@@ -71,7 +71,7 @@ namespace SPTAG
             float m_fDeletePercentageForRefine;
             std::mutex m_dataAddLock; // protect data and graph
             std::shared_timed_mutex m_dataDeleteLock;
-            COMMON::Labelset m_deletedID;
+            COMMON::LabelSet m_deletedID;
             
             Helper::ThreadPool m_threadPool;
             int m_iNumberOfThreads;
@@ -204,7 +204,7 @@ namespace SPTAG
         private:
             template <typename Q>
             void SearchIndex(COMMON::QueryResultSet<T> &p_query, COMMON::WorkSpace &p_space, bool p_searchDeleted) const;
-            template <typename Q, bool(*notDeleted)(const COMMON::Labelset&, SizeType)>
+            template <typename Q, bool(*notDeleted)(const COMMON::LabelSet&, SizeType)>
             void Search(COMMON::QueryResultSet<T>& p_query, COMMON::WorkSpace& p_space) const;
         };
     } // namespace KDT

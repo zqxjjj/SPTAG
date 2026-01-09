@@ -1567,7 +1567,7 @@ ErrorCode Index<T>::Check()
     std::vector<std::thread> mythreads;
     mythreads.reserve(m_options.m_iSSDNumberOfThreads);
     std::atomic_size_t sent(0);
-    std::vector<bool> checked(m_extraSearcher->GetNumBlocks(), false);
+    std::vector<std::uint8_t> checked(m_extraSearcher->GetNumBlocks(), false);
     for (int tid = 0; tid < m_options.m_iSSDNumberOfThreads; tid++)
     {
         mythreads.emplace_back([&, tid]() {

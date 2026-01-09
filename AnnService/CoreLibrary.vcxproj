@@ -94,7 +94,7 @@
     <ClInclude Include="inc\Core\Common\FineGrainedLock.h" />
     <ClInclude Include="inc\Core\Common\InstructionUtils.h" />
     <ClInclude Include="inc\Core\Common\KNearestNeighborhoodGraph.h" />
-    <ClInclude Include="inc\Core\Common\Labelset.h" />
+    <ClInclude Include="inc\Core\Common\LabelSet.h" />
     <ClInclude Include="inc\Core\Common\OPQQuantizer.h" />
     <ClInclude Include="inc\Core\Common\PostingSizeRecord.h" />
     <ClInclude Include="inc\Core\Common\PQQuantizer.h" />
